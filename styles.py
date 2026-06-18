@@ -1,12 +1,8 @@
-# styles.py
+# styles.py - VERSIÓN CORREGIDA
 """
 Configuración de estilos profesionales para gráficas BESS
-Versión con soporte para Plotly - CORREGIDA FINAL
 """
 
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-import seaborn as sns
 import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
@@ -14,6 +10,17 @@ import pandas as pd
 import numpy as np
 import os
 from datetime import datetime, timedelta
+
+# ========== IMPORTACIÓN CONDICIONAL DE MATPLOTLIB ==========
+# Matplotlib solo se necesita para generar PDFs, no para las gráficas de Plotly
+try:
+    import matplotlib.pyplot as plt
+    import matplotlib as mpl
+    import seaborn as sns
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+    print("⚠️ Matplotlib no disponible - solo funcionalidad básica")
 
 # ========== CONFIGURACIÓN GLOBAL ==========
 
@@ -140,7 +147,7 @@ def formatear_kwh(valor):
 # ========== FUNCIONES DE GRÁFICAS PLOTLY ==========
 
 def graficar_comparacion_iusa_plotly(datos_dia, prefijo, fecha_seleccionada):
-    """Gráfica de comparación IUSA con Plotly - Interactiva y moderna"""
+    """Gráfica de comparación IUSA con Plotly"""
     
     col_iusa_con = f'IUSA_CON_BESS_{prefijo}_kW'
     col_iusa_sin = f'IUSA_SIN_BESS_{prefijo}_kW'
@@ -179,7 +186,7 @@ def graficar_comparacion_iusa_plotly(datos_dia, prefijo, fecha_seleccionada):
         title=f'Comparación IUSA - {fecha_seleccionada}',
         xaxis_title='Hora del día',
         yaxis_title='Potencia (kW)',
-        height=500,
+        height=450,
         hovermode='x unified',
     )
     
@@ -198,7 +205,7 @@ def graficar_comparacion_iusa_plotly(datos_dia, prefijo, fecha_seleccionada):
     return aplicar_estilo_plotly(fig)
 
 def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
-    """Gráfica de perfil de carga con Plotly - Interactiva"""
+    """Gráfica de perfil de carga con Plotly"""
     
     col_medidor_rec = f'{prefijo}_REC_kW'
     
@@ -245,20 +252,15 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
     ))
     
     fig.update_layout(
-        title=dict(
-            text=f'⚡ Perfil de Carga - {fecha_seleccionada}',
-            x=0.5,              # Centrado horizontalmente
-            xanchor='center',   # Anclaje en el centro
-            font=dict(size=18, color='#1a202c')
-        ),
+        title=f'⚡ Perfil de Carga - {fecha_seleccionada}',
         xaxis_title='Hora del día',
         yaxis_title='Potencia (kW)',
-        height=500,
+        height=450,
         hovermode='x unified',
         legend=dict(
             orientation='h',
             yanchor='bottom',
-            y=0.9,
+            y=1.02,
             xanchor='center',
             x=0.5
         )
@@ -322,7 +324,7 @@ def graficar_arbitraje_periodos_plotly(arbitraje_data, fecha_seleccionada):
     return aplicar_estilo_plotly(fig)
 
 def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
-    """Gráfica de carga vs descarga BESS con estilo uniforme - MEJORADA"""
+    """Gráfica de carga vs descarga BESS con estilo uniforme"""
     
     if 'PERIODO' not in df_dia.columns:
         fig = go.Figure()
@@ -341,7 +343,6 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
     
     fig = go.Figure()
     
-    # Barras de carga - con estilo similar a IUSA
     fig.add_trace(go.Bar(
         x=periodos,
         y=carga,
@@ -356,7 +357,6 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         hovertemplate='<b>%{x}</b><br>Carga: %{y:,.1f} kWh<extra></extra>'
     ))
     
-    # Barras de descarga - con estilo similar a IUSA
     fig.add_trace(go.Bar(
         x=periodos,
         y=descarga,
@@ -371,17 +371,16 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         hovertemplate='<b>%{x}</b><br>Descarga: %{y:,.1f} kWh<extra></extra>'
     ))
     
-    # Configurar layout con el mismo estilo que Comparación IUSA
     fig.update_layout(
         title=dict(
             text=f'⚡ Carga vs Descarga BESS - {fecha_seleccionada}',
-            x=0.5,              # Centrado horizontalmente
-            xanchor='center',   # Anclaje en el centro
+            x=0.5,
+            xanchor='center',
             font=dict(size=18, color='#1a202c')
         ),
         xaxis_title='Periodo',
         yaxis_title='Energía (kWh)',
-        height=500,
+        height=450,
         barmode='group',
         bargap=0.15,
         bargroupgap=0.1,
@@ -389,7 +388,7 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         legend=dict(
             orientation='h',
             yanchor='bottom',
-            y=0.9,
+            y=1.08,
             xanchor='center',
             x=0.5,
             font=dict(size=11, color='#2d3748'),
@@ -399,7 +398,6 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         )
     )
     
-    # Configurar ejes con el mismo estilo
     fig.update_xaxes(
         title_font=dict(size=14, color='#2d3748'),
         tickfont=dict(size=11, color='#4a5568'),
@@ -485,58 +483,6 @@ def graficar_tendencia_mensual_plotly(prefijo, directorio_reportes=None):
     
     return aplicar_estilo_plotly(fig)
 
-def graficar_dispersion_plotly(df_dia):
-    """Gráfica de dispersión interactiva: Carga vs Descarga"""
-    
-    if 'PERIODO' not in df_dia.columns:
-        fig = go.Figure()
-        fig.add_annotation(text="Datos no disponibles", x=0.5, y=0.5, showarrow=False)
-        fig.update_layout(height=450)
-        return fig
-    
-    df_hora = df_dia.groupby('HORA').agg({
-        'BESS_REC_kW': 'mean',
-        'BESS_ENT_kW': 'mean'
-    }).reset_index()
-    
-    fig = go.Figure()
-    
-    fig.add_trace(go.Scatter(
-        x=df_hora['BESS_REC_kW'],
-        y=df_hora['BESS_ENT_kW'],
-        mode='markers',
-        marker=dict(
-            size=15,
-            color=df_hora['HORA'],
-            colorscale='Plasma',
-            showscale=True,
-            colorbar=dict(title='Hora'),
-            line=dict(color='white', width=2)
-        ),
-        text=[f'Hora: {h}:00' for h in df_hora['HORA']],
-        hovertemplate='<b>%{text}</b><br>Carga: %{x:.1f} kW<br>Descarga: %{y:.1f} kW<extra></extra>'
-    ))
-    
-    max_val = max(df_hora['BESS_REC_kW'].max(), df_hora['BESS_ENT_kW'].max()) * 1.1
-    fig.add_trace(go.Scatter(
-        x=[0, max_val],
-        y=[0, max_val],
-        mode='lines',
-        line=dict(color='#95a5a6', width=2, dash='dash'),
-        name='Carga = Descarga',
-        hovertemplate=None
-    ))
-    
-    fig.update_layout(
-        title='🔄 Relación Carga/Descarga por Hora',
-        xaxis_title='Carga BESS (kW)',
-        yaxis_title='Descarga BESS (kW)',
-        height=450,
-        hovermode='closest',
-    )
-    
-    return aplicar_estilo_plotly(fig)
-
 def graficar_sankey_plotly(df_dia):
     """Diagrama de Sankey interactivo para flujo de energía"""
     
@@ -598,80 +544,51 @@ def graficar_sankey_plotly(df_dia):
     return aplicar_estilo_plotly(fig)
 
 # ========== FUNCIONES DE ESTILO PARA MATPLOTLIB ==========
+# Solo se ejecutan si matplotlib está disponible
 
 def configurar_estilo_profesional():
-    plt.rcParams.update({
-        'figure.figsize': (14, 6),
-        'figure.dpi': 150,
-        'figure.facecolor': '#f8f9fa',
-        'font.family': 'sans-serif',
-        'font.sans-serif': ['Segoe UI', 'Arial', 'Helvetica', 'DejaVu Sans'],
-        'font.size': 11,
-        'axes.facecolor': '#ffffff',
-        'axes.edgecolor': '#e0e0e0',
-        'axes.linewidth': 1.2,
-        'axes.grid': True,
-        'axes.grid.axis': 'y',
-        'grid.color': '#e8ecef',
-        'grid.linestyle': '--',
-        'grid.linewidth': 0.6,
-        'xtick.color': '#4a5568',
-        'ytick.color': '#4a5568',
-        'xtick.labelsize': 10,
-        'ytick.labelsize': 10,
-        'axes.titlecolor': '#1a202c',
-        'axes.titleweight': 'bold',
-        'axes.titlesize': 14,
-        'axes.labelcolor': '#2d3748',
-        'axes.labelsize': 12,
-        'axes.labelweight': 'semibold',
-        'legend.frameon': True,
-        'legend.framealpha': 0.95,
-        'legend.facecolor': '#ffffff',
-        'legend.edgecolor': '#e2e8f0',
-        'legend.fontsize': 10,
-        'lines.linewidth': 2.5,
-        'savefig.dpi': 300,
-        'savefig.bbox': 'tight',
-    })
-    sns.set_theme(style='whitegrid', palette='muted')
-
-def crear_figura(ancho=14, alto=6):
-    fig, ax = plt.subplots(figsize=(ancho, alto), facecolor='#f8f9fa')
-    ax.set_facecolor('#ffffff')
-    return fig, ax
-
-def aplicar_estilo_ax(ax, titulo=None, xlabel=None, ylabel=None):
-    ax.set_facecolor('#ffffff')
-    
-    for spine in ax.spines.values():
-        spine.set_color('#e2e8f0')
-        spine.set_linewidth(1.2)
-    
-    ax.grid(True, axis='y', linestyle='--', alpha=0.6, color='#e8ecef')
-    ax.grid(True, axis='x', linestyle='--', alpha=0.3, color='#e8ecef')
-    ax.tick_params(colors='#4a5568', labelsize=10, length=5, width=1.2)
-    
-    if titulo:
-        ax.set_title(titulo, fontsize=15, fontweight='bold', color='#1a202c', pad=15)
-    if xlabel:
-        ax.set_xlabel(xlabel, fontsize=12, fontweight='semibold', color='#2d3748')
-    if ylabel:
-        ax.set_ylabel(ylabel, fontsize=12, fontweight='semibold', color='#2d3748')
-    
-    if ax.get_legend():
-        ax.legend(
-            frameon=True,
-            facecolor='#ffffff',
-            edgecolor='#e2e8f0',
-            fontsize=10,
-            loc='best',
-            borderpad=0.8,
-            handlelength=2.5,
-        )
-    
-    return ax
+    """Configura el estilo profesional para matplotlib (si está disponible)"""
+    if MATPLOTLIB_AVAILABLE:
+        plt.rcParams.update({
+            'figure.figsize': (14, 6),
+            'figure.dpi': 150,
+            'figure.facecolor': '#f8f9fa',
+            'font.family': 'sans-serif',
+            'font.sans-serif': ['Segoe UI', 'Arial', 'Helvetica', 'DejaVu Sans'],
+            'font.size': 11,
+            'axes.facecolor': '#ffffff',
+            'axes.edgecolor': '#e0e0e0',
+            'axes.linewidth': 1.2,
+            'axes.grid': True,
+            'axes.grid.axis': 'y',
+            'grid.color': '#e8ecef',
+            'grid.linestyle': '--',
+            'grid.linewidth': 0.6,
+            'xtick.color': '#4a5568',
+            'ytick.color': '#4a5568',
+            'xtick.labelsize': 10,
+            'ytick.labelsize': 10,
+            'axes.titlecolor': '#1a202c',
+            'axes.titleweight': 'bold',
+            'axes.titlesize': 14,
+            'axes.labelcolor': '#2d3748',
+            'axes.labelsize': 12,
+            'axes.labelweight': 'semibold',
+            'legend.frameon': True,
+            'legend.framealpha': 0.95,
+            'legend.facecolor': '#ffffff',
+            'legend.edgecolor': '#e2e8f0',
+            'legend.fontsize': 10,
+            'lines.linewidth': 2.5,
+            'savefig.dpi': 300,
+            'savefig.bbox': 'tight',
+        })
+        try:
+            sns.set_theme(style='whitegrid', palette='muted')
+        except:
+            pass
 
 # Inicializar estilos
-configurar_estilo_profesional()
+if MATPLOTLIB_AVAILABLE:
+    configurar_estilo_profesional()
 configurar_plotly()
