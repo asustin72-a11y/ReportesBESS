@@ -182,15 +182,20 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
     ))
     
     fig.update_layout(
-        title=f'⚡ Perfil de Carga - {fecha_seleccionada}',
+         title=dict(
+            text=f'⚡ Perfil de Carga - {fecha_seleccionada}',
+            x=0.5,
+            xanchor='center',
+            font=dict(size=18, color='#1a202c')
+        ),
         xaxis_title='Hora del día',
         yaxis_title='Potencia (kW)',
-        height=450,
+        height=500,
         hovermode='x unified',
         legend=dict(
             orientation='h',
             yanchor='bottom',
-            y=1.02,
+            y=0.8,
             xanchor='center',
             x=0.5
         )
@@ -243,7 +248,7 @@ def graficar_arbitraje_periodos_plotly(arbitraje_data, fecha_seleccionada):
         title=f'💹 Arbitraje por Periodo - {fecha_seleccionada}',
         xaxis_title='Periodo',
         yaxis_title='Arbitraje ($)',
-        height=400,
+        height=500,
         showlegend=False,
     )
     
@@ -312,7 +317,7 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         ),
         xaxis_title='Periodo',
         yaxis_title='Energía (kWh)',
-        height=450,
+        height=500,
         barmode='group',
         bargap=0.15,
         bargroupgap=0.1,
@@ -320,7 +325,7 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         legend=dict(
             orientation='h',
             yanchor='bottom',
-            y=1.08,
+            y=0.8,
             xanchor='center',
             x=0.5,
             font=dict(size=11, color='#2d3748'),
