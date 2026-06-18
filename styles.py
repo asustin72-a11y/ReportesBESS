@@ -195,7 +195,7 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
         legend=dict(
             orientation='h',
             yanchor='bottom',
-            y=0.8,
+            y=0.95,
             xanchor='center',
             x=0.5
         )
@@ -325,7 +325,7 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         legend=dict(
             orientation='h',
             yanchor='bottom',
-            y=0.8,
+            y=0.95,
             xanchor='center',
             x=0.5,
             font=dict(size=11, color='#2d3748'),
