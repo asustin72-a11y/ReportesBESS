@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import warnings
 import io
 import base64
+import hashlib
 
 # Configuración de la página
 st.set_page_config(
@@ -21,6 +22,114 @@ st.set_page_config(
 )
 
 warnings.filterwarnings('ignore')
+
+# ========== CONFIGURACIÓN DE AUTENTICACIÓN ==========
+# Usuarios predefinidos (en producción usar una base de datos)
+USUARIOS = {
+    'admin': {
+        'password': hashlib.sha256('admin123'.encode()).hexdigest(),
+        'rol': 'admin',
+        'nombre': 'Administrador'
+    },
+    'user': {
+        'password': hashlib.sha256('user123'.encode()).hexdigest(),
+        'rol': 'user',
+        'nombre': 'Usuario'
+    }
+}
+
+def verificar_credenciales(usuario, password):
+    """Verifica las credenciales del usuario"""
+    if usuario in USUARIOS:
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        if USUARIOS[usuario]['password'] == password_hash:
+            return True, USUARIOS[usuario]
+    return False, None
+
+def init_session_state():
+    """Inicializa el estado de la sesión"""
+    if 'autenticado' not in st.session_state:
+        st.session_state.autenticado = False
+        st.session_state.usuario = None
+        st.session_state.rol = None
+        st.session_state.nombre_usuario = None
+
+def login():
+    """Muestra el formulario de login"""
+    st.markdown("""
+    <style>
+        .login-container {
+            max-width: 400px;
+            margin: 100px auto;
+            padding: 40px;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border-top: 6px solid #0055a4;
+        }
+        .login-title {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #1a202c;
+        }
+        .login-title h1 {
+            font-size: 28px;
+            font-weight: 700;
+        }
+        .login-title p {
+            color: #718096;
+            font-size: 14px;
+        }
+        .login-footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #a0aec0;
+            font-size: 12px;
+        }
+        .stButton button {
+            width: 100%;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        st.markdown('<div class="login-title">', unsafe_allow_html=True)
+        st.markdown("## ⚡ BESS")
+        st.markdown("<p>Sistema de Procesamiento y Reportes de Energía</p>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        with st.form("login_form"):
+            usuario = st.text_input("👤 Usuario", placeholder="Ingresa tu usuario")
+            password = st.text_input("🔒 Contraseña", type="password", placeholder="Ingresa tu contraseña")
+            
+            submit = st.form_submit_button("🔑 Iniciar Sesión", use_container_width=True, type="primary")
+            
+            if submit:
+                if usuario and password:
+                    valido, datos_usuario = verificar_credenciales(usuario, password)
+                    if valido:
+                        st.session_state.autenticado = True
+                        st.session_state.usuario = usuario
+                        st.session_state.rol = datos_usuario['rol']
+                        st.session_state.nombre_usuario = datos_usuario['nombre']
+                        st.success("✅ Inicio de sesión exitoso")
+                        st.rerun()
+                    else:
+                        st.error("❌ Usuario o contraseña incorrectos")
+                else:
+                    st.warning("⚠️ Por favor ingresa usuario y contraseña")
+        
+        st.markdown('<div class="login-footer">Sistema BESS v5.0</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+def logout():
+    """Cierra la sesión del usuario"""
+    for key in ['autenticado', 'usuario', 'rol', 'nombre_usuario']:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.rerun()
 
 # Importar estilos y funciones
 from styles import (
@@ -50,6 +159,81 @@ for dir_path in [DIRECTORIO_BASE, DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS,
     os.makedirs(dir_path, exist_ok=True)
 
 # ========== FUNCIONES DE PROCESAMIENTO ==========
+
+def identificar_y_renombrar_archivos():
+    """
+    Identifica archivos en DIRECTORIO_FUENTE por patrones en el nombre
+    y los renombra a los nombres estándar: ION.csv, BESS.csv, Banco1.csv
+    SOBRESCRIBE directamente si ya existen los archivos estándar
+    """
+    patrones = {
+        'ION': 'IUSA1',
+        'BESS': 'CS3878',
+        'Banco1': 'CS1996'
+    }
+    
+    renombrados = {}
+    errores = []
+    
+    # Obtener lista de archivos en el directorio fuente
+    if not os.path.exists(DIRECTORIO_FUENTE):
+        os.makedirs(DIRECTORIO_FUENTE, exist_ok=True)
+        return {'renombrados': {}, 'errores': ['Directorio fuente no existe, se creó vacío']}
+    
+    archivos = os.listdir(DIRECTORIO_FUENTE)
+    
+    # Buscar archivos que coincidan con los patrones
+    for nombre_estandar, patron in patrones.items():
+        archivos_encontrados = []
+        
+        for archivo in archivos:
+            # Verificar si el archivo contiene el patrón (sin importar mayúsculas/minúsculas)
+            if patron.lower() in archivo.lower():
+                archivos_encontrados.append(archivo)
+        
+        if len(archivos_encontrados) == 0:
+            errores.append(f"No se encontró ningún archivo que contenga '{patron}' para {nombre_estandar}")
+            continue
+        
+        # Si hay múltiples coincidencias, tomar la primera (la más reciente si es posible)
+        if len(archivos_encontrados) > 1:
+            # Ordenar por fecha de modificación (más reciente primero)
+            archivos_encontrados.sort(
+                key=lambda x: os.path.getmtime(os.path.join(DIRECTORIO_FUENTE, x)), 
+                reverse=True
+            )
+            errores.append(f"Múltiples archivos encontrados para '{patron}', usando el más reciente: {archivos_encontrados[0]}")
+        
+        archivo_origen = archivos_encontrados[0]
+        ruta_origen = os.path.join(DIRECTORIO_FUENTE, archivo_origen)
+        ruta_destino = os.path.join(DIRECTORIO_FUENTE, f"{nombre_estandar}.csv")
+        
+        # Renombrar el archivo (sobrescribe si ya existe)
+        try:
+            if ruta_origen != ruta_destino:  # Solo renombrar si son diferentes
+                # Si el archivo destino ya existe, simplemente lo sobrescribimos
+                if os.path.exists(ruta_destino):
+                    os.remove(ruta_destino)  # Eliminar el archivo existente
+                    print(f"🗑️ Archivo existente eliminado: {nombre_estandar}.csv")
+                
+                os.rename(ruta_origen, ruta_destino)
+                renombrados[nombre_estandar] = {
+                    'origen': archivo_origen,
+                    'destino': f"{nombre_estandar}.csv",
+                    'sobrescrito': True
+                }
+                print(f"✅ Archivo renombrado: {archivo_origen} → {nombre_estandar}.csv")
+            else:
+                renombrados[nombre_estandar] = {
+                    'origen': archivo_origen,
+                    'destino': f"{nombre_estandar}.csv",
+                    'nota': 'Ya tenía el nombre correcto',
+                    'sobrescrito': False
+                }
+        except Exception as e:
+            errores.append(f"Error al renombrar {archivo_origen} a {nombre_estandar}.csv: {str(e)}")
+    
+    return {'renombrados': renombrados, 'errores': errores}
 
 def cargar_tarifas():
     ruta_tarifas = os.path.join(DIRECTORIO_TARIFAS, 'Tarifas_2026.csv')
@@ -234,18 +418,51 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
         return False, str(e)
 
 def verificar_datos_fuente():
+    """
+    Verifica los archivos fuente, primero los identifica y renombra según patrones,
+    luego procesa los archivos estándar (ION.csv, BESS.csv, Banco1.csv)
+    """
+    # Paso 1: Identificar y renombrar archivos según patrones
+    resultado_renombrado = identificar_y_renombrar_archivos()
+    
+    # Paso 2: Procesar los archivos estándar
     archivos = ['Banco1.csv', 'BESS.csv', 'ION.csv']
     resultados = {}
+    
     for archivo in archivos:
         ruta_origen = os.path.join(DIRECTORIO_FUENTE, archivo)
+        
+        # Verificar si el archivo existe después del renombrado
         if os.path.exists(ruta_origen):
             exito, info = procesar_archivo_verificacion(DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS, archivo)
             if exito:
                 resultados[archivo] = info
+                # Agregar información del renombrado si existe
+                nombre_base = archivo.replace('.csv', '')
+                if nombre_base in resultado_renombrado['renombrados']:
+                    resultados[archivo]['renombrado_desde'] = resultado_renombrado['renombrados'][nombre_base]['origen']
+                    resultados[archivo]['sobrescrito'] = resultado_renombrado['renombrados'][nombre_base].get('sobrescrito', False)
             else:
                 resultados[archivo] = {'error': info}
         else:
-            resultados[archivo] = {'error': f'Archivo no encontrado: {archivo}'}
+            # Si el archivo no existe, verificar si ya se procesó algún renombrado
+            nombre_base = archivo.replace('.csv', '')
+            if nombre_base in resultado_renombrado['renombrados']:
+                # El archivo fue renombrado pero por alguna razón no se encontró
+                resultados[archivo] = {'error': f'El archivo {archivo} fue renombrado pero no se encontró para procesar'}
+            else:
+                resultados[archivo] = {'error': f'Archivo no encontrado: {archivo}'}
+    
+    # Agregar información del proceso de renombrado
+    if resultado_renombrado['errores']:
+        for error in resultado_renombrado['errores']:
+            # Agregar errores como advertencias en el resultado
+            resultados.setdefault('_advertencias', []).append(error)
+    
+    # Agregar información de renombrados para mostrar en la interfaz
+    if resultado_renombrado['renombrados']:
+        resultados['_renombrados'] = resultado_renombrado['renombrados']
+    
     return resultados
 
 # ========== FUNCIONES PARA REPORTE PDF ==========
@@ -498,89 +715,148 @@ def generar_reporte_pdf(fecha_str, medidor):
 # ========== INTERFAZ STREAMLIT ==========
 
 def main():
-    # Cabecera mejorada
-    st.title("⚡ BESS - Sistema de Procesamiento y Reportes de Energía")
+    # Inicializar estado de sesión
+    init_session_state()
+    
+    # Si no está autenticado, mostrar login
+    if not st.session_state.get('autenticado', False):
+        login()
+        return
+    
+    # Usuario autenticado
+    usuario_actual = st.session_state.get('usuario', '')
+    rol_actual = st.session_state.get('rol', '')
+    nombre_actual = st.session_state.get('nombre_usuario', '')
+    es_admin = rol_actual == 'admin'
+    
+    # Cabecera con información del usuario
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.title("⚡ BESS - Sistema de Procesamiento y Reportes de Energía")
+    with col2:
+        st.markdown(f"""
+        <div style="text-align: right; padding-top: 10px;">
+            <span style="color: #4a5568;">👤 {nombre_actual}</span>
+        </div>
+        """, unsafe_allow_html=True)
+    with col3:
+        if st.button("🚪 Cerrar Sesión", use_container_width=True):
+            logout()
+    
     st.markdown("### 📊 Análisis de BESS vs ION / BANCO1")
     st.markdown("---")
     
-    # Sidebar
-    with st.sidebar:
-        st.header("📋 Control")
-        st.markdown("---")
-        
-        # Sección de verificación y filtrado
-        with st.expander("📁 1. Verificar y Filtrar Datos", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("🔍 Verificar y Limpiar", use_container_width=True):
-                    with st.spinner("Verificando archivos..."):
-                        resultados = verificar_datos_fuente()
-                        st.session_state['verificacion'] = resultados
-                    st.success("✅ Verificación completada")
-                    st.rerun()
+    # Sidebar - Solo visible para administradores
+    if es_admin:
+        with st.sidebar:
+            st.header("📋 Control")
+            st.markdown("---")
             
-            with col2:
-                if st.button("📊 Filtrar y Combinar", use_container_width=True):
-                    with st.spinner("Filtrando datos..."):
-                        from bess_core import filtrar_datos
-                        exito, msg = filtrar_datos()
-                        if exito:
-                            st.success(f"✅ {msg}")
-                            st.session_state['filtrado'] = True
-                        else:
-                            st.error(f"❌ {msg}")
-                    st.rerun()
-            
-            # Mostrar resultados de verificación
-            if 'verificacion' in st.session_state:
-                with st.expander("📊 Resultados de Verificación", expanded=False):
-                    for archivo, info in st.session_state['verificacion'].items():
-                        if isinstance(info, dict) and 'error' not in info:
-                            st.markdown(f"**{archivo}**")
-                            st.write(f"- Registros originales: {info.get('registros_originales', 0)}")
-                            st.write(f"- Duplicados eliminados: {info.get('duplicados_eliminados', 0)}")
-                            st.write(f"- Faltantes insertados: {info.get('faltantes_insertados', 0)}")
-                            st.write(f"- Registros finales: {info.get('registros_finales', 0)}")
-                        else:
-                            st.warning(f"⚠️ {archivo}: {info.get('error', 'Error desconocido')}")
-        
-        # Sección de reporte
-        with st.expander("📊 2. Generar Reporte BESS", expanded=True):
-            #st.info("📌 El proceso genera reportes para AMBOS medidores (ION y BANCO1) simultáneamente")
-            #st.info("📌 El proceso genera reportes para AMBOS medidores (ION y BANCO1) simultáneamente")
-            if st.button("🚀 Procesar Reportes BESS", use_container_width=True):
-                with st.spinner("Generando reportes..."):
-                    from bess_core import reporte_bess
-                    exito, msg_ion, msg_banco = reporte_bess()
-                    if exito:
-                        st.success("✅ Reportes generados exitosamente")
-                        st.success(f"   ✅ ION: {msg_ion}")
-                        st.success(f"   ✅ BANCO1: {msg_banco}")
-                    else:
-                        st.warning(f"⚠️ Procesamiento parcial")
-                        st.warning(f"   ION: {msg_ion}")
-                        st.warning(f"   BANCO1: {msg_banco}")
-                st.rerun()
-                
-        st.markdown("---")
-        
-        # Sección de tarifas
-        with st.expander("💰 3. Tarifas", expanded=False):
-            tarifas = cargar_tarifas()
-            mes_actual = datetime.now().month
-            if tarifas:
-                col1, col2, col3 = st.columns(3)
+            # Sección de verificación y filtrado
+            with st.expander("📁 1. Verificar y Filtrar Datos", expanded=True):
+                col1, col2 = st.columns(2)
                 with col1:
-                    st.metric("Base", f"${tarifas['Base'].get(mes_actual, 0):.4f}")
+                    if st.button("🔍 Verificar y Limpiar", use_container_width=True):
+                        with st.spinner("Verificando archivos..."):
+                            resultados = verificar_datos_fuente()
+                            st.session_state['verificacion'] = resultados
+                        st.success("✅ Verificación completada")
+                        st.rerun()
+                
                 with col2:
-                    st.metric("Intermedio", f"${tarifas['Intermedio'].get(mes_actual, 0):.4f}")
-                with col3:
-                    st.metric("Punta", f"${tarifas['Punta'].get(mes_actual, 0):.4f}")
-        
-        st.markdown("---")
-        st.caption("Sistema BESS v5.0")
+                    if st.button("📊 Filtrar y Combinar", use_container_width=True):
+                        with st.spinner("Filtrando datos..."):
+                            from bess_core import filtrar_datos
+                            exito, msg = filtrar_datos()
+                            if exito:
+                                st.success(f"✅ {msg}")
+                                st.session_state['filtrado'] = True
+                            else:
+                                st.error(f"❌ {msg}")
+                        st.rerun()
+                
+                # Mostrar resultados de verificación
+                if 'verificacion' in st.session_state:
+                    with st.expander("📊 Resultados de Verificación", expanded=False):
+                        # Mostrar información de renombrado
+                        if '_renombrados' in st.session_state['verificacion'] and st.session_state['verificacion']['_renombrados']:
+                            st.info("🔄 Archivos identificados y renombrados:")
+                            for nombre, info in st.session_state['verificacion']['_renombrados'].items():
+                                if info.get('sobrescrito', False):
+                                    st.write(f"   • {info['origen']} → {nombre}.csv (sobrescrito)")
+                                else:
+                                    st.write(f"   • {info['origen']} → {nombre}.csv")
+                            st.markdown("---")
+                        
+                        # Mostrar advertencias/errores
+                        if '_advertencias' in st.session_state['verificacion']:
+                            st.warning("⚠️ Advertencias:")
+                            for advertencia in st.session_state['verificacion']['_advertencias']:
+                                st.write(f"   • {advertencia}")
+                            st.markdown("---")
+                        
+                        # Mostrar los resultados de procesamiento de cada archivo
+                        for archivo, info in st.session_state['verificacion'].items():
+                            if archivo in ['_advertencias', '_renombrados']:
+                                continue
+                                
+                            if isinstance(info, dict) and 'error' not in info:
+                                st.markdown(f"**{archivo}**")
+                                if 'renombrado_desde' in info:
+                                    st.write(f"- Renombrado desde: {info['renombrado_desde']}")
+                                    if info.get('sobrescrito', False):
+                                        st.write(f"- ⚠️ Archivo anterior sobrescrito")
+                                st.write(f"- Registros originales: {info.get('registros_originales', 0)}")
+                                st.write(f"- Duplicados eliminados: {info.get('duplicados_eliminados', 0)}")
+                                st.write(f"- Faltantes insertados: {info.get('faltantes_insertados', 0)}")
+                                st.write(f"- Registros finales: {info.get('registros_finales', 0)}")
+                            else:
+                                st.warning(f"⚠️ {archivo}: {info.get('error', 'Error desconocido')}")
+            
+            # Sección de reporte
+            with st.expander("📊 2. Generar Reporte BESS", expanded=True):
+                if st.button("🚀 Procesar Reportes BESS", use_container_width=True):
+                    with st.spinner("Generando reportes..."):
+                        from bess_core import reporte_bess
+                        exito, msg_ion, msg_banco = reporte_bess()
+                        if exito:
+                            st.success("✅ Reportes generados exitosamente")
+                            st.success(f"   ✅ ION: {msg_ion}")
+                            st.success(f"   ✅ BANCO1: {msg_banco}")
+                        else:
+                            st.warning(f"⚠️ Procesamiento parcial")
+                            st.warning(f"   ION: {msg_ion}")
+                            st.warning(f"   BANCO1: {msg_banco}")
+                    st.rerun()
+                    
+            st.markdown("---")
+            
+            # Sección de tarifas
+            with st.expander("💰 3. Tarifas", expanded=False):
+                tarifas = cargar_tarifas()
+                mes_actual = datetime.now().month
+                if tarifas:
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Base", f"${tarifas['Base'].get(mes_actual, 0):.4f}")
+                    with col2:
+                        st.metric("Intermedio", f"${tarifas['Intermedio'].get(mes_actual, 0):.4f}")
+                    with col3:
+                        st.metric("Punta", f"${tarifas['Punta'].get(mes_actual, 0):.4f}")
+            
+            st.markdown("---")
+            st.caption("Sistema BESS v5.0 - Admin")
+    else:
+        # Sidebar para usuarios normales (solo información básica)
+        with st.sidebar:
+            st.header("📋 Información")
+            st.markdown("---")
+            st.info(f"👤 Usuario: {nombre_actual}")
+            st.info("📊 Rol: Visualizador")
+            st.markdown("---")
+            st.caption("Sistema BESS v5.0 - Visualizador")
     
-    # Área principal - Pestañas
+    # Área principal - Pestañas (visible para todos los usuarios autenticados)
     tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Dashboard", 
         "💹 Análisis de Arbitraje", 
@@ -598,7 +874,10 @@ def main():
         ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
         
         if not os.path.exists(ruta_ion) and not os.path.exists(ruta_banco):
-            st.warning("⚠️ No hay datos procesados. Ejecuta 'Procesar Reportes BESS' primero.")
+            if es_admin:
+                st.warning("⚠️ No hay datos procesados. Ejecuta 'Procesar Reportes BESS' primero.")
+            else:
+                st.warning("⚠️ No hay datos procesados. Contacta al administrador para procesar los datos.")
         else:
             # Selector de medidor y fecha en la misma fila
             col1, col2 = st.columns([1, 2])
@@ -696,7 +975,10 @@ def main():
         ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
         
         if not os.path.exists(ruta_ion) and not os.path.exists(ruta_banco):
-            st.warning("⚠️ No hay datos procesados. Ejecuta 'Procesar Reportes BESS' primero.")
+            if es_admin:
+                st.warning("⚠️ No hay datos procesados. Ejecuta 'Procesar Reportes BESS' primero.")
+            else:
+                st.warning("⚠️ No hay datos procesados. Contacta al administrador para procesar los datos.")
         else:
             col1, col2 = st.columns([1, 2])
             with col1:
@@ -805,7 +1087,10 @@ def main():
         ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
         
         if not os.path.exists(ruta_ion) and not os.path.exists(ruta_banco):
-            st.warning("⚠️ No hay datos procesados. Ejecuta 'Procesar Reportes BESS' primero.")
+            if es_admin:
+                st.warning("⚠️ No hay datos procesados. Ejecuta 'Procesar Reportes BESS' primero.")
+            else:
+                st.warning("⚠️ No hay datos procesados. Contacta al administrador para procesar los datos.")
         else:
             col1, col2 = st.columns([1, 2])
             with col1:
