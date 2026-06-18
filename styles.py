@@ -1,4 +1,4 @@
-# styles.py - VERSIÓN SIMPLIFICADA PARA STREAMLIT CLOUD
+# styles.py - VERSIÓN CORREGIDA PARA WEB
 """
 Configuración de estilos para gráficas BESS - Versión Cloud
 """
@@ -42,8 +42,8 @@ def aplicar_estilo_plotly(fig):
         hovermode='x unified',
         margin=dict(l=60, r=30, t=60, b=50),
         legend=dict(
-            font=dict(size=11, color='#2d3748'),
-            bgcolor='rgba(255,255,255,0.9)',
+            font=dict(size=10, color='#2d3748'),
+            bgcolor='rgba(255,255,255,0.85)',
             bordercolor='#e2e8f0',
             borderwidth=1,
         )
@@ -114,11 +114,27 @@ def graficar_comparacion_iusa_plotly(datos_dia, prefijo, fecha_seleccionada):
     ))
     
     fig.update_layout(
-        title=f'Comparación IUSA - {fecha_seleccionada}',
+        title=dict(
+            text=f'Comparación IUSA - {fecha_seleccionada}',
+            x=0.5,
+            xanchor='center',
+            font=dict(size=18, color='#1a202c')
+        ),
         xaxis_title='Hora del día',
         yaxis_title='Potencia (kW)',
-        height=450,
+        height=500,
         hovermode='x unified',
+        legend=dict(
+            orientation='h',
+            yanchor='top',
+            y=0.98,
+            xanchor='center',
+            x=0.5,
+            font=dict(size=10, color='#2d3748'),
+            bgcolor='rgba(255,255,255,0.85)',
+            bordercolor='#e2e8f0',
+            borderwidth=1,
+        )
     )
     
     fig.update_xaxes(
@@ -182,7 +198,7 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
     ))
     
     fig.update_layout(
-         title=dict(
+        title=dict(
             text=f'⚡ Perfil de Carga - {fecha_seleccionada}',
             x=0.5,
             xanchor='center',
@@ -194,10 +210,14 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
         hovermode='x unified',
         legend=dict(
             orientation='h',
-            yanchor='bottom',
-            y=0.95,
+            yanchor='top',
+            y=0.98,
             xanchor='center',
-            x=0.5
+            x=0.5,
+            font=dict(size=10, color='#2d3748'),
+            bgcolor='rgba(255,255,255,0.85)',
+            bordercolor='#e2e8f0',
+            borderwidth=1,
         )
     )
     
@@ -245,10 +265,15 @@ def graficar_arbitraje_periodos_plotly(arbitraje_data, fecha_seleccionada):
     fig.add_hline(y=0, line=dict(color='#4a5568', width=1, dash='dash'))
     
     fig.update_layout(
-        title=f'💹 Arbitraje por Periodo - {fecha_seleccionada}',
+        title=dict(
+            text=f'💹 Arbitraje por Periodo - {fecha_seleccionada}',
+            x=0.5,
+            xanchor='center',
+            font=dict(size=18, color='#1a202c')
+        ),
         xaxis_title='Periodo',
         yaxis_title='Arbitraje ($)',
-        height=500,
+        height=450,
         showlegend=False,
     )
     
@@ -324,12 +349,12 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         hovermode='x unified',
         legend=dict(
             orientation='h',
-            yanchor='bottom',
-            y=0.95,
+            yanchor='top',
+            y=0.98,
             xanchor='center',
             x=0.5,
-            font=dict(size=11, color='#2d3748'),
-            bgcolor='rgba(255,255,255,0.9)',
+            font=dict(size=10, color='#2d3748'),
+            bgcolor='rgba(255,255,255,0.85)',
             bordercolor='#e2e8f0',
             borderwidth=1,
         )
@@ -402,11 +427,27 @@ def graficar_tendencia_mensual_plotly(prefijo, directorio_reportes=None):
         ))
     
     fig.update_layout(
-        title=f'📈 Tendencia de Consumo Diario - {prefijo}',
+        title=dict(
+            text=f'📈 Tendencia de Consumo Diario - {prefijo}',
+            x=0.5,
+            xanchor='center',
+            font=dict(size=18, color='#1a202c')
+        ),
         xaxis_title='Fecha',
         yaxis_title='Energía (kWh)',
-        height=450,
+        height=500,
         hovermode='x unified',
+        legend=dict(
+            orientation='h',
+            yanchor='top',
+            y=0.98,
+            xanchor='center',
+            x=0.5,
+            font=dict(size=10, color='#2d3748'),
+            bgcolor='rgba(255,255,255,0.85)',
+            bordercolor='#e2e8f0',
+            borderwidth=1,
+        )
     )
     
     fig.update_xaxes(
@@ -467,11 +508,27 @@ def graficar_dispersion_plotly(df_dia):
     ))
     
     fig.update_layout(
-        title='🔄 Relación Carga/Descarga por Hora',
+        title=dict(
+            text='🔄 Relación Carga/Descarga por Hora',
+            x=0.5,
+            xanchor='center',
+            font=dict(size=18, color='#1a202c')
+        ),
         xaxis_title='Carga BESS (kW)',
         yaxis_title='Descarga BESS (kW)',
         height=450,
         hovermode='closest',
+        legend=dict(
+            orientation='h',
+            yanchor='top',
+            y=0.98,
+            xanchor='center',
+            x=0.5,
+            font=dict(size=10, color='#2d3748'),
+            bgcolor='rgba(255,255,255,0.85)',
+            bordercolor='#e2e8f0',
+            borderwidth=1,
+        )
     )
     
     return aplicar_estilo_plotly(fig)
@@ -531,7 +588,12 @@ def graficar_sankey_plotly(df_dia):
     )])
     
     fig.update_layout(
-        title='🌊 Flujo de Energía BESS',
+        title=dict(
+            text='🌊 Flujo de Energía BESS',
+            x=0.5,
+            xanchor='center',
+            font=dict(size=18, color='#1a202c')
+        ),
         height=500,
         font=dict(size=12),
     )
