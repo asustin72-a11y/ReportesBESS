@@ -1,30 +1,16 @@
-# styles.py - VERSIÓN CORREGIDA
+# styles.py - VERSIÓN SIMPLIFICADA PARA STREAMLIT CLOUD
 """
-Configuración de estilos profesionales para gráficas BESS
+Configuración de estilos para gráficas BESS - Versión Cloud
 """
 
 import plotly.graph_objects as go
 import plotly.express as px
-from plotly.subplots import make_subplots
 import pandas as pd
 import numpy as np
 import os
 from datetime import datetime, timedelta
 
-# ========== IMPORTACIÓN CONDICIONAL DE MATPLOTLIB ==========
-# Matplotlib solo se necesita para generar PDFs, no para las gráficas de Plotly
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib as mpl
-    import seaborn as sns
-    MATPLOTLIB_AVAILABLE = True
-except ImportError:
-    MATPLOTLIB_AVAILABLE = False
-    print("⚠️ Matplotlib no disponible - solo funcionalidad básica")
-
 # ========== CONFIGURACIÓN GLOBAL ==========
-
-# Paleta de colores profesional
 COLORES_BESS = {
     'primary': '#1a5276',
     'secondary': '#2e86c1',
@@ -44,54 +30,7 @@ COLORES_BESS = {
     'bess': '#1abc9c',
 }
 
-PLOTLY_COLORS = [
-    '#1a5276', '#2e86c1', '#1abc9c', '#27ae60', 
-    '#f39c12', '#e74c3c', '#8e44ad', '#3498db'
-]
-
-# ========== CONFIGURACIÓN DE PLOTLY ==========
-
-def configurar_plotly():
-    """Configura el estilo global para Plotly"""
-    import plotly.io as pio
-    
-    template = {
-        'layout': {
-            'font': {'family': 'Segoe UI, Arial, sans-serif', 'color': '#2d3748'},
-            'title': {'font': {'size': 18, 'color': '#1a202c'}, 'x': 0.5},
-            'xaxis': {
-                'title': {'font': {'size': 14, 'color': '#2d3748'}},
-                'tickfont': {'size': 11, 'color': '#4a5568'},
-                'gridcolor': '#e8ecef',
-                'gridwidth': 1,
-                'zerolinecolor': '#e8ecef',
-                'zerolinewidth': 1,
-            },
-            'yaxis': {
-                'title': {'font': {'size': 14, 'color': '#2d3748'}},
-                'tickfont': {'size': 11, 'color': '#4a5568'},
-                'gridcolor': '#e8ecef',
-                'gridwidth': 1,
-                'zerolinecolor': '#e8ecef',
-                'zerolinewidth': 1,
-            },
-            'legend': {
-                'font': {'size': 11, 'color': '#2d3748'},
-                'bgcolor': 'rgba(255,255,255,0.9)',
-                'bordercolor': '#e2e8f0',
-                'borderwidth': 1,
-            },
-            'plot_bgcolor': '#ffffff',
-            'paper_bgcolor': '#f8f9fa',
-            'margin': {'l': 60, 'r': 30, 't': 60, 'b': 50},
-            'hovermode': 'x unified',
-        }
-    }
-    
-    pio.templates['bess'] = template
-    pio.templates.default = 'bess'
-
-# ========== FUNCIONES DE ESTILO PARA PLOTLY ==========
+# ========== FUNCIONES DE ESTILO ==========
 
 def aplicar_estilo_plotly(fig):
     """Aplica estilo profesional a una figura de Plotly"""
@@ -138,13 +77,7 @@ def colores_periodo(periodo):
     }
     return colores.get(periodo, '#95a5a6')
 
-def formatear_kw(valor):
-    return f'{valor:,.1f} kW'
-
-def formatear_kwh(valor):
-    return f'{valor:,.0f} kWh'
-
-# ========== FUNCIONES DE GRÁFICAS PLOTLY ==========
+# ========== GRÁFICA: COMPARACIÓN IUSA ==========
 
 def graficar_comparacion_iusa_plotly(datos_dia, prefijo, fecha_seleccionada):
     """Gráfica de comparación IUSA con Plotly"""
@@ -165,7 +98,6 @@ def graficar_comparacion_iusa_plotly(datos_dia, prefijo, fecha_seleccionada):
         y=datos_dia[col_iusa_con],
         name='IUSA Con BESS',
         line=dict(color=COLORES_BESS['primary'], width=3),
-        marker=dict(size=4, color=COLORES_BESS['primary']),
         fill='tozeroy',
         fillcolor=f'rgba(26, 82, 118, 0.15)',
         hovertemplate='<b>%{x|%H:%M}</b><br>Potencia: %{y:.1f} kW<extra></extra>'
@@ -176,7 +108,6 @@ def graficar_comparacion_iusa_plotly(datos_dia, prefijo, fecha_seleccionada):
         y=datos_dia[col_iusa_sin],
         name='IUSA Sin BESS',
         line=dict(color=COLORES_BESS['warning'], width=3, dash='dash'),
-        marker=dict(size=4, color=COLORES_BESS['warning']),
         fill='tozeroy',
         fillcolor=f'rgba(243, 156, 18, 0.12)',
         hovertemplate='<b>%{x|%H:%M}</b><br>Potencia: %{y:.1f} kW<extra></extra>'
@@ -204,6 +135,8 @@ def graficar_comparacion_iusa_plotly(datos_dia, prefijo, fecha_seleccionada):
     
     return aplicar_estilo_plotly(fig)
 
+# ========== GRÁFICA: PERFIL DE CARGA ==========
+
 def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
     """Gráfica de perfil de carga con Plotly"""
     
@@ -222,7 +155,6 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
         y=datos_dia[col_medidor_rec],
         name='IUSA Con BESS',
         line=dict(color=COLORES_BESS['primary'], width=3),
-        marker=dict(size=4),
         fill='tozeroy',
         fillcolor=f'rgba(26, 82, 118, 0.12)',
         hovertemplate='<b>%{x|%H:%M}</b><br>IUSA: %{y:.1f} kW<extra></extra>'
@@ -233,7 +165,6 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
         y=datos_dia['BESS_REC_kW'],
         name='Carga BESS',
         line=dict(color=COLORES_BESS['carga'], width=3),
-        marker=dict(size=4, symbol='square'),
         fill='tozeroy',
         fillcolor=f'rgba(46, 204, 113, 0.15)',
         hovertemplate='<b>%{x|%H:%M}</b><br>Carga: %{y:.1f} kW<extra></extra>'
@@ -245,7 +176,6 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
         y=descarga,
         name='Descarga BESS',
         line=dict(color=COLORES_BESS['danger'], width=3),
-        marker=dict(size=4, symbol='triangle-up'),
         fill='tozeroy',
         fillcolor=f'rgba(231, 76, 60, 0.15)',
         hovertemplate='<b>%{x|%H:%M}</b><br>Descarga: %{y:.1f} kW<extra></extra>'
@@ -279,8 +209,10 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
     
     return aplicar_estilo_plotly(fig)
 
+# ========== GRÁFICA: ARBITRAJE ==========
+
 def graficar_arbitraje_periodos_plotly(arbitraje_data, fecha_seleccionada):
-    """Gráfica de barras interactiva para arbitraje por periodo"""
+    """Gráfica de barras para arbitraje por periodo"""
     
     periodos = ['Base', 'Intermedio', 'Punta']
     valores = [arbitraje_data['arbitraje'].get(p, 0) for p in periodos]
@@ -323,8 +255,10 @@ def graficar_arbitraje_periodos_plotly(arbitraje_data, fecha_seleccionada):
     
     return aplicar_estilo_plotly(fig)
 
+# ========== GRÁFICA: CARGA VS DESCARGA ==========
+
 def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
-    """Gráfica de carga vs descarga BESS con estilo uniforme"""
+    """Gráfica de carga vs descarga BESS"""
     
     if 'PERIODO' not in df_dia.columns:
         fig = go.Figure()
@@ -353,7 +287,6 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         ),
         text=[f'{v:,.0f}' for v in carga],
         textposition='outside',
-        textfont=dict(size=11, color='#2d3748'),
         hovertemplate='<b>%{x}</b><br>Carga: %{y:,.1f} kWh<extra></extra>'
     ))
     
@@ -367,7 +300,6 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         ),
         text=[f'{v:,.0f}' for v in descarga],
         textposition='outside',
-        textfont=dict(size=11, color='#2d3748'),
         hovertemplate='<b>%{x}</b><br>Descarga: %{y:,.1f} kWh<extra></extra>'
     ))
     
@@ -418,6 +350,8 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
     )
     
     return aplicar_estilo_plotly(fig)
+
+# ========== GRÁFICA: TENDENCIA MENSUAL ==========
 
 def graficar_tendencia_mensual_plotly(prefijo, directorio_reportes=None):
     """Gráfica de tendencia mensual interactiva"""
@@ -483,6 +417,62 @@ def graficar_tendencia_mensual_plotly(prefijo, directorio_reportes=None):
     
     return aplicar_estilo_plotly(fig)
 
+# ========== GRÁFICA: DISPERSIÓN ==========
+
+def graficar_dispersion_plotly(df_dia):
+    """Gráfica de dispersión interactiva: Carga vs Descarga"""
+    
+    if 'PERIODO' not in df_dia.columns:
+        fig = go.Figure()
+        fig.add_annotation(text="Datos no disponibles", x=0.5, y=0.5, showarrow=False)
+        fig.update_layout(height=450)
+        return fig
+    
+    df_hora = df_dia.groupby('HORA').agg({
+        'BESS_REC_kW': 'mean',
+        'BESS_ENT_kW': 'mean'
+    }).reset_index()
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Scatter(
+        x=df_hora['BESS_REC_kW'],
+        y=df_hora['BESS_ENT_kW'],
+        mode='markers',
+        marker=dict(
+            size=15,
+            color=df_hora['HORA'],
+            colorscale='Plasma',
+            showscale=True,
+            colorbar=dict(title='Hora'),
+            line=dict(color='white', width=2)
+        ),
+        text=[f'Hora: {h}:00' for h in df_hora['HORA']],
+        hovertemplate='<b>%{text}</b><br>Carga: %{x:.1f} kW<br>Descarga: %{y:.1f} kW<extra></extra>'
+    ))
+    
+    max_val = max(df_hora['BESS_REC_kW'].max(), df_hora['BESS_ENT_kW'].max()) * 1.1
+    fig.add_trace(go.Scatter(
+        x=[0, max_val],
+        y=[0, max_val],
+        mode='lines',
+        line=dict(color='#95a5a6', width=2, dash='dash'),
+        name='Carga = Descarga',
+        hovertemplate=None
+    ))
+    
+    fig.update_layout(
+        title='🔄 Relación Carga/Descarga por Hora',
+        xaxis_title='Carga BESS (kW)',
+        yaxis_title='Descarga BESS (kW)',
+        height=450,
+        hovermode='closest',
+    )
+    
+    return aplicar_estilo_plotly(fig)
+
+# ========== GRÁFICA: SANKEY ==========
+
 def graficar_sankey_plotly(df_dia):
     """Diagrama de Sankey interactivo para flujo de energía"""
     
@@ -542,53 +532,3 @@ def graficar_sankey_plotly(df_dia):
     )
     
     return aplicar_estilo_plotly(fig)
-
-# ========== FUNCIONES DE ESTILO PARA MATPLOTLIB ==========
-# Solo se ejecutan si matplotlib está disponible
-
-def configurar_estilo_profesional():
-    """Configura el estilo profesional para matplotlib (si está disponible)"""
-    if MATPLOTLIB_AVAILABLE:
-        plt.rcParams.update({
-            'figure.figsize': (14, 6),
-            'figure.dpi': 150,
-            'figure.facecolor': '#f8f9fa',
-            'font.family': 'sans-serif',
-            'font.sans-serif': ['Segoe UI', 'Arial', 'Helvetica', 'DejaVu Sans'],
-            'font.size': 11,
-            'axes.facecolor': '#ffffff',
-            'axes.edgecolor': '#e0e0e0',
-            'axes.linewidth': 1.2,
-            'axes.grid': True,
-            'axes.grid.axis': 'y',
-            'grid.color': '#e8ecef',
-            'grid.linestyle': '--',
-            'grid.linewidth': 0.6,
-            'xtick.color': '#4a5568',
-            'ytick.color': '#4a5568',
-            'xtick.labelsize': 10,
-            'ytick.labelsize': 10,
-            'axes.titlecolor': '#1a202c',
-            'axes.titleweight': 'bold',
-            'axes.titlesize': 14,
-            'axes.labelcolor': '#2d3748',
-            'axes.labelsize': 12,
-            'axes.labelweight': 'semibold',
-            'legend.frameon': True,
-            'legend.framealpha': 0.95,
-            'legend.facecolor': '#ffffff',
-            'legend.edgecolor': '#e2e8f0',
-            'legend.fontsize': 10,
-            'lines.linewidth': 2.5,
-            'savefig.dpi': 300,
-            'savefig.bbox': 'tight',
-        })
-        try:
-            sns.set_theme(style='whitegrid', palette='muted')
-        except:
-            pass
-
-# Inicializar estilos
-if MATPLOTLIB_AVAILABLE:
-    configurar_estilo_profesional()
-configurar_plotly()
