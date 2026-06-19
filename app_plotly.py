@@ -12,6 +12,8 @@ import warnings
 import io
 import base64
 import hashlib
+import re
+import shutil
 
 # Configuración de la página
 st.set_page_config(
@@ -22,6 +24,163 @@ st.set_page_config(
 )
 
 warnings.filterwarnings('ignore')
+
+# ========== FUNCIONES DE VALIDACIÓN DE FECHA (de VerificaPerfil_1_ION.py) ==========
+
+def validar_y_convertir_fecha(fecha_str):
+    """
+    Valida el formato de la fecha y si no coincide con el esperado '%Y-%m-%d %H:%M:%S',
+    lo convierte a ese formato.
+    """
+    # Si ya es datetime, convertirlo a string en el formato esperado
+    if isinstance(fecha_str, datetime):
+        return fecha_str.strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Convertir a string por si acaso
+    fecha_str = str(fecha_str).strip()
+    
+    # Lista de formatos posibles que podría tener la fecha
+    formatos_posibles = [
+        '%Y-%m-%d %H:%M:%S',           # 2026-04-30 22:35:00
+        '%d/%m/%Y %H:%M:%S',           # 30/04/2026 22:35:00
+        '%d/%m/%Y %I:%M:%S %p',        # 30/04/2026 10:35:00 PM
+        '%d/%m/%Y %I:%M:%S.%f %p',     # 30/04/2026 10:35:00.000 p. m.
+        '%d/%m/%Y %I:%M:%S.%f',        # 30/04/2026 10:35:00.000
+        '%d/%m/%Y %I:%M %p',           # 30/04/2026 10:35 PM
+        '%Y/%m/%d %H:%M:%S',           # 2026/04/30 22:35:00
+        '%Y-%m-%dT%H:%M:%S',           # 2026-04-30T22:35:00
+        '%Y-%m-%d %H:%M:%S.%f',        # 2026-04-30 22:35:00.000
+        '%d-%m-%Y %H:%M:%S',           # 30-04-2026 22:35:00
+        '%m/%d/%Y %H:%M:%S',           # 04/30/2026 22:35:00
+        '%d/%m/%Y %I:%M:%S.%f %p',     # 30/04/2026 10:35:00.000 p. m. (con espacio extra)
+    ]
+    
+    # Limpiar la fecha: reemplazar 'p. m.' por 'PM' y 'a. m.' por 'AM'
+    fecha_limpia = fecha_str
+    fecha_limpia = fecha_limpia.replace('p. m.', 'PM').replace('a. m.', 'AM')
+    fecha_limpia = fecha_limpia.replace('p. m', 'PM').replace('a. m', 'AM')
+    fecha_limpia = fecha_limpia.replace('p.m.', 'PM').replace('a.m.', 'AM')
+    fecha_limpia = fecha_limpia.replace('p.m', 'PM').replace('a.m', 'AM')
+    fecha_limpia = fecha_limpia.replace('p. m.', 'PM').replace('a. m.', 'AM')
+    
+    # Intentar con cada formato
+    for formato in formatos_posibles:
+        try:
+            fecha_obj = datetime.strptime(fecha_limpia, formato)
+            # Convertir al formato esperado
+            return fecha_obj.strftime('%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            continue
+    
+    # Si no funciona con los formatos predefinidos, intentar con pandas
+    try:
+        fecha_obj = pd.to_datetime(fecha_str)
+        return fecha_obj.strftime('%Y-%m-%d %H:%M:%S')
+    except:
+        # Si todo falla, mostrar error y devolver la fecha original
+        print(f"ADVERTENCIA: No se pudo convertir la fecha: {fecha_str}")
+        return fecha_str
+
+def procesar_perfil_como_verifica_perfil(df, nombre_archivo):
+    """
+    Procesa un DataFrame de perfil de carga usando la misma lógica que VerificaPerfil_1_ION.py
+    """
+    try:
+        # --- SELECCIONAR SOLO LAS PRIMERAS 7 COLUMNAS ---
+        columnas_necesarias = 7
+        if len(df.columns) > columnas_necesarias:
+            df = df.iloc[:, :columnas_necesarias]
+        
+        # Identificar la columna de fecha
+        columna_fecha = None
+        for col in df.columns:
+            if 'date' in col.lower() or 'fecha' in col.lower() or 'time' in col.lower():
+                columna_fecha = col
+                break
+        
+        if columna_fecha is None:
+            columna_fecha = df.columns[0]
+        
+        # Crear copia y renombrar columna de fecha
+        df_procesado = df.copy()
+        df_procesado = df_procesado.rename(columns={columna_fecha: 'Fecha'})
+        
+        # Aplicar conversión de fecha
+        df_procesado['Fecha'] = df_procesado['Fecha'].apply(validar_y_convertir_fecha)
+        
+        # Eliminar duplicados
+        df_sin_duplicados = df_procesado.drop_duplicates(subset=['Fecha'], keep='first')
+        
+        # Ordenar por fecha
+        df_sin_duplicados['Fecha'] = pd.to_datetime(df_sin_duplicados['Fecha'])
+        df_sin_duplicados = df_sin_duplicados.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
+        
+        # Verificar y llenar registros faltantes
+        num_registros = len(df_sin_duplicados)
+        if num_registros > 0:
+            fi = df_sin_duplicados.iloc[0, 0]
+            ff = df_sin_duplicados.iloc[num_registros - 1, 0]
+            dias = (ff - fi).days + 1
+            registros_esperados = dias * 288
+            
+            Fecha_Correcta = fi
+            x = 0
+            Faltantes = 0
+            Perfiles_faltantes = None
+            primera_vez = 0
+            Frecuencia_Perfil_MIN = 5
+            columnas = df_sin_duplicados.columns.tolist()
+            
+            while x < num_registros:
+                fecha_archivo = df_sin_duplicados.iloc[x, 0]
+                if fecha_archivo != Fecha_Correcta:
+                    nuevo_registro = {'Fecha': Fecha_Correcta}
+                    for col in columnas[1:]:
+                        nuevo_registro[col] = 0
+                    if primera_vez == 0:
+                        Perfiles_faltantes = pd.DataFrame([nuevo_registro])
+                        primera_vez = 1
+                    else:
+                        Perfiles_faltantes = pd.concat([Perfiles_faltantes, pd.DataFrame([nuevo_registro])], ignore_index=True)
+                    x = x - 1
+                    Faltantes = Faltantes + 1
+                x = x + 1
+                Fecha_Correcta = Fecha_Correcta + timedelta(minutes=Frecuencia_Perfil_MIN)
+            
+            if Faltantes != 0:
+                df_completo = pd.concat([df_sin_duplicados, Perfiles_faltantes], ignore_index=True)
+            else:
+                df_completo = df_sin_duplicados
+            
+            # Ordenar y formatear
+            df_completo['Fecha'] = pd.to_datetime(df_completo['Fecha'])
+            df_completo = df_completo.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
+            df_completo['Fecha'] = df_completo['Fecha'].dt.strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Asegurar solo 7 columnas
+            if len(df_completo.columns) > 7:
+                df_completo = df_completo.iloc[:, :7]
+            
+            # Renombrar columnas al formato estándar
+            nombres_estandar = ['Fecha', 'KWH_REC', 'KWH_ENT', 'KVARH_Q1', 'KVARH_Q2', 'KVARH_Q3', 'KVARH_Q4']
+            mapeo_salida = {}
+            for i, col in enumerate(df_completo.columns):
+                if i < len(nombres_estandar):
+                    mapeo_salida[col] = nombres_estandar[i]
+            
+            df_completo = df_completo.rename(columns=mapeo_salida)
+            
+            return True, df_completo, {
+                'registros_originales': len(df),
+                'duplicados_eliminados': len(df) - len(df_sin_duplicados),
+                'faltantes_insertados': Faltantes,
+                'registros_finales': len(df_completo)
+            }
+        
+        return False, None, {'error': 'No hay datos para procesar'}
+        
+    except Exception as e:
+        return False, None, {'error': str(e)}
 
 # ========== CONFIGURACIÓN DE AUTENTICACIÓN ==========
 # Usuarios predefinidos (en producción usar una base de datos)
@@ -157,6 +316,153 @@ DIRECTORIO_TARIFAS = os.path.join(DIRECTORIO_BASE, 'Tarifas')
 for dir_path in [DIRECTORIO_BASE, DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS,
                  DIRECTORIO_REPORTES, DIRECTORIO_REPORTES_DIARIOS, DIRECTORIO_TARIFAS]:
     os.makedirs(dir_path, exist_ok=True)
+
+# ========== NUEVA FUNCIÓN PARA CARGAR ARCHIVOS ==========
+
+def guardar_archivo_cargado(archivo_cargado, tipo_archivo):
+    """
+    Guarda un archivo cargado en el directorio correspondiente.
+    tipo_archivo: 'fuente' para ArchivosFuente, 'tarifa' para Tarifas
+    """
+    try:
+        # Determinar el directorio de destino
+        if tipo_archivo == 'fuente':
+            directorio_destino = DIRECTORIO_FUENTE
+        elif tipo_archivo == 'tarifa':
+            directorio_destino = DIRECTORIO_TARIFAS
+        else:
+            return False, "Tipo de archivo no válido"
+        
+        # Crear el directorio si no existe
+        os.makedirs(directorio_destino, exist_ok=True)
+        
+        # Obtener el nombre del archivo
+        nombre_archivo = archivo_cargado.name
+        
+        # Verificar que sea CSV
+        if not nombre_archivo.lower().endswith('.csv'):
+            return False, f"El archivo {nombre_archivo} no es un archivo CSV"
+        
+        # Construir la ruta completa
+        ruta_destino = os.path.join(directorio_destino, nombre_archivo)
+        
+        # Si el archivo ya existe, preguntar si sobrescribir
+        if os.path.exists(ruta_destino):
+            # Generar un nombre único con timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            nombre_base, extension = os.path.splitext(nombre_archivo)
+            nombre_archivo_respaldo = f"{nombre_base}_{timestamp}{extension}"
+            ruta_respaldo = os.path.join(directorio_destino, nombre_archivo_respaldo)
+            
+            # Mover el archivo existente a respaldo
+            shutil.move(ruta_destino, ruta_respaldo)
+            
+            # Guardar el nuevo archivo
+            with open(ruta_destino, 'wb') as f:
+                f.write(archivo_cargado.getbuffer())
+            
+            return True, f"Archivo guardado como {nombre_archivo}. El archivo anterior fue respaldado como {nombre_archivo_respaldo}"
+        else:
+            # Guardar el nuevo archivo
+            with open(ruta_destino, 'wb') as f:
+                f.write(archivo_cargado.getbuffer())
+            
+            return True, f"Archivo {nombre_archivo} guardado exitosamente"
+            
+    except Exception as e:
+        return False, f"Error al guardar el archivo: {str(e)}"
+
+def validar_archivo_csv(archivo_cargado):
+    """
+    Valida que el archivo CSV tenga el formato correcto
+    """
+    try:
+        # Intentar leer el archivo
+        df = pd.read_csv(archivo_cargado)
+        
+        # Verificar que tenga al menos una columna
+        if len(df.columns) == 0:
+            return False, "El archivo no contiene columnas"
+        
+        # Verificar que tenga al menos 7 columnas
+        if len(df.columns) < 7:
+            return False, f"El archivo solo tiene {len(df.columns)} columnas. Se esperan al menos 7."
+        
+        # Verificar la columna de fecha
+        columna_fecha = None
+        for col in df.columns:
+            if 'date' in col.lower() or 'fecha' in col.lower() or 'time' in col.lower():
+                columna_fecha = col
+                break
+        
+        if columna_fecha is None:
+            return False, "No se encontró una columna de fecha (debe contener 'date', 'fecha' o 'time')"
+        
+        # Intentar convertir la primera fecha como validación
+        try:
+            fecha_prueba = df.iloc[0, df.columns.get_loc(columna_fecha)]
+            fecha_convertida = validar_y_convertir_fecha(fecha_prueba)
+            if fecha_convertida == fecha_prueba:
+                # Si no se pudo convertir, mostrar advertencia pero permitir
+                return True, "Archivo válido (la fecha podría necesitar formato)"
+        except:
+            pass
+        
+        return True, "Archivo CSV válido"
+        
+    except Exception as e:
+        return False, f"Error al validar el archivo: {str(e)}"
+
+def obtener_archivos_cargados(directorio):
+    """
+    Obtiene la lista de archivos CSV en un directorio
+    """
+    try:
+        if not os.path.exists(directorio):
+            return []
+        
+        archivos = []
+        for archivo in os.listdir(directorio):
+            if archivo.lower().endswith('.csv'):
+                ruta_completa = os.path.join(directorio, archivo)
+                tamaño = os.path.getsize(ruta_completa)
+                fecha_mod = datetime.fromtimestamp(os.path.getmtime(ruta_completa))
+                archivos.append({
+                    'nombre': archivo,
+                    'tamaño': f"{tamaño / 1024:.1f} KB" if tamaño < 1024*1024 else f"{tamaño / (1024*1024):.1f} MB",
+                    'fecha_modificacion': fecha_mod.strftime('%d/%m/%Y %H:%M:%S')
+                })
+        
+        return sorted(archivos, key=lambda x: x['fecha_modificacion'], reverse=True)
+    except Exception as e:
+        return []
+
+def mostrar_archivos_cargados():
+    """
+    Muestra los archivos cargados en el directorio
+    """
+    archivos_fuente = obtener_archivos_cargados(DIRECTORIO_FUENTE)
+    archivos_tarifas = obtener_archivos_cargados(DIRECTORIO_TARIFAS)
+    
+    st.markdown("### 📁 Archivos en el Sistema")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("**📂 Archivos Fuente**")
+        if archivos_fuente:
+            for archivo in archivos_fuente:
+                st.write(f"📄 {archivo['nombre']} ({archivo['tamaño']})")
+        else:
+            st.info("No hay archivos fuente cargados")
+    
+    with col2:
+        st.markdown("**💰 Archivos de Tarifas**")
+        if archivos_tarifas:
+            for archivo in archivos_tarifas:
+                st.write(f"📄 {archivo['nombre']} ({archivo['tamaño']})")
+        else:
+            st.info("No hay archivos de tarifas cargados")
 
 # ========== FUNCIONES DE PROCESAMIENTO ==========
 
@@ -359,61 +665,35 @@ def mostrar_tarjeta_bess(carga, descarga, eficiencia):
 # ========== FUNCIONES DE PROCESAMIENTO ==========
 
 def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
+    """Procesa un archivo usando la lógica de VerificaPerfil_1_ION.py"""
     ruta_completa_origen = os.path.join(ruta_origen, nombre_archivo)
     ruta_completa_destino = os.path.join(ruta_destino, nombre_archivo)
+    
     if not os.path.exists(ruta_completa_origen):
         return False, f"No se encuentra {nombre_archivo}"
+    
     try:
+        # Leer el archivo
         perfil = pd.read_csv(ruta_completa_origen, encoding='utf-8-sig')
-        registros_originales = len(perfil)
-        perfil_sin_duplicados = perfil.drop_duplicates(subset=['Fecha'], keep='first')
-        renglones_duplicados = len(perfil) - len(perfil_sin_duplicados)
-        perfil_sin_duplicados['Fecha'] = pd.to_datetime(perfil_sin_duplicados['Fecha'])
-        perfil_sin_duplicados = perfil_sin_duplicados.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
-        num_registros = len(perfil_sin_duplicados)
-        fi = perfil_sin_duplicados.iloc[0, 0]
-        ff = perfil_sin_duplicados.iloc[num_registros - 1, 0]
-        dias = (ff - fi).days + 1
-        registros_esperados = dias * 288
-        Fecha_Correcta = fi
-        x = 0
-        Faltantes = 0
-        Perfiles_faltantes = None
-        primera_vez = 0
-        Frecuencia_Perfil_MIN = 5
-        columnas = perfil.columns.tolist()
-        while x < num_registros:
-            fecha_archivo = perfil_sin_duplicados.iloc[x, 0]
-            if fecha_archivo != Fecha_Correcta:
-                nuevo_registro = {'Fecha': Fecha_Correcta}
-                for col in columnas[1:]:
-                    nuevo_registro[col] = 0
-                if primera_vez == 0:
-                    Perfiles_faltantes = pd.DataFrame([nuevo_registro])
-                    primera_vez = 1
-                else:
-                    Perfiles_faltantes = pd.concat([Perfiles_faltantes, pd.DataFrame([nuevo_registro])], ignore_index=True)
-                x = x - 1
-                Faltantes = Faltantes + 1
-            x = x + 1
-            Fecha_Correcta = Fecha_Correcta + timedelta(minutes=Frecuencia_Perfil_MIN)
-        if Faltantes != 0:
-            perfil_completo = pd.concat([perfil_sin_duplicados, Perfiles_faltantes], ignore_index=True)
+        
+        # Usar la función de procesamiento unificada
+        exito, perfil_completo, info = procesar_perfil_como_verifica_perfil(perfil, nombre_archivo)
+        
+        if exito:
+            # Guardar el archivo procesado
+            os.makedirs(ruta_destino, exist_ok=True)
+            perfil_completo.to_csv(ruta_completa_destino, index=False)
+            
+            return True, {
+                'archivo': nombre_archivo,
+                'registros_originales': info.get('registros_originales', 0),
+                'duplicados_eliminados': info.get('duplicados_eliminados', 0),
+                'faltantes_insertados': info.get('faltantes_insertados', 0),
+                'registros_finales': info.get('registros_finales', 0)
+            }
         else:
-            perfil_completo = perfil_sin_duplicados
-        perfil_completo['Fecha'] = pd.to_datetime(perfil_completo['Fecha'])
-        perfil_completo = perfil_completo.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
-        os.makedirs(ruta_destino, exist_ok=True)
-        perfil_completo.to_csv(ruta_completa_destino, index=False)
-        return True, {
-            'archivo': nombre_archivo,
-            'registros_originales': registros_originales,
-            'duplicados_eliminados': renglones_duplicados,
-            'faltantes_insertados': Faltantes,
-            'registros_finales': len(perfil_completo),
-            'fecha_inicial': fi.strftime('%Y-%m-%d %H:%M'),
-            'fecha_final': ff.strftime('%Y-%m-%d %H:%M')
-        }
+            return False, info.get('error', 'Error en el procesamiento')
+            
     except Exception as e:
         return False, str(e)
 
@@ -456,7 +736,6 @@ def verificar_datos_fuente():
     # Agregar información del proceso de renombrado
     if resultado_renombrado['errores']:
         for error in resultado_renombrado['errores']:
-            # Agregar errores como advertencias en el resultado
             resultados.setdefault('_advertencias', []).append(error)
     
     # Agregar información de renombrados para mostrar en la interfaz
@@ -752,6 +1031,65 @@ def main():
             st.header("📋 Control")
             st.markdown("---")
             
+            # --- NUEVA SECCIÓN: CARGAR ARCHIVOS ---
+            with st.expander("📤 0. Cargar Archivos de Datos", expanded=True):
+                st.markdown("**📂 Cargar archivos CSV al sistema**")
+                
+                # Cargar archivos fuente
+                archivos_fuente = st.file_uploader(
+                    "📄 Archivos Fuente (ION, BESS, Banco1)",
+                    type=['csv'],
+                    accept_multiple_files=True,
+                    key="upload_fuente",
+                    help="Selecciona los archivos CSV de datos de energía"
+                )
+                
+                if archivos_fuente:
+                    for archivo in archivos_fuente:
+                        if st.button(f"📤 Subir {archivo.name}", key=f"btn_{archivo.name}"):
+                            # Validar el archivo
+                            valido, mensaje = validar_archivo_csv(archivo)
+                            if valido:
+                                exito, resultado = guardar_archivo_cargado(archivo, 'fuente')
+                                if exito:
+                                    st.success(f"✅ {resultado}")
+                                    st.session_state['archivos_cargados'] = True
+                                else:
+                                    st.error(f"❌ {resultado}")
+                            else:
+                                st.error(f"❌ {mensaje}")
+                
+                st.markdown("---")
+                
+                # Cargar archivos de tarifas
+                archivos_tarifas = st.file_uploader(
+                    "💰 Archivos de Tarifas",
+                    type=['csv'],
+                    accept_multiple_files=True,
+                    key="upload_tarifas",
+                    help="Selecciona los archivos CSV de tarifas"
+                )
+                
+                if archivos_tarifas:
+                    for archivo in archivos_tarifas:
+                        if st.button(f"📤 Subir {archivo.name}", key=f"btn_tarifa_{archivo.name}"):
+                            exito, resultado = guardar_archivo_cargado(archivo, 'tarifa')
+                            if exito:
+                                st.success(f"✅ {resultado}")
+                                st.session_state['archivos_cargados'] = True
+                            else:
+                                st.error(f"❌ {resultado}")
+                
+                st.markdown("---")
+                
+                # Mostrar archivos cargados
+                if st.button("🔄 Actualizar lista de archivos", use_container_width=True):
+                    st.rerun()
+                
+                mostrar_archivos_cargados()
+            
+            st.markdown("---")
+            
             # Sección de verificación y filtrado
             with st.expander("📁 1. Verificar y Filtrar Datos", expanded=True):
                 col1, col2 = st.columns(2)
@@ -865,11 +1203,9 @@ def main():
     ])
     
     with tab1:
-        # Título de la sección con mejor formato
         st.markdown("## 📊 Dashboard de Energía")
         st.markdown("---")
         
-        # Verificar si hay datos
         ruta_ion = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_ION.csv')
         ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
         
@@ -879,7 +1215,6 @@ def main():
             else:
                 st.warning("⚠️ No hay datos procesados. Contacta al administrador para procesar los datos.")
         else:
-            # Selector de medidor y fecha en la misma fila
             col1, col2 = st.columns([1, 2])
             with col1:
                 medidor_dash = st.selectbox("📌 Medidor", ["ION", "BANCO"], key="dash_medidor")
@@ -907,14 +1242,12 @@ def main():
                 df_dia = df_dia.sort_values('DATETIME').reset_index(drop=True)
                 
                 if not df_dia.empty:
-                    # === SECCIÓN DE ARBITRAJE ===
                     st.markdown("### 💹 Arbitraje de Energía")
                     
                     tarifas = cargar_tarifas()
                     mes = fecha_dt.month
                     arbitraje_data = calcular_arbitraje_diario(df_dia, tarifas, mes)
                     
-                    # Mostrar tarjetas de arbitraje en 4 columnas
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
                         st.markdown(mostrar_metrica_arbitraje(
@@ -935,7 +1268,6 @@ def main():
                     
                     st.markdown("---")
                     
-                    # Métricas BESS en 3 columnas
                     st.markdown("### ⚡ Métricas BESS")
                     mostrar_tarjeta_bess(
                         arbitraje_data['total_carga'],
@@ -945,21 +1277,16 @@ def main():
                     
                     st.markdown("---")
                     
-                    # === GRÁFICAS ===
-                    # Generar un key único basado en el medidor y fecha
                     key_suffix = f"{medidor_dash}_{fecha_seleccionada.replace('/', '_')}"
                     
-                    # Gráfica 1: Comparación IUSA (ancho completo)
                     st.markdown("### 📊 Comparación IUSA")
                     fig1 = graficar_comparacion_iusa_plotly(df_dia, prefijo, fecha_seleccionada)
                     st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': True}, key=f"fig_iusa_{key_suffix}")
                     
-                    # Gráfica 2: Perfil de Carga (ancho completo)
                     st.markdown("### ⚡ Perfil de Carga")
                     fig2 = graficar_perfil_carga_plotly(df_dia, prefijo, fecha_seleccionada)
                     st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': True}, key=f"fig_perfil_{key_suffix}")
                     
-                    # Gráfica 3: Carga vs Descarga (ancho completo)
                     st.markdown("### ⚡ Carga vs Descarga BESS")
                     fig3 = graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada)
                     st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': True}, key=f"fig_carga_{key_suffix}")
@@ -1013,7 +1340,6 @@ def main():
                     mes_arb = fecha_dt_arb.month
                     arbitraje_data_arb = calcular_arbitraje_diario(df_dia_arb, tarifas, mes_arb)
                     
-                    # Tabla detallada de arbitraje
                     st.markdown("### 📊 Detalle de Arbitraje por Periodo")
                     
                     data_arb = []
@@ -1046,12 +1372,10 @@ def main():
                     df_arb_tabla = pd.DataFrame(data_arb)
                     st.dataframe(df_arb_tabla, use_container_width=True, hide_index=True)
                     
-                    # Gráfica de arbitraje por periodo
                     st.markdown("### 📊 Comparativa de Arbitraje por Periodo")
                     fig_arb = graficar_arbitraje_periodos_plotly(arbitraje_data_arb, fecha_arb)
                     st.plotly_chart(fig_arb, use_container_width=True, config={'displayModeBar': True}, key=f"fig_arbitraje_{key_suffix_arb}")
                     
-                    # Análisis de eficiencia
                     st.markdown("### 📈 Análisis de Eficiencia BESS")
                     col1, col2, col3 = st.columns(3)
                     
@@ -1082,7 +1406,6 @@ def main():
         st.markdown("## 📄 Generar Reporte PDF")
         st.markdown("---")
         
-        # Verificar si hay datos
         ruta_ion = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_ION.csv')
         ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
         
@@ -1119,11 +1442,9 @@ def main():
                         if exito:
                             st.success(f"✅ Reporte generado exitosamente")
                             
-                            # Mostrar información del archivo
                             st.markdown(f"**📁 Archivo:** `{os.path.basename(resultado)}`")
                             st.markdown(f"**📂 Ubicación:** `{os.path.dirname(resultado)}`")
                             
-                            # Botón de descarga
                             with open(resultado, 'rb') as f:
                                 pdf_bytes = f.read()
                             
@@ -1148,19 +1469,16 @@ def main():
             prefijo_trend = 'ION' if medidor_trend == 'ION' else 'BANCO'
             st.markdown(f"### 📊 Datos de {medidor_trend}")
         
-        # Tendencia mensual
         st.markdown("### 📈 Tendencia de Consumo Diario")
         fig_trend = graficar_tendencia_mensual_plotly(prefijo_trend, DIRECTORIO_REPORTES)
         st.plotly_chart(fig_trend, use_container_width=True, config={'displayModeBar': True}, key=f"fig_trend_{medidor_trend}")
         
-        # Estadísticas descriptivas
         st.markdown("### 📊 Estadísticas Descriptivas")
         ruta_dia = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo_trend}_POR_DIA.csv')
         if os.path.exists(ruta_dia):
             df_stats = pd.read_csv(ruta_dia)
             df_stats['FECHA_DT'] = pd.to_datetime(df_stats['FECHA'], format='%d/%m/%Y')
             
-            # Calcular estadísticas
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("📅 Total Días", len(df_stats))
@@ -1171,7 +1489,6 @@ def main():
             with col4:
                 st.metric("📉 Consumo Mínimo", f"{df_stats['BASE_REC'].min() + df_stats['INTERMEDIO_REC'].min() + df_stats['PUNTA_REC'].min():,.0f} kWh")
             
-            # Mostrar datos
             st.markdown("### 📋 Datos Históricos")
             st.dataframe(df_stats, use_container_width=True)
 
