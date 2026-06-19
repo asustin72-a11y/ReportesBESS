@@ -438,6 +438,29 @@ def generar_archivo_limpio(df, ruta_salida):
     print(f"✅ Archivo generado: {ruta_salida} ({len(df_limpio)} registros)")
     return df_limpio
 
+def limpiar_archivos_fuente():
+    """
+    Elimina todos los archivos CSV del directorio ArchivosFuente
+    después de que los datos han sido procesados.
+    """
+    archivos_eliminados = []
+    errores = []
+    
+    if not os.path.exists(DIRECTORIO_FUENTE):
+        return [], ["El directorio de archivos fuente no existe"]
+    
+    for archivo in os.listdir(DIRECTORIO_FUENTE):
+        if archivo.lower().endswith('.csv'):
+            ruta_archivo = os.path.join(DIRECTORIO_FUENTE, archivo)
+            try:
+                os.remove(ruta_archivo)
+                archivos_eliminados.append(archivo)
+                print(f"🗑️ Archivo fuente eliminado: {archivo}")
+            except Exception as e:
+                errores.append(f"Error al eliminar {archivo}: {str(e)}")
+    
+    return archivos_eliminados, errores
+
 def filtrar_datos():
     """Función principal de filtrado de datos"""
     print("=" * 70)
@@ -491,10 +514,29 @@ def filtrar_datos():
         ruta_destino = os.path.join(DIRECTORIO_PROCESADOS, archivo_destino)
         generar_archivo_limpio(df_filtrado, ruta_destino)
     
+    # --- LIMPIAR ARCHIVOS FUENTE DESPUÉS DE PROCESAR ---
+    print("\n" + "=" * 70)
+    print("🗑️ LIMPIANDO ARCHIVOS FUENTE")
+    print("=" * 70)
+    archivos_eliminados, errores = limpiar_archivos_fuente()
+    
+    if archivos_eliminados:
+        print(f"✅ {len(archivos_eliminados)} archivos fuente eliminados:")
+        for archivo in archivos_eliminados:
+            print(f"   - {archivo}")
+    else:
+        print("ℹ️ No había archivos fuente para eliminar")
+    
+    if errores:
+        for error in errores:
+            print(f"⚠️ {error}")
+    
     print("\n" + "=" * 70)
     print("✅ PREPROCESAMIENTO COMPLETADO EXITOSAMENTE")
     print("=" * 70)
-    return True, f"Procesados {len(fechas_comunes)} registros comunes"
+    
+    mensaje_eliminacion = f" - {len(archivos_eliminados)} archivos fuente eliminados"
+    return True, f"Procesados {len(fechas_comunes)} registros comunes{mensaje_eliminacion}"
 
 # ========== FUNCIONES DE GENERACIÓN DE REPORTES ==========
 
