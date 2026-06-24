@@ -57,7 +57,7 @@ COLORES = {
     'descarga': '#e74c3c',
 }
 
-APP_BUILD = '2026.06.24'
+APP_BUILD = '2026.06.24-b2'
 
 def color_periodo(periodo):
     return {'Base': COLORES['base'], 'Intermedio': COLORES['intermedio'], 'Punta': COLORES['punta']}.get(periodo, '#95a5a6')
@@ -222,6 +222,7 @@ def render_barra_superior(es_admin):
             </div>
         </div>
         """, unsafe_allow_html=True)
+        st.caption(f"Versión desplegada: {APP_BUILD}")
     with c2:
         st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
         if st.button("Cerrar sesión", width="stretch", key="btn_logout"):
