@@ -2673,11 +2673,29 @@ def tab_tendencia(df, prefijo):
                 ahorro_mxn = res_sin['total_mxn'] - res_con['total_mxn']
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    st.metric('Costo con BESS', f'${res_con["total_mxn"]:,.2f}')
+                    st.markdown(f"""
+                    <div class="metric-card" style="border-top:3px solid {COLORES['success']};">
+                        <div class="label">Costo con BESS</div>
+                        <div class="value">${res_con['total_mxn']:,.2f}</div>
+                        <div class="sub">MXN</div>
+                    </div>
+                    """, unsafe_allow_html=True)
                 with c2:
-                    st.metric('Costo sin BESS', f'${res_sin["total_mxn"]:,.2f}')
+                    st.markdown(f"""
+                    <div class="metric-card" style="border-top:3px solid {COLORES['danger']};">
+                        <div class="label">Costo sin BESS</div>
+                        <div class="value">${res_sin['total_mxn']:,.2f}</div>
+                        <div class="sub">MXN</div>
+                    </div>
+                    """, unsafe_allow_html=True)
                 with c3:
-                    st.metric('Ahorro acumulado', f'${ahorro_mxn:,.2f}')
+                    st.markdown(f"""
+                    <div class="metric-card" style="border-top:3px solid {COLORES['success']};">
+                        <div class="label">Ahorro acumulado</div>
+                        <div class="value">${ahorro_mxn:,.2f}</div>
+                        <div class="sub">MXN</div>
+                    </div>
+                    """, unsafe_allow_html=True)
         else:
             st.info('No hay columnas sin BESS en el archivo diario. Procesa los datos para habilitar esta vista.')
 
