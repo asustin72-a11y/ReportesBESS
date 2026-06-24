@@ -872,10 +872,9 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
 def aplicar_estilos():
     st.markdown("""
     <style>
-        [data-testid="stAppViewContainer"] > .main .block-container {
-            max-width: 100% !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
+        [data-testid="stAppViewContainer"] > .main .block-container:not(:has(form[data-testid="stForm"])) {
+            max-width: unset !important;
+            width: 100% !important;
         }
         .main-container { padding: 0 10px; }
         .section-container {
@@ -1445,7 +1444,7 @@ def login():
     st.markdown("""
     <style>
         [data-testid="stSidebar"] { display: none; }
-        [data-testid="stAppViewContainer"] > .main .block-container {
+        [data-testid="stAppViewContainer"] > .main .block-container:has(form[data-testid="stForm"]) {
             max-width: min(440px, 94vw) !important;
             margin-left: auto !important;
             margin-right: auto !important;
