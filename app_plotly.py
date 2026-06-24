@@ -2475,7 +2475,7 @@ def _aplicar_estilo_grafica_tendencia(fig, titulo, yaxis_title='', height=520, y
         legend=dict(
             orientation='h',
             yanchor='top',
-            y=0.80,
+            y=0.86,
             yref='paper',
             x=0.5,
             xref='paper',
