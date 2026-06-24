@@ -1536,16 +1536,15 @@ def login():
                         st.session_state.autenticado = True
                         st.session_state.usuario = usuario
                         st.session_state.rol = USUARIOS[usuario]['rol']
-                        st.session_state.pop('_sidebar_usuario_colapsada', None)
-                        st.session_state.pop('_sidebar_admin_expandida', None)
+                        st.cache_data.clear()
                         st.rerun()
                     else:
                         st.error("❌ Usuario o contraseña incorrectos")
 
 def logout():
-    for key in ['autenticado', 'usuario', 'rol', '_sidebar_usuario_colapsada', '_sidebar_admin_expandida']:
-        if key in st.session_state:
-            del st.session_state[key]
+    st.cache_data.clear()
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
     st.rerun()
 
 # ========== FUNCIONES DE PROCESAMIENTO ==========
@@ -1896,13 +1895,7 @@ def _inyectar_script_sidebar(expandida):
         components.html(markup, height=0)
 
 def _ajustar_sidebar_por_rol(es_admin):
-    if es_admin:
-        if not st.session_state.get('_sidebar_admin_expandida'):
-            _inyectar_script_sidebar(expandida=True)
-            st.session_state['_sidebar_admin_expandida'] = True
-    elif not st.session_state.get('_sidebar_usuario_colapsada'):
-        _inyectar_script_sidebar(expandida=False)
-        st.session_state['_sidebar_usuario_colapsada'] = True
+    _inyectar_script_sidebar(expandida=es_admin)
 
 def sidebar_user():
     with st.sidebar:
@@ -2742,13 +2735,13 @@ def tab_tendencia(df, prefijo):
 # ========== MAIN ==========
 def main():
     init_session()
-    
+    aplicar_estilos()
+
     if not st.session_state.autenticado:
         login()
         return
-    
+
     es_admin = st.session_state.rol == 'admin'
-    aplicar_estilos()
 
     if es_admin:
         sidebar_admin()
