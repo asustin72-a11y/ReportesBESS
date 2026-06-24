@@ -904,13 +904,13 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
 def aplicar_estilos():
     st.markdown("""
     <style>
-        [data-testid="stAppViewContainer"]:not(:has(form[data-testid="stForm"])) > .main .block-container,
-        [data-testid="stAppViewContainer"]:not(:has(form[data-testid="stForm"])) [data-testid="stMainBlockContainer"],
-        [data-testid="stAppViewContainer"]:not(:has(form[data-testid="stForm"])) section[data-testid="stMain"] > div {
+        [data-testid="stAppViewContainer"]:not(:has(.login-page-marker)) > .main .block-container,
+        [data-testid="stAppViewContainer"]:not(:has(.login-page-marker)) [data-testid="stMainBlockContainer"],
+        [data-testid="stAppViewContainer"]:not(:has(.login-page-marker)) section[data-testid="stMain"] > div {
             max-width: unset !important;
             width: 100% !important;
         }
-        [data-testid="stAppViewContainer"]:not(:has(form[data-testid="stForm"])) > .main {
+        [data-testid="stAppViewContainer"]:not(:has(.login-page-marker)) > .main {
             flex: 1 1 0% !important;
         }
         .main-container { padding: 0 10px; }
@@ -1265,13 +1265,14 @@ def aplicar_estilos():
 def aplicar_estilos_login():
     st.markdown("""
     <style>
-        [data-testid="stAppViewContainer"]:has(form[data-testid="stForm"]) [data-testid="stSidebar"] {
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="stSidebar"] {
             display: none;
         }
-        [data-testid="stAppViewContainer"]:has(form[data-testid="stForm"]) > .main .block-container,
-        [data-testid="stAppViewContainer"]:has(form[data-testid="stForm"]) [data-testid="stMainBlockContainer"] {
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) > .main .block-container,
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="stMainBlockContainer"],
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) section[data-testid="stMain"] > div {
             padding-top: 2.5rem;
-            max-width: min(480px, 92vw) !important;
+            max-width: 100% !important;
             width: 100% !important;
             margin-left: auto !important;
             margin-right: auto !important;
@@ -1279,9 +1280,11 @@ def aplicar_estilos_login():
             padding-right: 1rem;
             box-sizing: border-box;
         }
-        [data-testid="stAppViewContainer"]:has(form[data-testid="stForm"]) [data-testid="column"] {
-            width: 100% !important;
-            flex: 1 1 100% !important;
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="column"] {
+            min-width: 0 !important;
+        }
+        .login-page-marker {
+            display: none;
         }
         .login-brand {
             text-align: center;
@@ -1309,7 +1312,7 @@ def aplicar_estilos_login():
             font-size: 0.88rem;
             line-height: 1.45;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) {
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) {
             background: white;
             border-radius: 12px;
             box-shadow: 0 1px 6px rgba(26, 82, 118, 0.05);
@@ -1319,15 +1322,15 @@ def aplicar_estilos_login():
             width: 100%;
             box-sizing: border-box;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) .stTextInput > div > div {
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) .stTextInput > div > div {
             background: #f8fafc;
             border-radius: 8px;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) label p {
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) label p {
             white-space: normal;
             word-break: normal;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"] {
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"] {
             background: #1a5276;
             border: none;
             border-radius: 8px;
@@ -1335,7 +1338,7 @@ def aplicar_estilos_login():
             white-space: nowrap;
             width: 100%;
         }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"]:hover {
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"]:hover {
             background: #154360;
         }
     </style>
@@ -1558,37 +1561,40 @@ def init_session():
 
 def login():
     aplicar_estilos_login()
+    st.markdown('<div class="login-page-marker"></div>', unsafe_allow_html=True)
 
-    logo_html = obtener_logo_html(288)
-    logo_block = (
-        f'<div class="login-logo-wrap">'
-        f'<div style="background:white;border-radius:10px;padding:8px 14px;'
-        f'box-shadow:0 1px 4px rgba(0,0,0,0.04);">{logo_html}</div></div>'
-        if logo_html else ''
-    )
-    st.markdown(f"""
-    <div class="login-brand">
-        {logo_block}
-        <h1 class="login-title">BESS · Sistema de Energía</h1>
-        <p class="login-subtitle">Sistema de Procesamiento y Reportes de Energía</p>
-    </div>
-    """, unsafe_allow_html=True)
+    _, col, _ = st.columns([5, 3, 5])
+    with col:
+        logo_html = obtener_logo_html(288)
+        logo_block = (
+            f'<div class="login-logo-wrap">'
+            f'<div style="background:white;border-radius:10px;padding:8px 14px;'
+            f'box-shadow:0 1px 4px rgba(0,0,0,0.04);">{logo_html}</div></div>'
+            if logo_html else ''
+        )
+        st.markdown(f"""
+        <div class="login-brand">
+            {logo_block}
+            <h1 class="login-title">BESS · Sistema de Energía</h1>
+            <p class="login-subtitle">Sistema de Procesamiento y Reportes de Energía</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-    with st.container(border=True):
-        with st.form("login"):
-            usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
-            password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
-            submit = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
+        with st.container(border=True):
+            with st.form("login"):
+                usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
+                password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
+                submit = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
 
-            if submit and usuario and password:
-                if usuario in USUARIOS and hashlib.sha256(password.encode()).hexdigest() == USUARIOS[usuario]['password']:
-                    st.session_state.autenticado = True
-                    st.session_state.usuario = usuario
-                    st.session_state.rol = USUARIOS[usuario]['rol']
-                    st.cache_data.clear()
-                    st.rerun()
-                else:
-                    st.error("❌ Usuario o contraseña incorrectos")
+                if submit and usuario and password:
+                    if usuario in USUARIOS and hashlib.sha256(password.encode()).hexdigest() == USUARIOS[usuario]['password']:
+                        st.session_state.autenticado = True
+                        st.session_state.usuario = usuario
+                        st.session_state.rol = USUARIOS[usuario]['rol']
+                        st.cache_data.clear()
+                        st.rerun()
+                    else:
+                        st.error("❌ Usuario o contraseña incorrectos")
 
 def logout():
     st.cache_data.clear()
