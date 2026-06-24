@@ -904,13 +904,13 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
 def aplicar_estilos():
     st.markdown("""
     <style>
-        [data-testid="stAppViewContainer"] > .main .block-container,
-        [data-testid="stAppViewContainer"] [data-testid="stMainBlockContainer"],
-        section[data-testid="stMain"] > div {
+        [data-testid="stAppViewContainer"]:not(:has(form[data-testid="stForm"])) > .main .block-container,
+        [data-testid="stAppViewContainer"]:not(:has(form[data-testid="stForm"])) [data-testid="stMainBlockContainer"],
+        [data-testid="stAppViewContainer"]:not(:has(form[data-testid="stForm"])) section[data-testid="stMain"] > div {
             max-width: unset !important;
             width: 100% !important;
         }
-        [data-testid="stAppViewContainer"] > .main {
+        [data-testid="stAppViewContainer"]:not(:has(form[data-testid="stForm"])) > .main {
             flex: 1 1 0% !important;
         }
         .main-container { padding: 0 10px; }
@@ -1271,8 +1271,17 @@ def aplicar_estilos_login():
         [data-testid="stAppViewContainer"]:has(form[data-testid="stForm"]) > .main .block-container,
         [data-testid="stAppViewContainer"]:has(form[data-testid="stForm"]) [data-testid="stMainBlockContainer"] {
             padding-top: 2.5rem;
-            max-width: 100% !important;
+            max-width: min(480px, 92vw) !important;
             width: 100% !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            box-sizing: border-box;
+        }
+        [data-testid="stAppViewContainer"]:has(form[data-testid="stForm"]) [data-testid="column"] {
+            width: 100% !important;
+            flex: 1 1 100% !important;
         }
         .login-brand {
             text-align: center;
@@ -1549,39 +1558,37 @@ def init_session():
 
 def login():
     aplicar_estilos_login()
-    _, col_login, _ = st.columns([5, 3, 5])
 
-    with col_login:
-        logo_html = obtener_logo_html(288)
-        logo_block = (
-            f'<div class="login-logo-wrap">'
-            f'<div style="background:white;border-radius:10px;padding:8px 14px;'
-            f'box-shadow:0 1px 4px rgba(0,0,0,0.04);">{logo_html}</div></div>'
-            if logo_html else ''
-        )
-        st.markdown(f"""
-        <div class="login-brand">
-            {logo_block}
-            <h1 class="login-title">BESS · Sistema de Energía</h1>
-            <p class="login-subtitle">Sistema de Procesamiento y Reportes de Energía</p>
-        </div>
-        """, unsafe_allow_html=True)
+    logo_html = obtener_logo_html(288)
+    logo_block = (
+        f'<div class="login-logo-wrap">'
+        f'<div style="background:white;border-radius:10px;padding:8px 14px;'
+        f'box-shadow:0 1px 4px rgba(0,0,0,0.04);">{logo_html}</div></div>'
+        if logo_html else ''
+    )
+    st.markdown(f"""
+    <div class="login-brand">
+        {logo_block}
+        <h1 class="login-title">BESS · Sistema de Energía</h1>
+        <p class="login-subtitle">Sistema de Procesamiento y Reportes de Energía</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-        with st.container(border=True):
-            with st.form("login"):
-                usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
-                password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
-                submit = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
+    with st.container(border=True):
+        with st.form("login"):
+            usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
+            password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
+            submit = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
 
-                if submit and usuario and password:
-                    if usuario in USUARIOS and hashlib.sha256(password.encode()).hexdigest() == USUARIOS[usuario]['password']:
-                        st.session_state.autenticado = True
-                        st.session_state.usuario = usuario
-                        st.session_state.rol = USUARIOS[usuario]['rol']
-                        st.cache_data.clear()
-                        st.rerun()
-                    else:
-                        st.error("❌ Usuario o contraseña incorrectos")
+            if submit and usuario and password:
+                if usuario in USUARIOS and hashlib.sha256(password.encode()).hexdigest() == USUARIOS[usuario]['password']:
+                    st.session_state.autenticado = True
+                    st.session_state.usuario = usuario
+                    st.session_state.rol = USUARIOS[usuario]['rol']
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.error("❌ Usuario o contraseña incorrectos")
 
 def logout():
     st.cache_data.clear()
@@ -2455,20 +2462,20 @@ def _aplicar_estilo_grafica_tendencia(fig, titulo, yaxis_title='', height=420, y
             x=0.5,
             xref='paper',
             xanchor='center',
-            y=1.06,
+            y=1.0,
             yref='paper',
             yanchor='top',
             font=dict(size=16, color='#1a202c'),
-            pad=dict(t=0, b=6),
+            pad=dict(t=8, b=2),
         ),
         height=height,
-        margin=dict(l=52, r=28, t=88, b=48),
+        margin=dict(l=52, r=28, t=92, b=48),
         hovermode='x unified',
         font=dict(family='Segoe UI, Arial, sans-serif', color='#2d3748', size=12),
         legend=dict(
             orientation='h',
             yanchor='top',
-            y=0.84,
+            y=0.80,
             yref='paper',
             x=0.5,
             xref='paper',
