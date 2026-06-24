@@ -904,9 +904,14 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
 def aplicar_estilos():
     st.markdown("""
     <style>
-        [data-testid="stAppViewContainer"] > .main .block-container {
+        [data-testid="stAppViewContainer"] > .main .block-container,
+        [data-testid="stAppViewContainer"] [data-testid="stMainBlockContainer"],
+        section[data-testid="stMain"] > div {
             max-width: unset !important;
             width: 100% !important;
+        }
+        [data-testid="stAppViewContainer"] > .main {
+            flex: 1 1 0% !important;
         }
         .main-container { padding: 0 10px; }
         .section-container {
@@ -1257,6 +1262,76 @@ def aplicar_estilos():
     </style>
     """, unsafe_allow_html=True)
 
+def aplicar_estilos_login():
+    st.markdown("""
+    <style>
+        [data-testid="stAppViewContainer"]:has(form[data-testid="stForm"]) [data-testid="stSidebar"] {
+            display: none;
+        }
+        [data-testid="stAppViewContainer"]:has(form[data-testid="stForm"]) > .main .block-container,
+        [data-testid="stAppViewContainer"]:has(form[data-testid="stForm"]) [data-testid="stMainBlockContainer"] {
+            padding-top: 2.5rem;
+            max-width: 100% !important;
+            width: 100% !important;
+        }
+        .login-brand {
+            text-align: center;
+            margin-bottom: 1.25rem;
+        }
+        .login-logo-wrap {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 14px;
+        }
+        .login-logo-wrap img {
+            display: block;
+            max-width: min(288px, 100%);
+            height: auto;
+        }
+        .login-title {
+            margin: 0 0 6px 0;
+            font-size: 1.55rem;
+            color: #1a5276;
+            font-weight: 700;
+        }
+        .login-subtitle {
+            margin: 0;
+            color: #718096;
+            font-size: 0.88rem;
+            line-height: 1.45;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 6px rgba(26, 82, 118, 0.05);
+            border: 1px solid #e2e8f0 !important;
+            border-top: 3px solid #1a5276 !important;
+            padding: 20px 18px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) .stTextInput > div > div {
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) label p {
+            white-space: normal;
+            word-break: normal;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"] {
+            background: #1a5276;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            white-space: nowrap;
+            width: 100%;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"]:hover {
+            background: #154360;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
 # ========== GRÁFICAS ==========
 def graficar_perfil(df, prefijo, titulo):
     """Grafica el perfil de carga. Un día: eje X por hora. Varios días: eje X por día (máx. diario)."""
@@ -1473,55 +1548,22 @@ def init_session():
         st.session_state.rol = None
 
 def login():
-    st.markdown("""
-    <style>
-        [data-testid="stSidebar"] { display: none; }
-        [data-testid="stAppViewContainer"] > .main .block-container {
-            padding-top: 3rem;
-            max-width: 100% !important;
-        }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) {
-            background: white;
-            border-radius: 14px;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-            border-top: 4px solid #1a5276 !important;
-            border-color: #e8ecef !important;
-            padding: 20px 18px;
-            width: 100%;
-            box-sizing: border-box;
-        }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) .stTextInput > div > div {
-            background: #f8fafc;
-            border-radius: 8px;
-        }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) label p {
-            white-space: normal;
-            word-break: normal;
-        }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"] {
-            background: #1a5276;
-            border: none;
-            border-radius: 8px;
-            font-weight: 600;
-            white-space: nowrap;
-            width: 100%;
-        }
-        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"]:hover {
-            background: #154360;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
+    aplicar_estilos_login()
     _, col_login, _ = st.columns([5, 3, 5])
 
     with col_login:
-        logo_html = obtener_logo_html(180)
-
+        logo_html = obtener_logo_html(288)
+        logo_block = (
+            f'<div class="login-logo-wrap">'
+            f'<div style="background:white;border-radius:10px;padding:8px 14px;'
+            f'box-shadow:0 1px 4px rgba(0,0,0,0.04);">{logo_html}</div></div>'
+            if logo_html else ''
+        )
         st.markdown(f"""
-        <div style="text-align:center; margin-bottom: 1.25rem;">
-            {f'<div style="display:flex;justify-content:center;">{logo_html}</div>' if logo_html else ''}
-            <h1 style="font-size:26px; font-weight:700; color:#1a202c; margin-bottom:0.35rem;">⚡ BESS</h1>
-            <p style="color:#718096; font-size:14px; margin:0; line-height:1.45;">Sistema de Procesamiento y Reportes de Energía</p>
+        <div class="login-brand">
+            {logo_block}
+            <h1 class="login-title">BESS · Sistema de Energía</h1>
+            <p class="login-subtitle">Sistema de Procesamiento y Reportes de Energía</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -2735,12 +2777,12 @@ def tab_tendencia(df, prefijo):
 # ========== MAIN ==========
 def main():
     init_session()
-    aplicar_estilos()
 
     if not st.session_state.autenticado:
         login()
         return
 
+    aplicar_estilos()
     es_admin = st.session_state.rol == 'admin'
 
     if es_admin:
