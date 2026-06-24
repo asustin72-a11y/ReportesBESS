@@ -2439,7 +2439,7 @@ def _hex_a_rgba(hex_color, alpha=1.0):
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return f'rgba({r},{g},{b},{alpha})'
 
-def _aplicar_estilo_grafica_tendencia(fig, titulo, yaxis_title='', height=420, y_tickformat=None, y_tickprefix=''):
+def _aplicar_estilo_grafica_tendencia(fig, titulo, yaxis_title='', height=520, y_tickformat=None, y_tickprefix=''):
     """Estilo unificado para gráficas de la pestaña Tendencia."""
     yaxis_cfg = dict(
         title=yaxis_title,
@@ -2519,7 +2519,7 @@ def graficar_tendencia_consumo_periodo(df, rango_label):
             hovertemplate=f'<b>{lbl}</b><br>%{{x|%d/%m/%Y}}<br>%{{y:,.0f}} kWh<extra></extra>',
         ))
     return _aplicar_estilo_grafica_tendencia(
-        fig, f'Consumo diario por periodo · {rango_label}', 'kWh', height=420,
+        fig, f'Consumo diario por periodo · {rango_label}', 'kWh',
     )
 
 def graficar_tendencia_con_sin_bess(df, rango_label):
@@ -2562,7 +2562,7 @@ def graficar_tendencia_con_sin_bess(df, rango_label):
         bargap=0.35,
     )
     return _aplicar_estilo_grafica_tendencia(
-        fig, f'Consumo con vs sin BESS · {rango_label}', 'kWh', height=420,
+        fig, f'Consumo con vs sin BESS · {rango_label}', 'kWh',
     )
 
 def graficar_tendencia_bess_operacion(df_bess, rango_label):
@@ -2597,7 +2597,7 @@ def graficar_tendencia_bess_operacion(df_bess, rango_label):
     ))
     fig.update_layout(barmode='group', bargap=0.15, bargroupgap=0.08)
     return _aplicar_estilo_grafica_tendencia(
-        fig, f'Carga y descarga BESS · {rango_label}', 'kWh', height=420,
+        fig, f'Carga y descarga BESS · {rango_label}', 'kWh',
     )
 
 def graficar_tendencia_arbitraje(df, rango_label):
@@ -2614,7 +2614,7 @@ def graficar_tendencia_arbitraje(df, rango_label):
     ))
     fig.update_layout(bargap=0.25)
     return _aplicar_estilo_grafica_tendencia(
-        fig, f'Arbitraje diario · {rango_label}', 'MXN', height=420, y_tickformat='$,.0f',
+        fig, f'Arbitraje diario · {rango_label}', 'MXN', y_tickformat='$,.0f',
     )
 
 def tab_tendencia(df, prefijo):
