@@ -26,7 +26,7 @@ st.set_page_config(
     page_title="BESS - Sistema de Energía",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed",
 )
 
 warnings.filterwarnings('ignore')
@@ -201,7 +201,7 @@ def obtener_logo_html(width=110):
 
 def render_barra_superior(es_admin):
     """Logo, título y cierre de sesión."""
-    logo_html = obtener_logo_html(72)
+    logo_html = obtener_logo_html(288)
     usuario = st.session_state.get('usuario', '')
     rol_nombre = USUARIOS.get(usuario, {}).get('nombre', usuario)
     rol_tipo = 'Administrador' if es_admin else 'Visualizador'
@@ -582,41 +582,73 @@ def construir_tabla_costo_energia(res_con, res_sin):
     })
     return pd.DataFrame(filas)
 
+def _aplicar_estilo_grafica_comparativa(fig, titulo, yaxis_title, y_tickprefix=''):
+    """Estilo unificado para barras Con BESS (verde) vs Sin BESS (rojo)."""
+    fig.update_layout(
+        title=dict(
+            text=titulo,
+            x=0.5,
+            xref='paper',
+            xanchor='center',
+            y=0.99,
+            yref='paper',
+            yanchor='top',
+            pad=dict(t=0, b=0),
+        ),
+        barmode='group',
+        height=420,
+        margin=dict(l=44, r=44, t=40, b=44),
+        legend=dict(
+            orientation='h',
+            yanchor='top',
+            y=0.86,
+            yref='paper',
+            x=0.5,
+            xref='paper',
+            xanchor='center',
+        ),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        yaxis=dict(
+            title=yaxis_title,
+            domain=[0.0, 0.72],
+            gridcolor='#eef2f6',
+            tickformat=',.0f',
+            tickprefix=y_tickprefix,
+        ),
+        xaxis=dict(domain=[0.0, 1.0]),
+    )
+    fig.update_xaxes(tickfont=dict(size=11))
+
 def graficar_costo_energia_periodo(res_con, res_sin):
     periodos = [lbl for _, lbl in PERIODOS_ENERGIA]
     costo_sin = [res_sin['por_periodo'][k]['costo_mxn'] for k, _ in PERIODOS_ENERGIA]
     costo_con = [res_con['por_periodo'][k]['costo_mxn'] for k, _ in PERIODOS_ENERGIA]
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        name='Sin BESS',
-        x=periodos,
-        y=costo_sin,
-        marker_color='#e74c3c',
-        text=[f'${v:,.2f}' for v in costo_sin],
-        textposition='outside',
-        cliponaxis=False,
-    ))
-    fig.add_trace(go.Bar(
         name='Con BESS',
         x=periodos,
         y=costo_con,
-        marker_color='#27ae60',
+        marker_color=COLORES['success'],
         text=[f'${v:,.2f}' for v in costo_con],
         textposition='outside',
         cliponaxis=False,
     ))
-    fig.update_layout(
-        title='Costo de energía acumulado por periodo',
-        barmode='group',
-        yaxis_title='MXN',
-        height=320,
-        margin=dict(l=10, r=20, t=45, b=20),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
+    fig.add_trace(go.Bar(
+        name='Sin BESS',
+        x=periodos,
+        y=costo_sin,
+        marker_color=COLORES['danger'],
+        text=[f'${v:,.2f}' for v in costo_sin],
+        textposition='outside',
+        cliponaxis=False,
+    ))
+    _aplicar_estilo_grafica_comparativa(
+        fig,
+        'Costo de energía acumulado por periodo',
+        'MXN',
+        y_tickprefix='$',
     )
-    fig.update_xaxes(tickfont=dict(size=12))
-    fig.update_yaxes(gridcolor='#eef2f6', tickformat=',.0f')
     return fig
 
 def _fila_por_fecha(df, fecha):
@@ -872,7 +904,7 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
 def aplicar_estilos():
     st.markdown("""
     <style>
-        [data-testid="stAppViewContainer"] > .main .block-container:not(:has(form[data-testid="stForm"])) {
+        [data-testid="stAppViewContainer"] > .main .block-container {
             max-width: unset !important;
             width: 100% !important;
         }
@@ -1444,13 +1476,9 @@ def login():
     st.markdown("""
     <style>
         [data-testid="stSidebar"] { display: none; }
-        [data-testid="stAppViewContainer"] > .main .block-container:has(form[data-testid="stForm"]) {
-            max-width: min(440px, 94vw) !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
-            padding-top: 4rem;
-            padding-left: 1rem;
-            padding-right: 1rem;
+        [data-testid="stAppViewContainer"] > .main .block-container {
+            padding-top: 3rem;
+            max-width: 100% !important;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) {
             background: white;
@@ -1460,7 +1488,6 @@ def login():
             border-color: #e8ecef !important;
             padding: 20px 18px;
             width: 100%;
-            min-width: 280px;
             box-sizing: border-box;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) .stTextInput > div > div {
@@ -1485,33 +1512,38 @@ def login():
     </style>
     """, unsafe_allow_html=True)
 
-    logo_html = obtener_logo_html(204)
+    _, col_login, _ = st.columns([5, 3, 5])
 
-    st.markdown(f"""
-    <div style="text-align:center; margin-bottom: 1.25rem;">
-        {f'<div style="display:flex;justify-content:center;">{logo_html}</div>' if logo_html else ''}
-        <h1 style="font-size:26px; font-weight:700; color:#1a202c; margin-bottom:0.35rem;">⚡ BESS</h1>
-        <p style="color:#718096; font-size:14px; margin:0; line-height:1.45;">Sistema de Procesamiento y Reportes de Energía</p>
-    </div>
-    """, unsafe_allow_html=True)
+    with col_login:
+        logo_html = obtener_logo_html(180)
 
-    with st.container(border=True):
-        with st.form("login"):
-            usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
-            password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
-            submit = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
+        st.markdown(f"""
+        <div style="text-align:center; margin-bottom: 1.25rem;">
+            {f'<div style="display:flex;justify-content:center;">{logo_html}</div>' if logo_html else ''}
+            <h1 style="font-size:26px; font-weight:700; color:#1a202c; margin-bottom:0.35rem;">⚡ BESS</h1>
+            <p style="color:#718096; font-size:14px; margin:0; line-height:1.45;">Sistema de Procesamiento y Reportes de Energía</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-            if submit and usuario and password:
-                if usuario in USUARIOS and hashlib.sha256(password.encode()).hexdigest() == USUARIOS[usuario]['password']:
-                    st.session_state.autenticado = True
-                    st.session_state.usuario = usuario
-                    st.session_state.rol = USUARIOS[usuario]['rol']
-                    st.rerun()
-                else:
-                    st.error("❌ Usuario o contraseña incorrectos")
+        with st.container(border=True):
+            with st.form("login"):
+                usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
+                password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
+                submit = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
+
+                if submit and usuario and password:
+                    if usuario in USUARIOS and hashlib.sha256(password.encode()).hexdigest() == USUARIOS[usuario]['password']:
+                        st.session_state.autenticado = True
+                        st.session_state.usuario = usuario
+                        st.session_state.rol = USUARIOS[usuario]['rol']
+                        st.session_state.pop('_sidebar_usuario_colapsada', None)
+                        st.session_state.pop('_sidebar_admin_expandida', None)
+                        st.rerun()
+                    else:
+                        st.error("❌ Usuario o contraseña incorrectos")
 
 def logout():
-    for key in ['autenticado', 'usuario', 'rol']:
+    for key in ['autenticado', 'usuario', 'rol', '_sidebar_usuario_colapsada', '_sidebar_admin_expandida']:
         if key in st.session_state:
             del st.session_state[key]
     st.rerun()
@@ -1662,68 +1694,51 @@ def construir_tabla_criterio_cfe(resultado_con, resultado_sin=None):
     return pd.DataFrame(filas) if filas else None
 
 def graficar_criterio_cfe(resultado_con, resultado_sin=None):
+    """Barras agrupadas: verde = Con BESS, rojo = Sin BESS."""
     categorias = ['Demanda punta', 'DemandaCalculadaCFE', 'Capacidad CFE']
     fig = go.Figure()
 
-    def colores_criterio(res):
-        if res['criterio_aplicado'] == 'punta':
-            return ['#e74c3c', '#d5d8dc', '#27ae60']
-        return ['#d5d8dc', '#3498db', '#27ae60']
-
     if resultado_con is not None:
+        valores = [
+            resultado_con['criterio1_punta_kw'],
+            resultado_con['criterio2_factor_kw'],
+            resultado_con['capacidad_kw'],
+        ]
         fig.add_trace(go.Bar(
             name='Con BESS',
             x=categorias,
-            y=[
-                resultado_con['criterio1_punta_kw'],
-                resultado_con['criterio2_factor_kw'],
-                resultado_con['capacidad_kw'],
-            ],
-            marker_color=colores_criterio(resultado_con),
-            text=[
-                f"{resultado_con['criterio1_punta_kw']:,.0f}",
-                f"{resultado_con['criterio2_factor_kw']:,.0f}",
-                f"{resultado_con['capacidad_kw']:,.0f}",
-            ],
+            y=valores,
+            marker_color=COLORES['success'],
+            text=[f"{v:,.0f}" for v in valores],
             textposition='outside',
             cliponaxis=False,
         ))
     if resultado_sin is not None:
+        valores = [
+            resultado_sin['criterio1_punta_kw'],
+            resultado_sin['criterio2_factor_kw'],
+            resultado_sin['capacidad_kw'],
+        ]
         fig.add_trace(go.Bar(
             name='Sin BESS',
             x=categorias,
-            y=[
-                resultado_sin['criterio1_punta_kw'],
-                resultado_sin['criterio2_factor_kw'],
-                resultado_sin['capacidad_kw'],
-            ],
-            marker_color=colores_criterio(resultado_sin),
-            text=[
-                f"{resultado_sin['criterio1_punta_kw']:,.0f}",
-                f"{resultado_sin['criterio2_factor_kw']:,.0f}",
-                f"{resultado_sin['capacidad_kw']:,.0f}",
-            ],
+            y=valores,
+            marker_color=COLORES['danger'],
+            text=[f"{v:,.0f}" for v in valores],
             textposition='outside',
             cliponaxis=False,
         ))
 
-    fig.update_layout(
-        title='Criterio CFE · comparación de criterios (kW)',
-        barmode='group',
-        height=360,
-        margin=dict(l=40, r=20, t=50, b=40),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
-        plot_bgcolor='rgba(0,0,0,0)',
-        paper_bgcolor='rgba(0,0,0,0)',
-        yaxis_title='kW',
+    _aplicar_estilo_grafica_comparativa(
+        fig,
+        'Criterio CFE · comparación de criterios (kW)',
+        'kW',
     )
-    fig.update_xaxes(tickfont=dict(size=11))
-    fig.update_yaxes(gridcolor='#eef2f6', tickformat=',.0f')
     return fig
 
 # ========== FUNCIONES DE SIDEBAR ==========
 def sidebar_branding(es_admin):
-    logo_html = obtener_logo_html(72)
+    logo_html = obtener_logo_html(288)
     subtitulo = 'Panel de Control' if es_admin else 'Visualizador'
     logo_block = (
         f'<div style="background:white;border-radius:8px;padding:6px 10px;display:inline-block;margin-bottom:8px;">{logo_html}</div>'
@@ -1848,10 +1863,50 @@ def sidebar_admin():
         st.divider()
         st.caption("Sistema BESS v5.0")
 
+def _inyectar_script_sidebar(expandida):
+    """Ajusta la sidebar tras el login (Streamlit fija el estado inicial solo al cargar la app)."""
+    objetivo = 'true' if expandida else 'false'
+    js = f"""
+    (function () {{
+        function doc() {{
+            return window.parent && window.parent.document ? window.parent.document : document;
+        }}
+        function ajustar() {{
+            const d = doc();
+            const sidebar = d.querySelector('section[data-testid="stSidebar"]');
+            if (!sidebar) return;
+            const abierta = sidebar.getAttribute('aria-expanded') === 'true';
+            const debeEstarAbierta = {objetivo};
+            if (abierta === debeEstarAbierta) return;
+            const btn = d.querySelector('[data-testid="stHeader"] button');
+            if (btn) btn.click();
+        }}
+        [80, 250, 600, 1200, 2000].forEach(function (ms) {{
+            setTimeout(ajustar, ms);
+        }});
+    }})();
+    """
+    markup = f"<script>{js}</script>"
+    if hasattr(st, "html"):
+        try:
+            st.html(markup, height=0)
+        except TypeError:
+            st.html(markup)
+    else:
+        components.html(markup, height=0)
+
+def _ajustar_sidebar_por_rol(es_admin):
+    if es_admin:
+        if not st.session_state.get('_sidebar_admin_expandida'):
+            _inyectar_script_sidebar(expandida=True)
+            st.session_state['_sidebar_admin_expandida'] = True
+    elif not st.session_state.get('_sidebar_usuario_colapsada'):
+        _inyectar_script_sidebar(expandida=False)
+        st.session_state['_sidebar_usuario_colapsada'] = True
+
 def sidebar_user():
     with st.sidebar:
         sidebar_branding(es_admin=False)
-        
         st.info("Modo visualización")
         st.caption("Sistema BESS v5.0")
 
@@ -1951,8 +2006,6 @@ def tab_analisis(df, prefijo):
         fecha_min,
         fecha_max,
         key=f"fecha_analisis_{prefijo}",
-        metric_label='Registros del día',
-        metric_fn=lambda f: f"{len(df[df['DATETIME'].dt.date == f]):,}",
     )
 
     estado_bess = estado_datos_sin_bess(prefijo)
@@ -2339,19 +2392,69 @@ def construir_serie_arbitraje_diaria(df_med, prefijo, tarifas=None):
     ]
     return df
 
-def _layout_fig_tendencia(fig, y_title='', height=400):
-    fig.update_layout(
-        height=height,
-        hovermode='x unified',
-        margin=dict(l=50, r=24, t=36, b=48),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
-        plot_bgcolor='white',
-        paper_bgcolor='white',
-        xaxis_title='Fecha',
-        yaxis_title=y_title,
+def _hex_a_rgba(hex_color, alpha=1.0):
+    h = hex_color.lstrip('#')
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    return f'rgba({r},{g},{b},{alpha})'
+
+def _aplicar_estilo_grafica_tendencia(fig, titulo, yaxis_title='', height=420, y_tickformat=None, y_tickprefix=''):
+    """Estilo unificado para gráficas de la pestaña Tendencia."""
+    yaxis_cfg = dict(
+        title=yaxis_title,
+        title_font=dict(size=13, color='#4a5568'),
+        tickfont=dict(size=11, color='#4a5568'),
+        gridcolor='#eef2f6',
+        gridwidth=1,
+        zeroline=True,
+        zerolinecolor='#dee2e6',
+        zerolinewidth=1,
     )
-    fig.update_xaxes(tickformat='%d/%m', gridcolor='#eef2f6', showgrid=True)
-    fig.update_yaxes(gridcolor='#eef2f6', zeroline=True, zerolinecolor='#dee2e6')
+    if y_tickformat is not None:
+        yaxis_cfg['tickformat'] = y_tickformat
+    if y_tickprefix:
+        yaxis_cfg['tickprefix'] = y_tickprefix
+
+    fig.update_layout(
+        title=dict(
+            text=titulo,
+            x=0.5,
+            xref='paper',
+            xanchor='center',
+            y=0.99,
+            yref='paper',
+            yanchor='top',
+            font=dict(size=16, color='#1a202c'),
+        ),
+        height=height,
+        margin=dict(l=52, r=28, t=56, b=48),
+        hovermode='x unified',
+        font=dict(family='Segoe UI, Arial, sans-serif', color='#2d3748', size=12),
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=1.02,
+            x=0.5,
+            xref='paper',
+            xanchor='center',
+            font=dict(size=11, color='#4a5568'),
+            bgcolor='rgba(255,255,255,0.85)',
+            bordercolor='#e2e8f0',
+            borderwidth=1,
+        ),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        xaxis=dict(
+            title='Fecha',
+            title_font=dict(size=13, color='#4a5568'),
+            tickfont=dict(size=11, color='#4a5568'),
+            gridcolor='#eef2f6',
+            gridwidth=1,
+            showgrid=True,
+            zeroline=False,
+            tickformat='%d/%m',
+        ),
+        yaxis=yaxis_cfg,
+    )
     return fig
 
 def graficar_tendencia_consumo_periodo(df, rango_label):
@@ -2365,46 +2468,58 @@ def graficar_tendencia_consumo_periodo(df, rango_label):
         y = pd.to_numeric(df[col], errors='coerce').fillna(0)
         fig.add_trace(go.Scatter(
             x=df['FECHA_DT'], y=y, name=lbl, stackgroup='one',
-            mode='lines', line=dict(width=1, color=color),
+            mode='lines',
+            line=dict(width=0.8, color=color),
+            fillcolor=_hex_a_rgba(color, 0.65),
             fill='tozeroy' if i == 0 else 'tonexty',
             hovertemplate=f'<b>{lbl}</b><br>%{{x|%d/%m/%Y}}<br>%{{y:,.0f}} kWh<extra></extra>',
         ))
-    if len(df) > 7:
-        media = df['TOTAL_CON'].rolling(7, min_periods=1).mean()
-        fig.add_trace(go.Scatter(
-            x=df['FECHA_DT'], y=media, name='Promedio 7 días (total)',
-            mode='lines', line=dict(color=COLORES['primary'], width=2, dash='dot'),
-            hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
-        ))
-    fig.update_layout(title=f'Consumo diario por periodo · {rango_label}')
-    return _layout_fig_tendencia(fig, 'kWh', height=420)
+    return _aplicar_estilo_grafica_tendencia(
+        fig, f'Consumo diario por periodo · {rango_label}', 'kWh', height=420,
+    )
 
 def graficar_tendencia_con_sin_bess(df, rango_label):
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df['FECHA_DT'], y=df['TOTAL_CON'], name='Con BESS',
-        mode='lines+markers', line=dict(color=COLORES['success'], width=2),
-        marker=dict(size=5),
-        hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+        mode='lines+markers',
+        line=dict(color=COLORES['success'], width=2.5),
+        marker=dict(size=6, color=COLORES['success'], line=dict(width=1, color='white')),
+        hovertemplate='<b>Con BESS</b><br>%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
     ))
     fig.add_trace(go.Scatter(
         x=df['FECHA_DT'], y=df['TOTAL_SIN'], name='Sin BESS',
-        mode='lines+markers', line=dict(color=COLORES['danger'], width=2, dash='dash'),
-        marker=dict(size=5),
-        hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+        mode='lines+markers',
+        line=dict(color=COLORES['danger'], width=2, dash='dot'),
+        marker=dict(size=6, color=COLORES['danger'], line=dict(width=1, color='white')),
+        hovertemplate='<b>Sin BESS</b><br>%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
     ))
     ahorro = df['TOTAL_SIN'] - df['TOTAL_CON']
     fig.add_trace(go.Bar(
-        x=df['FECHA_DT'], y=ahorro, name='Ahorro diario (kWh)',
-        marker_color='rgba(39, 174, 96, 0.35)',
+        x=df['FECHA_DT'], y=ahorro, name='Ahorro diario',
+        marker=dict(
+            color=_hex_a_rgba(COLORES['success'], 0.45),
+            line=dict(color=_hex_a_rgba(COLORES['success'], 0.85), width=0.5),
+            cornerradius=3,
+        ),
         yaxis='y2',
-        hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+        hovertemplate='<b>Ahorro</b><br>%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
     ))
     fig.update_layout(
-        title=f'Consumo con vs sin BESS · {rango_label}',
-        yaxis2=dict(title='Δ kWh', overlaying='y', side='right', showgrid=False),
+        yaxis2=dict(
+            title='Δ kWh',
+            title_font=dict(size=12, color='#718096'),
+            tickfont=dict(size=10, color='#718096'),
+            overlaying='y',
+            side='right',
+            showgrid=False,
+            zeroline=False,
+        ),
+        bargap=0.35,
     )
-    return _layout_fig_tendencia(fig, 'kWh', height=420)
+    return _aplicar_estilo_grafica_tendencia(
+        fig, f'Consumo con vs sin BESS · {rango_label}', 'kWh', height=420,
+    )
 
 def graficar_tendencia_bess_operacion(df_bess, rango_label):
     carga = (
@@ -2420,35 +2535,43 @@ def graficar_tendencia_bess_operacion(df_bess, rango_label):
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=df_bess['FECHA_DT'], y=carga, name='Carga BESS',
-        marker_color=COLORES['carga'], opacity=0.85,
-        hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+        marker=dict(
+            color=COLORES['carga'],
+            line=dict(color='rgba(255,255,255,0.7)', width=0.5),
+            cornerradius=4,
+        ),
+        hovertemplate='<b>Carga BESS</b><br>%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
     ))
     fig.add_trace(go.Bar(
         x=df_bess['FECHA_DT'], y=descarga, name='Descarga BESS',
-        marker_color=COLORES['descarga'], opacity=0.85,
-        hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+        marker=dict(
+            color=COLORES['descarga'],
+            line=dict(color='rgba(255,255,255,0.7)', width=0.5),
+            cornerradius=4,
+        ),
+        hovertemplate='<b>Descarga BESS</b><br>%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
     ))
-    fig.update_layout(title=f'Carga y descarga BESS · {rango_label}', barmode='group')
-    return _layout_fig_tendencia(fig, 'kWh', height=380)
+    fig.update_layout(barmode='group', bargap=0.15, bargroupgap=0.08)
+    return _aplicar_estilo_grafica_tendencia(
+        fig, f'Carga y descarga BESS · {rango_label}', 'kWh', height=420,
+    )
 
 def graficar_tendencia_arbitraje(df, rango_label):
     colores = [COLORES['success'] if v >= 0 else COLORES['danger'] for v in df['ARBITRAJE_MXN']]
     fig = go.Figure()
     fig.add_trace(go.Bar(
         x=df['FECHA_DT'], y=df['ARBITRAJE_MXN'], name='Arbitraje',
-        marker_color=colores,
-        hovertemplate='%{x|%d/%m/%Y}<br>$%{y:,.2f}<extra></extra>',
+        marker=dict(
+            color=colores,
+            line=dict(width=0.5, color='rgba(255,255,255,0.6)'),
+            cornerradius=4,
+        ),
+        hovertemplate='<b>Arbitraje</b><br>%{x|%d/%m/%Y}<br>$%{y:,.2f}<extra></extra>',
     ))
-    if len(df) > 7:
-        media = df['ARBITRAJE_MXN'].rolling(7, min_periods=1).mean()
-        fig.add_trace(go.Scatter(
-            x=df['FECHA_DT'], y=media, name='Promedio 7 días',
-            mode='lines', line=dict(color=COLORES['primary'], width=2, dash='dot'),
-            hovertemplate='%{x|%d/%m/%Y}<br>$%{y:,.2f}<extra></extra>',
-        ))
-    fig.update_layout(title=f'Arbitraje diario · {rango_label}')
-    fig.update_yaxes(tickformat='$,.0f')
-    return _layout_fig_tendencia(fig, 'MXN', height=380)
+    fig.update_layout(bargap=0.25)
+    return _aplicar_estilo_grafica_tendencia(
+        fig, f'Arbitraje diario · {rango_label}', 'MXN', height=420, y_tickformat='$,.0f',
+    )
 
 def tab_tendencia(df, prefijo):
     with st.container(border=True):
@@ -2478,7 +2601,6 @@ def tab_tendencia(df, prefijo):
     df_arb = construir_serie_arbitraje_diaria(df_med, prefijo, tarifas)
 
     total_con = sumar_energia(df_med['TOTAL_CON'])
-    prom_con = total_con / dias if dias else 0
     arbitraje_acum = sumar_energia(df_arb['ARBITRAJE_MXN'])
     carga_tot = descarga_tot = 0.0
     if df_bess is not None:
@@ -2498,7 +2620,7 @@ def tab_tendencia(df, prefijo):
         if estado_bess['energia'] and 'TOTAL_SIN' in df_med.columns:
             total_sin = sumar_energia(df_med['TOTAL_SIN'])
             ahorro_kwh = total_sin - total_con
-            col1, col2, col3, col4, col5, col6 = st.columns(6)
+            col1, col2, col3, col4, col5 = st.columns(5)
             with col1:
                 metric_compact('Días', dias)
             with col2:
@@ -2509,19 +2631,15 @@ def tab_tendencia(df, prefijo):
                 metric_compact('Ahorro energía', f'{fmt_kwh(ahorro_kwh)} kWh')
             with col5:
                 metric_compact('Arbitraje acum.', f'${arbitraje_acum:,.2f}')
-            with col6:
-                metric_compact('Promedio diario', f'{fmt_kwh(prom_con)} kWh')
         else:
-            col1, col2, col3, col4, col5 = st.columns(5)
+            col1, col2, col3, col4 = st.columns(4)
             with col1:
                 metric_compact('Días', dias)
             with col2:
                 metric_compact('Consumo total', f'{fmt_kwh(total_con)} kWh')
             with col3:
-                metric_compact('Promedio diario', f'{fmt_kwh(prom_con)} kWh')
-            with col4:
                 metric_compact('Carga BESS', f'{fmt_kwh(carga_tot)} kWh')
-            with col5:
+            with col4:
                 metric_compact('Arbitraje acum.', f'${arbitraje_acum:,.2f}')
 
     tab_con, tab_cmp, tab_ops = st.tabs(['Consumo por periodo', 'Con vs sin BESS', 'Operación BESS'])
@@ -2529,7 +2647,7 @@ def tab_tendencia(df, prefijo):
     with tab_con:
         section_header(
             'Consumo diario por periodo tarifario',
-            'Áreas apiladas Base, Intermedio y Punta. Línea punteada: promedio móvil 7 días del total.',
+            'Áreas apiladas Base, Intermedio y Punta.',
         )
         st.plotly_chart(
             graficar_tendencia_consumo_periodo(df_med, rango_label),
@@ -2576,14 +2694,32 @@ def tab_tendencia(df, prefijo):
             graficar_tendencia_arbitraje(df_arb, rango_label),
             use_container_width=True, config={'displayModeBar': False},
         )
+        ef = (descarga_tot / carga_tot * 100) if carga_tot > 0 else 0
         c1, c2, c3 = st.columns(3)
         with c1:
-            st.metric('Carga acumulada', f'{fmt_kwh(carga_tot)} kWh')
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['carga']};">
+                <div class="label">Carga BESS</div>
+                <div class="value">{fmt_kwh(carga_tot)}</div>
+                <div class="sub">kWh</div>
+            </div>
+            """, unsafe_allow_html=True)
         with c2:
-            st.metric('Descarga acumulada', f'{fmt_kwh(descarga_tot)} kWh')
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['descarga']};">
+                <div class="label">Descarga BESS</div>
+                <div class="value">{fmt_kwh(descarga_tot)}</div>
+                <div class="sub">kWh</div>
+            </div>
+            """, unsafe_allow_html=True)
         with c3:
-            ef = (descarga_tot / carga_tot * 100) if carga_tot > 0 else 0
-            st.metric('Eficiencia BESS', f'{ef:.1f}%')
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['primary']};">
+                <div class="label">Eficiencia</div>
+                <div class="value">{ef:.1f}%</div>
+                <div class="sub">{'Óptima' if ef >= 80 else 'Revisar'}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
 # ========== MAIN ==========
 def main():
@@ -2595,11 +2731,12 @@ def main():
     
     es_admin = st.session_state.rol == 'admin'
     aplicar_estilos()
-    
+
     if es_admin:
         sidebar_admin()
     else:
         sidebar_user()
+    _ajustar_sidebar_por_rol(es_admin)
     
     ruta_ion = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_ION.csv')
     ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
