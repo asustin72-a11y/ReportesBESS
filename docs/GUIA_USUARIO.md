@@ -1,10 +1,11 @@
 # Guía de usuario — Sistema BESS
 
-**Versión:** 5.0  
+**Versión:** 5.1  
 **Aplicación:** Monitoreo, análisis y reportes de sistemas de almacenamiento de energía (BESS) para medidores **ION** y **BANCO**.
 
 > **PDF con capturas:** `docs/GUIA_USUARIO.pdf`  
-> **Regenerar** (con la app en `http://localhost:8501`): `python docs/generar_guia_pdf.py`
+> **Regenerar** (con la app en `http://localhost:8501`): `python docs/generar_guia_pdf.py`  
+> **URL alternativa:** `BESS_APP_URL=https://bessiusa.streamlit.app python docs/generar_guia_pdf.py`
 
 ---
 
@@ -20,7 +21,7 @@ Los datos provienen de archivos CSV procesados a partir de mediciones de planta 
 
 ### 2.1 Inicio de sesión
 
-Al abrir la aplicación se muestra la pantalla de acceso. Ingrese **usuario** y **contraseña** asignados por el administrador.
+Al abrir la aplicación se muestra la pantalla de acceso centrada, con el **logo IUSASOL**, el título **BESS · Sistema de Energía** y el formulario de usuario y contraseña. Ingrese las credenciales asignadas por el administrador.
 
 ![Pantalla de inicio de sesión](capturas/01-login.png)
 *Figura 1 — Pantalla de inicio de sesión*
@@ -38,12 +39,14 @@ Use **Cerrar sesión** (esquina superior derecha) al terminar.
 
 ## 3. Elementos comunes de la interfaz
 
-### 3.1 Selector de medidor
+### 3.1 Cabecera y selector de medidor
 
-En la parte superior puede elegir el medidor activo:
+Tras iniciar sesión, la parte superior muestra:
 
-- **ION**
-- **BANCO**
+- **Logo IUSASOL** y título **BESS · Sistema de Energía**
+- **Rol y nombre** del usuario (Visualizador o Administrador)
+- Botón **Cerrar sesión** (esquina superior derecha)
+- Selector **Medidor**: **ION** o **BANCO**
 
 Todas las pestañas muestran información del medidor seleccionado.
 
@@ -148,6 +151,8 @@ Contiene tres sub-pestañas:
 
 Compara el **costo acumulado de energía del mes** (al día de corte) **con BESS** vs **sin BESS**.
 
+**Gráfica comparativa:** barras **verdes** = Con BESS, barras **rojas** = Sin BESS, con leyenda y título centrados.
+
 **Cálculo por periodo:**
 
 ```
@@ -164,7 +169,7 @@ El panel central muestra:
 - **Ahorro acumulado** = Costo sin BESS − Costo con BESS (MXN y %).
 - **Diferencia en kWh** entre ambos escenarios.
 
-Incluye tabla detallada y gráfica comparativa de barras (en expander).
+Incluye tabla detallada y gráfica comparativa de barras con el mismo estilo visual (verde/rojo).
 
 > **Nota:** Si no existen columnas «sin BESS», la app muestra un aviso y solo presenta el escenario con batería.
 
@@ -198,60 +203,77 @@ Costo capacidad (MXN) = Capacidad CFE (kW) × Tarifa capacidad del mes ($/kW)
 
 (Costo redondeado hacia arriba a 2 decimales.)
 
-Se comparan escenarios **con BESS** y **sin BESS**, con gráfica de barras y tabla de criterios aplicados.
+Se comparan escenarios **con BESS** y **sin BESS** con gráfica de barras (verde = Con BESS, rojo = Sin BESS), tabla de criterios y leyenda centrada.
 
 ---
 
 ## 6. Pestaña «Tendencia»
 
-![Tendencia](capturas/06-tendencia.png)
-*Figura 6 — Tendencia histórica por rango de fechas*
+![Tendencia — Consumo por periodo](capturas/06-tendencia.png)
+*Figura 6 — Tendencia: consumo diario por periodo tarifario*
 
-Análisis histórico en un **rango de fechas** (días consecutivos).
+Análisis histórico en un **rango de fechas** (días consecutivos). Use los selectores **Desde** y **Hasta** en el panel superior.
 
 ### 6.1 Resumen del periodo
 
-Métricas agregadas del rango:
+Métricas agregadas del rango en formato compacto:
 
-- Días analizados.
-- Consumo con/sin BESS (si hay datos sin BESS).
-- Ahorro de energía (kWh).
-- Arbitraje acumulado (MXN).
-- Promedio diario de consumo.
-- Carga BESS acumulada.
+| Con datos sin BESS | Sin columnas sin BESS |
+|--------------------|------------------------|
+| Días, Consumo con BESS, Consumo sin BESS, Ahorro energía (kWh), Arbitraje acum. (MXN) | Días, Consumo total, Carga BESS, Arbitraje acum. (MXN) |
 
 ### 6.2 Sub-pestaña «Consumo por periodo»
 
-**Gráfica de áreas apiladas:** consumo diario en kWh por Base, Intermedio y Punta.
+**Gráfica de áreas apiladas:** consumo diario en kWh por **Base** (azul), **Intermedio** (amarillo) y **Punta** (rojo).
 
-**Línea punteada:** promedio móvil de **7 días** del consumo total (solo si hay más de 7 días en el rango).
+- Título y leyenda centrados, sin línea de promedio móvil.
+- Eje Y fijo de **0 a 300 000 kWh** para facilitar la comparación entre días.
 
-### 6.3 Sub-pestaña «Con vs sin BESS»
+### 6.3 Sub-pestaña «Consumo con BESS»
 
-- **Líneas:** consumo diario total con BESS y sin BESS.
-- **Barras (eje derecho):** diferencia diaria en kWh (sin BESS − con BESS).
-- **Métricas inferiores:** costo acumulado del rango con BESS, sin BESS y ahorro en MXN.
+![Tendencia — Consumo con BESS](capturas/06b-consumo-bess.png)
+*Figura 7 — Comparativa diaria con y sin BESS*
+
+- **Línea verde:** consumo diario total **con BESS**.
+- **Línea roja punteada:** consumo diario **sin BESS**.
+- **Barras (eje derecho):** ahorro diario en kWh (sin BESS − con BESS).
+- Eje Y principal: **0 a 300 000 kWh**.
+
+**Tarjetas inferiores** (estilo unificado con el dashboard):
+
+| Tarjeta | Contenido |
+|---------|-----------|
+| Costo con BESS | Costo acumulado del rango (MXN) |
+| Costo sin BESS | Costo acumulado del rango (MXN) |
+| Ahorro acumulado | Diferencia en MXN |
 
 Requiere columnas de energía sin BESS en el archivo diario.
 
 ### 6.4 Sub-pestaña «Operación BESS»
 
-**Gráfica de barras diarias:**
+![Tendencia — Operación BESS](capturas/06c-operacion-bess.png)
+*Figura 8 — Carga, descarga y arbitraje diario*
 
-- Carga y descarga BESS por día (desde `ENERGIA_BESS_POR_DIA.csv`).
+**Gráfica de barras agrupadas:** carga y descarga BESS por día (desde `ENERGIA_BESS_POR_DIA.csv`).
 
-**Gráfica de arbitraje diario:**
+- Eje Y: **0 a 30 000 kWh**.
 
-- Barra por día con el arbitraje calculado con la misma regla del dashboard.
+**Gráfica de arbitraje diario:** barras verdes (positivo) o rojas (negativo) por día.
 
-**Métricas:** carga acumulada, descarga acumulada y eficiencia BESS del rango.
+**Tarjetas inferiores:**
+
+| Tarjeta | Indicador |
+|---------|-----------|
+| Carga BESS | kWh acumulados en el rango |
+| Descarga BESS | kWh acumulados en el rango |
+| Eficiencia | (Descarga ÷ Carga) × 100 — «Óptima» si ≥ 80 % |
 
 ---
 
 ## 7. Pestaña «Reporte»
 
 ![Reporte diario](capturas/07-reporte.png)
-*Figura 7 — Vista previa y generación del PDF diario*
+*Figura 9 — Vista previa y generación del PDF diario*
 
 Generación del **reporte PDF diario**.
 
@@ -329,7 +351,7 @@ El administrador regenera estos archivos desde el panel lateral (**Verificar →
 ## 11. Panel del administrador (solo rol admin)
 
 ![Panel administrador](capturas/08-admin-sidebar.png)
-*Figura 8 — Panel lateral del administrador*
+*Figura 10 — Panel lateral del administrador*
 
 | Opción | Función |
 |--------|---------|

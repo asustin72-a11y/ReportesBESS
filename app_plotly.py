@@ -222,7 +222,7 @@ def render_barra_superior(es_admin):
         """, unsafe_allow_html=True)
     with c2:
         st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
-        if st.button("Cerrar sesión", width="stretch", key="btn_logout"):
+        if st.button("Cerrar sesión", use_container_width=True, key="btn_logout"):
             logout()
 
 def render_selector_rango(df, prefijo, key_suffix, medidor=None):
@@ -1598,8 +1598,9 @@ def login():
 
 def logout():
     st.cache_data.clear()
-    for key in list(st.session_state.keys()):
-        del st.session_state[key]
+    st.session_state.autenticado = False
+    st.session_state.usuario = None
+    st.session_state.rol = None
     st.rerun()
 
 # ========== FUNCIONES DE PROCESAMIENTO ==========
@@ -1829,7 +1830,7 @@ def sidebar_admin():
                             st.error(f"❌ Error: {e}")
             
             st.divider()
-            if st.button("Ver archivos fuente", width="stretch"):
+            if st.button("Ver archivos fuente", use_container_width=True):
                 archivos_fuente = os.listdir(DIRECTORIO_FUENTE) if os.path.exists(DIRECTORIO_FUENTE) else []
                 if archivos_fuente:
                     for a in archivos_fuente:
@@ -1841,7 +1842,7 @@ def sidebar_admin():
             col1, col2 = st.columns(2)
             
             with col1:
-                if st.button("Verificar", width="stretch"):
+                if st.button("Verificar", use_container_width=True):
                     with st.spinner("Verificando archivos..."):
                         try:
                             from bess_core import verificar_datos_fuente
@@ -1855,7 +1856,7 @@ def sidebar_admin():
                             st.error(f"❌ Error: {e}")
             
             with col2:
-                if st.button("Filtrar", width="stretch"):
+                if st.button("Filtrar", use_container_width=True):
                     with st.spinner("Filtrando datos..."):
                         try:
                             from bess_core import filtrar_datos
@@ -1868,7 +1869,7 @@ def sidebar_admin():
                         except Exception as e:
                             st.error(f"❌ Error: {e}")
             
-            if st.button("Generar reportes", width="stretch", type="primary"):
+            if st.button("Generar reportes", use_container_width=True, type="primary"):
                 with st.spinner("Generando reportes..."):
                     try:
                         from bess_core import reporte_bess
@@ -1885,7 +1886,7 @@ def sidebar_admin():
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
         
-            if st.button("Procesar todo", width="stretch"):
+            if st.button("Procesar todo", use_container_width=True):
                 with st.spinner("Verificando, filtrando y generando reportes..."):
                     try:
                         from bess_core import verificar_datos_fuente, filtrar_datos, reporte_bess
@@ -2795,12 +2796,12 @@ def tab_tendencia(df, prefijo):
 def main():
     init_session()
 
-    if not st.session_state.autenticado:
+    if not st.session_state.get('autenticado', False):
         login()
         return
 
     aplicar_estilos()
-    es_admin = st.session_state.rol == 'admin'
+    es_admin = st.session_state.get('rol') == 'admin'
 
     if es_admin:
         sidebar_admin()
