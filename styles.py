@@ -1,6 +1,7 @@
+# LEGACY — No importado por app_plotly.py ni bess_core.py. Conservado solo como referencia histórica.
 # styles.py - VERSIÓN CORREGIDA PARA WEB
 """
-Configuración de estilos para gráficas BESS - Versión Cloud
+Configuración de estilos para gráficas BESS - Versión Cloud (obsoleta)
 """
 
 import plotly.graph_objects as go

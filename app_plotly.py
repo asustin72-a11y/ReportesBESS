@@ -1,6 +1,8 @@
+# app_plotly.py - Versión corregida
+
 """
 BESS - Sistema de Procesamiento y Reportes - Web App
-Versión con gráficas Plotly interactivas y layout mejorado
+Versión simplificada con selector de fechas básico
 """
 
 import streamlit as st
@@ -10,12 +12,16 @@ import os
 from datetime import datetime, timedelta
 import warnings
 import io
-import base64
 import hashlib
-import re
+import base64
+import html
 import shutil
+import plotly.graph_objects as go
+import plotly.express as px
+from decimal import Decimal, ROUND_HALF_UP
+import streamlit.components.v1 as components
 
-# Configuración de la página
+# ========== CONFIGURACIÓN INICIAL ==========
 st.set_page_config(
     page_title="BESS - Sistema de Energía",
     page_icon="⚡",
@@ -25,286 +31,7 @@ st.set_page_config(
 
 warnings.filterwarnings('ignore')
 
-# ========== FUNCIONES DE VALIDACIÓN DE FECHA (de VerificaPerfil_1_ION.py) ==========
-
-def validar_y_convertir_fecha(fecha_str):
-    """
-    Valida el formato de la fecha y si no coincide con el esperado '%Y-%m-%d %H:%M:%S',
-    lo convierte a ese formato.
-    """
-    # Si ya es datetime, convertirlo a string en el formato esperado
-    if isinstance(fecha_str, datetime):
-        return fecha_str.strftime('%Y-%m-%d %H:%M:%S')
-    
-    # Convertir a string por si acaso
-    fecha_str = str(fecha_str).strip()
-    
-    # Lista de formatos posibles que podría tener la fecha
-    formatos_posibles = [
-        '%Y-%m-%d %H:%M:%S',           # 2026-04-30 22:35:00
-        '%d/%m/%Y %H:%M:%S',           # 30/04/2026 22:35:00
-        '%d/%m/%Y %I:%M:%S %p',        # 30/04/2026 10:35:00 PM
-        '%d/%m/%Y %I:%M:%S.%f %p',     # 30/04/2026 10:35:00.000 p. m.
-        '%d/%m/%Y %I:%M:%S.%f',        # 30/04/2026 10:35:00.000
-        '%d/%m/%Y %I:%M %p',           # 30/04/2026 10:35 PM
-        '%Y/%m/%d %H:%M:%S',           # 2026/04/30 22:35:00
-        '%Y-%m-%dT%H:%M:%S',           # 2026-04-30T22:35:00
-        '%Y-%m-%d %H:%M:%S.%f',        # 2026-04-30 22:35:00.000
-        '%d-%m-%Y %H:%M:%S',           # 30-04-2026 22:35:00
-        '%m/%d/%Y %H:%M:%S',           # 04/30/2026 22:35:00
-        '%d/%m/%Y %I:%M:%S.%f %p',     # 30/04/2026 10:35:00.000 p. m. (con espacio extra)
-    ]
-    
-    # Limpiar la fecha: reemplazar 'p. m.' por 'PM' y 'a. m.' por 'AM'
-    fecha_limpia = fecha_str
-    fecha_limpia = fecha_limpia.replace('p. m.', 'PM').replace('a. m.', 'AM')
-    fecha_limpia = fecha_limpia.replace('p. m', 'PM').replace('a. m', 'AM')
-    fecha_limpia = fecha_limpia.replace('p.m.', 'PM').replace('a.m.', 'AM')
-    fecha_limpia = fecha_limpia.replace('p.m', 'PM').replace('a.m', 'AM')
-    fecha_limpia = fecha_limpia.replace('p. m.', 'PM').replace('a. m.', 'AM')
-    
-    # Intentar con cada formato
-    for formato in formatos_posibles:
-        try:
-            fecha_obj = datetime.strptime(fecha_limpia, formato)
-            # Convertir al formato esperado
-            return fecha_obj.strftime('%Y-%m-%d %H:%M:%S')
-        except ValueError:
-            continue
-    
-    # Si no funciona con los formatos predefinidos, intentar con pandas
-    try:
-        fecha_obj = pd.to_datetime(fecha_str)
-        return fecha_obj.strftime('%Y-%m-%d %H:%M:%S')
-    except:
-        # Si todo falla, mostrar error y devolver la fecha original
-        print(f"ADVERTENCIA: No se pudo convertir la fecha: {fecha_str}")
-        return fecha_str
-
-def procesar_perfil_como_verifica_perfil(df, nombre_archivo):
-    """
-    Procesa un DataFrame de perfil de carga usando la misma lógica que VerificaPerfil_1_ION.py
-    """
-    try:
-        # --- SELECCIONAR SOLO LAS PRIMERAS 7 COLUMNAS ---
-        columnas_necesarias = 7
-        if len(df.columns) > columnas_necesarias:
-            df = df.iloc[:, :columnas_necesarias]
-        
-        # Identificar la columna de fecha
-        columna_fecha = None
-        for col in df.columns:
-            if 'date' in col.lower() or 'fecha' in col.lower() or 'time' in col.lower():
-                columna_fecha = col
-                break
-        
-        if columna_fecha is None:
-            columna_fecha = df.columns[0]
-        
-        # Crear copia y renombrar columna de fecha
-        df_procesado = df.copy()
-        df_procesado = df_procesado.rename(columns={columna_fecha: 'Fecha'})
-        
-        # Aplicar conversión de fecha
-        df_procesado['Fecha'] = df_procesado['Fecha'].apply(validar_y_convertir_fecha)
-        
-        # Eliminar duplicados
-        df_sin_duplicados = df_procesado.drop_duplicates(subset=['Fecha'], keep='first')
-        
-        # Ordenar por fecha
-        df_sin_duplicados['Fecha'] = pd.to_datetime(df_sin_duplicados['Fecha'])
-        df_sin_duplicados = df_sin_duplicados.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
-        
-        # Verificar y llenar registros faltantes
-        num_registros = len(df_sin_duplicados)
-        if num_registros > 0:
-            fi = df_sin_duplicados.iloc[0, 0]
-            ff = df_sin_duplicados.iloc[num_registros - 1, 0]
-            dias = (ff - fi).days + 1
-            registros_esperados = dias * 288
-            
-            Fecha_Correcta = fi
-            x = 0
-            Faltantes = 0
-            Perfiles_faltantes = None
-            primera_vez = 0
-            Frecuencia_Perfil_MIN = 5
-            columnas = df_sin_duplicados.columns.tolist()
-            
-            while x < num_registros:
-                fecha_archivo = df_sin_duplicados.iloc[x, 0]
-                if fecha_archivo != Fecha_Correcta:
-                    nuevo_registro = {'Fecha': Fecha_Correcta}
-                    for col in columnas[1:]:
-                        nuevo_registro[col] = 0
-                    if primera_vez == 0:
-                        Perfiles_faltantes = pd.DataFrame([nuevo_registro])
-                        primera_vez = 1
-                    else:
-                        Perfiles_faltantes = pd.concat([Perfiles_faltantes, pd.DataFrame([nuevo_registro])], ignore_index=True)
-                    x = x - 1
-                    Faltantes = Faltantes + 1
-                x = x + 1
-                Fecha_Correcta = Fecha_Correcta + timedelta(minutes=Frecuencia_Perfil_MIN)
-            
-            if Faltantes != 0:
-                df_completo = pd.concat([df_sin_duplicados, Perfiles_faltantes], ignore_index=True)
-            else:
-                df_completo = df_sin_duplicados
-            
-            # Ordenar y formatear
-            df_completo['Fecha'] = pd.to_datetime(df_completo['Fecha'])
-            df_completo = df_completo.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
-            df_completo['Fecha'] = df_completo['Fecha'].dt.strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Asegurar solo 7 columnas
-            if len(df_completo.columns) > 7:
-                df_completo = df_completo.iloc[:, :7]
-            
-            # Renombrar columnas al formato estándar
-            nombres_estandar = ['Fecha', 'KWH_REC', 'KWH_ENT', 'KVARH_Q1', 'KVARH_Q2', 'KVARH_Q3', 'KVARH_Q4']
-            mapeo_salida = {}
-            for i, col in enumerate(df_completo.columns):
-                if i < len(nombres_estandar):
-                    mapeo_salida[col] = nombres_estandar[i]
-            
-            df_completo = df_completo.rename(columns=mapeo_salida)
-            
-            return True, df_completo, {
-                'registros_originales': len(df),
-                'duplicados_eliminados': len(df) - len(df_sin_duplicados),
-                'faltantes_insertados': Faltantes,
-                'registros_finales': len(df_completo)
-            }
-        
-        return False, None, {'error': 'No hay datos para procesar'}
-        
-    except Exception as e:
-        return False, None, {'error': str(e)}
-
-# ========== CONFIGURACIÓN DE AUTENTICACIÓN ==========
-# Usuarios predefinidos (en producción usar una base de datos)
-USUARIOS = {
-    'admin': {
-        'password': hashlib.sha256('admin123'.encode()).hexdigest(),
-        'rol': 'admin',
-        'nombre': 'Administrador'
-    },
-    'user': {
-        'password': hashlib.sha256('user123'.encode()).hexdigest(),
-        'rol': 'user',
-        'nombre': 'Usuario'
-    }
-}
-
-def verificar_credenciales(usuario, password):
-    """Verifica las credenciales del usuario"""
-    if usuario in USUARIOS:
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        if USUARIOS[usuario]['password'] == password_hash:
-            return True, USUARIOS[usuario]
-    return False, None
-
-def init_session_state():
-    """Inicializa el estado de la sesión"""
-    if 'autenticado' not in st.session_state:
-        st.session_state.autenticado = False
-        st.session_state.usuario = None
-        st.session_state.rol = None
-        st.session_state.nombre_usuario = None
-
-def login():
-    """Muestra el formulario de login"""
-    st.markdown("""
-    <style>
-        .login-container {
-            max-width: 400px;
-            margin: 100px auto;
-            padding: 40px;
-            background: white;
-            border-radius: 16px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-            border-top: 6px solid #0055a4;
-        }
-        .login-title {
-            text-align: center;
-            margin-bottom: 30px;
-            color: #1a202c;
-        }
-        .login-title h1 {
-            font-size: 28px;
-            font-weight: 700;
-        }
-        .login-title p {
-            color: #718096;
-            font-size: 14px;
-        }
-        .login-footer {
-            text-align: center;
-            margin-top: 20px;
-            color: #a0aec0;
-            font-size: 12px;
-        }
-        .stButton button {
-            width: 100%;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown('<div class="login-container">', unsafe_allow_html=True)
-        st.markdown('<div class="login-title">', unsafe_allow_html=True)
-        st.markdown("## ⚡ BESS")
-        st.markdown("<p>Sistema de Procesamiento y Reportes de Energía</p>", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
-        with st.form("login_form"):
-            usuario = st.text_input("👤 Usuario", placeholder="Ingresa tu usuario")
-            password = st.text_input("🔒 Contraseña", type="password", placeholder="Ingresa tu contraseña")
-            
-            submit = st.form_submit_button("🔑 Iniciar Sesión", use_container_width=True, type="primary")
-            
-            if submit:
-                if usuario and password:
-                    valido, datos_usuario = verificar_credenciales(usuario, password)
-                    if valido:
-                        st.session_state.autenticado = True
-                        st.session_state.usuario = usuario
-                        st.session_state.rol = datos_usuario['rol']
-                        st.session_state.nombre_usuario = datos_usuario['nombre']
-                        st.success("✅ Inicio de sesión exitoso")
-                        st.rerun()
-                    else:
-                        st.error("❌ Usuario o contraseña incorrectos")
-                else:
-                    st.warning("⚠️ Por favor ingresa usuario y contraseña")
-        
-        st.markdown('<div class="login-footer">Sistema BESS v5.0</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-def logout():
-    """Cierra la sesión del usuario"""
-    for key in ['autenticado', 'usuario', 'rol', 'nombre_usuario']:
-        if key in st.session_state:
-            del st.session_state[key]
-    st.rerun()
-
-# Importar estilos y funciones
-from styles import (
-    COLORES_BESS,
-    colores_periodo,
-    graficar_comparacion_iusa_plotly,
-    graficar_perfil_carga_plotly,
-    graficar_arbitraje_periodos_plotly,
-    graficar_consumo_diario_plotly,
-    graficar_tendencia_mensual_plotly,
-    graficar_dispersion_plotly,
-    graficar_sankey_plotly,
-    aplicar_estilo_plotly
-)
-
-# ========== CONFIGURACIÓN GLOBAL ==========
+# ========== CONSTANTES ==========
 DIRECTORIO_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 DIRECTORIO_FUENTE = os.path.join(DIRECTORIO_BASE, 'ArchivosFuente')
 DIRECTORIO_PROCESADOS = os.path.join(DIRECTORIO_BASE, 'ArchivosProcesados')
@@ -312,1185 +39,2587 @@ DIRECTORIO_REPORTES = os.path.join(DIRECTORIO_BASE, 'ArchivosReporte')
 DIRECTORIO_REPORTES_DIARIOS = os.path.join(DIRECTORIO_BASE, 'ReportesDiarios')
 DIRECTORIO_TARIFAS = os.path.join(DIRECTORIO_BASE, 'Tarifas')
 
-# Crear directorios
 for dir_path in [DIRECTORIO_BASE, DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS,
                  DIRECTORIO_REPORTES, DIRECTORIO_REPORTES_DIARIOS, DIRECTORIO_TARIFAS]:
     os.makedirs(dir_path, exist_ok=True)
 
-# ========== NUEVA FUNCIÓN PARA CARGAR ARCHIVOS ==========
+# ========== COLORES ==========
+COLORES = {
+    'primary': '#1a5276',
+    'secondary': '#2e86c1',
+    'success': '#27ae60',
+    'warning': '#f39c12',
+    'danger': '#e74c3c',
+    'base': '#3498db',
+    'intermedio': '#f1c40f',
+    'punta': '#e74c3c',
+    'carga': '#2ecc71',
+    'descarga': '#e74c3c',
+}
 
-def guardar_archivo_cargado(archivo_cargado, tipo_archivo):
-    """
-    Guarda un archivo cargado en el directorio correspondiente.
-    tipo_archivo: 'fuente' para ArchivosFuente, 'tarifa' para Tarifas
-    """
-    try:
-        # Determinar el directorio de destino
-        if tipo_archivo == 'fuente':
-            directorio_destino = DIRECTORIO_FUENTE
-        elif tipo_archivo == 'tarifa':
-            directorio_destino = DIRECTORIO_TARIFAS
+def color_periodo(periodo):
+    return {'Base': COLORES['base'], 'Intermedio': COLORES['intermedio'], 'Punta': COLORES['punta']}.get(periodo, '#95a5a6')
+
+PERIODO_BG = {
+    'Base': 'rgba(52, 152, 219, 0.14)',
+    'Intermedio': 'rgba(241, 196, 15, 0.18)',
+    'Punta': 'rgba(231, 76, 60, 0.14)',
+}
+
+def _a_num(val):
+    v = pd.to_numeric(val, errors='coerce')
+    return 0.0 if pd.isna(v) else float(v)
+
+def sumar_energia(val):
+    """Suma kWh conservando decimales."""
+    if isinstance(val, pd.Series):
+        return float(pd.to_numeric(val, errors='coerce').fillna(0).sum())
+    if isinstance(val, pd.DataFrame):
+        return float(pd.to_numeric(val, errors='coerce').fillna(0).sum().sum())
+    if isinstance(val, (list, tuple, np.ndarray)):
+        return float(np.nansum(pd.to_numeric(val, errors='coerce')))
+    return _a_num(val)
+
+def _redondear_half_up(val, decimales=0):
+    """Redondeo ≥0.5 hacia arriba, <0.5 hacia abajo."""
+    quantum = Decimal('1') if decimales == 0 else Decimal(f'0.{"0" * (decimales - 1)}1')
+    return Decimal(str(_a_num(val))).quantize(quantum, rounding=ROUND_HALF_UP)
+
+def redondear_kwh(val):
+    """kWh: redondeo al entero más cercano (≥0.5 arriba, <0.5 abajo)."""
+    return int(_redondear_half_up(val, 0))
+
+def fmt_kwh(val):
+    """Formatea kWh para mostrar (redondeo al entero más cercano)."""
+    return f"{redondear_kwh(val):,}"
+
+def redondear_mxn_energia(val):
+    """Costo de energía (MXN): redondeo a 2 decimales (≥0.5 arriba)."""
+    return float(_redondear_half_up(val, 2))
+
+def kwh_para_calculo(val):
+    """kWh redondeados usados en cálculos monetarios de energía."""
+    return redondear_kwh(val)
+
+def redondear_arriba_kw(val):
+    """Demanda / capacidad (kW): redondeo hacia arriba."""
+    return int(np.ceil(_a_num(val)))
+
+def redondear_arriba_mxn(val):
+    """Costo de capacidad (MXN): redondeo hacia arriba con 2 decimales."""
+    return np.ceil(_a_num(val) * 100) / 100
+
+def section_header(titulo, descripcion='', compact=False):
+    cls = 'section-title-sm' if compact else 'section-title'
+    html = f'<p class="{cls}">{titulo}</p>'
+    if descripcion:
+        html += f'<p class="section-desc">{descripcion}</p>'
+    st.markdown(html, unsafe_allow_html=True)
+
+def render_selector_fecha_unica(titulo, descripcion, label, fecha_def, fecha_min, fecha_max, key, metric_label=None, metric_fn=None):
+    """Panel compacto con un solo date_input y métrica auxiliar opcional."""
+    with st.container(border=True):
+        st.markdown('<span class="panel-fecha-unica-anchor" aria-hidden="true"></span>', unsafe_allow_html=True)
+        section_header(titulo, descripcion, compact=True)
+        if metric_label and metric_fn:
+            col_fecha, col_info = st.columns([3, 1])
+            with col_fecha:
+                fecha = st.date_input(
+                    label,
+                    value=fecha_def,
+                    min_value=fecha_min,
+                    max_value=fecha_max,
+                    key=key,
+                )
+            with col_info:
+                metric_compact(metric_label, metric_fn(fecha))
         else:
-            return False, "Tipo de archivo no válido"
-        
-        # Crear el directorio si no existe
-        os.makedirs(directorio_destino, exist_ok=True)
-        
-        # Obtener el nombre del archivo
-        nombre_archivo = archivo_cargado.name
-        
-        # Verificar que sea CSV
-        if not nombre_archivo.lower().endswith('.csv'):
-            return False, f"El archivo {nombre_archivo} no es un archivo CSV"
-        
-        # Construir la ruta completa
-        ruta_destino = os.path.join(directorio_destino, nombre_archivo)
-        
-        # Si el archivo ya existe, preguntar si sobrescribir
-        if os.path.exists(ruta_destino):
-            # Generar un nombre único con timestamp
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            nombre_base, extension = os.path.splitext(nombre_archivo)
-            nombre_archivo_respaldo = f"{nombre_base}_{timestamp}{extension}"
-            ruta_respaldo = os.path.join(directorio_destino, nombre_archivo_respaldo)
-            
-            # Mover el archivo existente a respaldo
-            shutil.move(ruta_destino, ruta_respaldo)
-            
-            # Guardar el nuevo archivo
-            with open(ruta_destino, 'wb') as f:
-                f.write(archivo_cargado.getbuffer())
-            
-            return True, f"Archivo guardado como {nombre_archivo}. El archivo anterior fue respaldado como {nombre_archivo_respaldo}"
-        else:
-            # Guardar el nuevo archivo
-            with open(ruta_destino, 'wb') as f:
-                f.write(archivo_cargado.getbuffer())
-            
-            return True, f"Archivo {nombre_archivo} guardado exitosamente"
-            
-    except Exception as e:
-        return False, f"Error al guardar el archivo: {str(e)}"
-
-def validar_archivo_csv(archivo_cargado):
-    """
-    Valida que el archivo CSV tenga el formato correcto
-    """
-    try:
-        # Intentar leer el archivo
-        df = pd.read_csv(archivo_cargado)
-        
-        # Verificar que tenga al menos una columna
-        if len(df.columns) == 0:
-            return False, "El archivo no contiene columnas"
-        
-        # Verificar que tenga al menos 7 columnas
-        if len(df.columns) < 7:
-            return False, f"El archivo solo tiene {len(df.columns)} columnas. Se esperan al menos 7."
-        
-        # Verificar la columna de fecha
-        columna_fecha = None
-        for col in df.columns:
-            if 'date' in col.lower() or 'fecha' in col.lower() or 'time' in col.lower():
-                columna_fecha = col
-                break
-        
-        if columna_fecha is None:
-            return False, "No se encontró una columna de fecha (debe contener 'date', 'fecha' o 'time')"
-        
-        # Intentar convertir la primera fecha como validación
-        try:
-            fecha_prueba = df.iloc[0, df.columns.get_loc(columna_fecha)]
-            fecha_convertida = validar_y_convertir_fecha(fecha_prueba)
-            if fecha_convertida == fecha_prueba:
-                # Si no se pudo convertir, mostrar advertencia pero permitir
-                return True, "Archivo válido (la fecha podría necesitar formato)"
-        except:
-            pass
-        
-        return True, "Archivo CSV válido"
-        
-    except Exception as e:
-        return False, f"Error al validar el archivo: {str(e)}"
-
-def obtener_archivos_cargados(directorio):
-    """
-    Obtiene la lista de archivos CSV en un directorio
-    """
-    try:
-        if not os.path.exists(directorio):
-            return []
-        
-        archivos = []
-        for archivo in os.listdir(directorio):
-            if archivo.lower().endswith('.csv'):
-                ruta_completa = os.path.join(directorio, archivo)
-                tamaño = os.path.getsize(ruta_completa)
-                fecha_mod = datetime.fromtimestamp(os.path.getmtime(ruta_completa))
-                archivos.append({
-                    'nombre': archivo,
-                    'tamaño': f"{tamaño / 1024:.1f} KB" if tamaño < 1024*1024 else f"{tamaño / (1024*1024):.1f} MB",
-                    'fecha_modificacion': fecha_mod.strftime('%d/%m/%Y %H:%M:%S')
-                })
-        
-        return sorted(archivos, key=lambda x: x['fecha_modificacion'], reverse=True)
-    except Exception as e:
-        return []
-
-def mostrar_archivos_cargados():
-    """
-    Muestra los archivos cargados en el directorio
-    """
-    archivos_fuente = obtener_archivos_cargados(DIRECTORIO_FUENTE)
-    archivos_tarifas = obtener_archivos_cargados(DIRECTORIO_TARIFAS)
-    
-    st.markdown("### 📁 Archivos en el Sistema")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.markdown("**📂 Archivos Fuente**")
-        if archivos_fuente:
-            for archivo in archivos_fuente:
-                st.write(f"📄 {archivo['nombre']} ({archivo['tamaño']})")
-        else:
-            st.info("No hay archivos fuente cargados")
-    
-    with col2:
-        st.markdown("**💰 Archivos de Tarifas**")
-        if archivos_tarifas:
-            for archivo in archivos_tarifas:
-                st.write(f"📄 {archivo['nombre']} ({archivo['tamaño']})")
-        else:
-            st.info("No hay archivos de tarifas cargados")
-
-# ========== FUNCIONES DE PROCESAMIENTO ==========
-
-def identificar_y_renombrar_archivos():
-    """
-    Identifica archivos en DIRECTORIO_FUENTE por patrones en el nombre
-    y los renombra a los nombres estándar: ION.csv, BESS.csv, Banco1.csv
-    SOBRESCRIBE directamente si ya existen los archivos estándar
-    """
-    patrones = {
-        'ION': 'IUSA1',
-        'BESS': 'CS3878',
-        'Banco1': 'CS1996'
-    }
-    
-    renombrados = {}
-    errores = []
-    
-    # Obtener lista de archivos en el directorio fuente
-    if not os.path.exists(DIRECTORIO_FUENTE):
-        os.makedirs(DIRECTORIO_FUENTE, exist_ok=True)
-        return {'renombrados': {}, 'errores': ['Directorio fuente no existe, se creó vacío']}
-    
-    archivos = os.listdir(DIRECTORIO_FUENTE)
-    
-    # Buscar archivos que coincidan con los patrones
-    for nombre_estandar, patron in patrones.items():
-        archivos_encontrados = []
-        
-        for archivo in archivos:
-            # Verificar si el archivo contiene el patrón (sin importar mayúsculas/minúsculas)
-            if patron.lower() in archivo.lower():
-                archivos_encontrados.append(archivo)
-        
-        if len(archivos_encontrados) == 0:
-            errores.append(f"No se encontró ningún archivo que contenga '{patron}' para {nombre_estandar}")
-            continue
-        
-        # Si hay múltiples coincidencias, tomar la primera (la más reciente si es posible)
-        if len(archivos_encontrados) > 1:
-            # Ordenar por fecha de modificación (más reciente primero)
-            archivos_encontrados.sort(
-                key=lambda x: os.path.getmtime(os.path.join(DIRECTORIO_FUENTE, x)), 
-                reverse=True
+            fecha = st.date_input(
+                label,
+                value=fecha_def,
+                min_value=fecha_min,
+                max_value=fecha_max,
+                key=key,
             )
-            errores.append(f"Múltiples archivos encontrados para '{patron}', usando el más reciente: {archivos_encontrados[0]}")
-        
-        archivo_origen = archivos_encontrados[0]
-        ruta_origen = os.path.join(DIRECTORIO_FUENTE, archivo_origen)
-        ruta_destino = os.path.join(DIRECTORIO_FUENTE, f"{nombre_estandar}.csv")
-        
-        # Renombrar el archivo (sobrescribe si ya existe)
-        try:
-            if ruta_origen != ruta_destino:  # Solo renombrar si son diferentes
-                # Si el archivo destino ya existe, simplemente lo sobrescribimos
-                if os.path.exists(ruta_destino):
-                    os.remove(ruta_destino)  # Eliminar el archivo existente
-                    print(f"🗑️ Archivo existente eliminado: {nombre_estandar}.csv")
-                
-                os.rename(ruta_origen, ruta_destino)
-                renombrados[nombre_estandar] = {
-                    'origen': archivo_origen,
-                    'destino': f"{nombre_estandar}.csv",
-                    'sobrescrito': True
-                }
-                print(f"✅ Archivo renombrado: {archivo_origen} → {nombre_estandar}.csv")
-            else:
-                renombrados[nombre_estandar] = {
-                    'origen': archivo_origen,
-                    'destino': f"{nombre_estandar}.csv",
-                    'nota': 'Ya tenía el nombre correcto',
-                    'sobrescrito': False
-                }
-        except Exception as e:
-            errores.append(f"Error al renombrar {archivo_origen} a {nombre_estandar}.csv: {str(e)}")
-    
-    return {'renombrados': renombrados, 'errores': errores}
+    return fecha
 
-def cargar_tarifas():
-    ruta_tarifas = os.path.join(DIRECTORIO_TARIFAS, 'Tarifas_2026.csv')
-    if not os.path.exists(ruta_tarifas):
-        return {'Base': {i: 0 for i in range(1, 13)}, 'Intermedio': {i: 0 for i in range(1, 13)}, 'Punta': {i: 0 for i in range(1, 13)}}
-    try:
-        df_tarifas = pd.read_csv(ruta_tarifas)
-        tarifas = {'Base': {}, 'Intermedio': {}, 'Punta': {}}
-        for _, row in df_tarifas.iterrows():
-            tipo = row['Tarifa'].strip()
-            if tipo not in tarifas:
-                continue
-            for mes in range(1, 13):
-                col_mes = str(mes)
-                if col_mes in df_tarifas.columns:
-                    try:
-                        tarifas[tipo][mes] = float(row[col_mes])
-                    except (ValueError, TypeError):
-                        tarifas[tipo][mes] = 0
-                else:
-                    tarifas[tipo][mes] = 0
-        for tipo in tarifas:
-            for mes in range(1, 13):
-                if mes not in tarifas[tipo]:
-                    tarifas[tipo][mes] = 0
-        return tarifas
-    except Exception as e:
-        return {'Base': {i: 0 for i in range(1, 13)}, 'Intermedio': {i: 0 for i in range(1, 13)}, 'Punta': {i: 0 for i in range(1, 13)}}
+def metric_compact(label, value):
+    st.markdown(
+        f'<div class="metric-compact"><div class="label">{label}</div>'
+        f'<div class="value">{value}</div></div>',
+        unsafe_allow_html=True,
+    )
 
-def calcular_arbitraje_diario(df_dia, tarifas, mes):
-    """Calcula el arbitraje diario detallado"""
-    df_periodo = df_dia.groupby('PERIODO').agg({
-        'BESS_REC_kW': 'mean',
-        'BESS_ENT_kW': 'mean',
-        'KWH_REC_BESS': 'sum',
-        'KWH_ENT_BESS': 'sum',
-    }).reset_index()
-    
-    energia = {}
-    for _, row in df_periodo.iterrows():
-        periodo = row['PERIODO']
-        energia[periodo] = {
-            'carga_kwh': row['KWH_REC_BESS'],
-            'descarga_kwh': row['KWH_ENT_BESS'],
-            'precio': tarifas.get(periodo, {}).get(mes, 0)
-        }
-    
-    arbitraje = {}
-    total_arbitraje = 0
-    total_carga = 0
-    total_descarga = 0
-    
-    for periodo in ['Base', 'Intermedio', 'Punta']:
-        if periodo in energia:
-            carga = energia[periodo]['carga_kwh']
-            descarga = energia[periodo]['descarga_kwh']
-            precio = energia[periodo]['precio']
-            arbitraje[periodo] = (descarga - carga) * precio
-            total_arbitraje += arbitraje[periodo]
-            total_carga += carga
-            total_descarga += descarga
-    
+def html_tarifas_sidebar(tarifas, mes):
+    items = [
+        ('Base', f"${tarifas.get('Base', {}).get(mes, 0):.4f}"),
+        ('Intermedio', f"${tarifas.get('Intermedio', {}).get(mes, 0):.4f}"),
+        ('Punta', f"${tarifas.get('Punta', {}).get(mes, 0):.4f}"),
+        ('Capacidad', f"${tarifas.get('Capacidad', {}).get(mes, 0):,.2f}"),
+    ]
+    celdas = ''.join(
+        f'<div class="sidebar-tarifa-item"><div class="label">{lbl}</div>'
+        f'<div class="value">{val}</div></div>'
+        for lbl, val in items
+    )
+    return f'<div class="sidebar-tarifas-grid">{celdas}</div>'
+
+def estado_datos_sin_bess(prefijo):
+    """Estado consolidado de columnas sin BESS."""
     return {
-        'arbitraje': arbitraje,
-        'total_arbitraje': total_arbitraje,
-        'total_carga': total_carga,
-        'total_descarga': total_descarga,
-        'eficiencia': (total_descarga / total_carga * 100) if total_carga > 0 else 0
+        'energia': energia_diaria_tiene_sin_bess(prefijo),
+        'demanda': acumulados_tiene_demanda_sin_bess(prefijo),
     }
 
-def mostrar_metrica_arbitraje(valor, periodo=None):
-    """Muestra una métrica de arbitraje con colores"""
-    if valor >= 0:
-        color = '#27ae60'
-        icono = '📈'
-        bg_color = '#f0fff4'
-        border_color = '#27ae60'
-    else:
-        color = '#e74c3c'
-        icono = '📉'
-        bg_color = '#fff5f5'
-        border_color = '#e74c3c'
-    
-    if periodo:
-        return f"""
-        <div style="background-color: {bg_color}; border-radius: 12px; padding: 15px; text-align: center; border-left: 6px solid {border_color}; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
-            <div style="color: #4a5568; font-size: 13px; font-weight: 600;">{periodo}</div>
-            <div style="color: {color}; font-size: 22px; font-weight: bold; margin-top: 4px;">{icono} ${valor:,.0f}</div>
-        </div>
-        """
-    else:
-        return f"""
-        <div style="background: linear-gradient(135deg, #1a202c 0%, #2d3748 100%); border-radius: 16px; padding: 20px; text-align: center; border: 2px solid {color}; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">
-            <div style="color: #e2e8f0; font-size: 14px; font-weight: 600; letter-spacing: 1px;">💹 ARBITRAJE TOTAL</div>
-            <div style="color: {color}; font-size: 36px; font-weight: bold; margin-top: 4px;">{icono} ${valor:,.0f}</div>
-        </div>
-        """
-
-def mostrar_tarjeta_bess(carga, descarga, eficiencia):
-    """Muestra tarjeta de resumen BESS"""
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric(
-            label="⚡ Carga BESS", 
-            value=f"{carga:,.0f} kWh",
-            help="Energía consumida por el BESS"
+def mostrar_aviso_sin_bess(estado):
+    msgs = []
+    if not estado['energia']:
+        msgs.append('energía diaria (`ENERGIA_*_POR_DIA.csv`)')
+    if not estado['demanda']:
+        msgs.append('demanda en acumulados (`ACUMULADOS_*.csv`)')
+    if msgs:
+        st.info(
+            'Faltan datos sin BESS en: ' + ' y '.join(msgs) + '. '
+            'Vuelve a procesar los datos desde el panel de administración.'
         )
-    with col2:
-        st.metric(
-            label="🔋 Descarga BESS", 
-            value=f"{descarga:,.0f} kWh",
-            help="Energía entregada por el BESS"
-        )
-    with col3:
-        st.metric(
-            label="📊 Eficiencia", 
-            value=f"{eficiencia:.1f}%",
-            delta=f"{eficiencia - 85:.1f}%",
-            delta_color="normal" if eficiencia >= 80 else "inverse",
-            help="Eficiencia = (Descarga / Carga) × 100"
-        )
+        return True
+    return False
 
-# ========== FUNCIONES DE PROCESAMIENTO ==========
+def obtener_logo_html(width=110):
+    logo_path = os.path.join(DIRECTORIO_BASE, 'Logo IUSASOL.png')
+    if not os.path.exists(logo_path):
+        logo_path = os.path.join(DIRECTORIO_BASE, 'LogoIUSASOL.png')
+    if not os.path.exists(logo_path):
+        return ""
+    with open(logo_path, 'rb') as logo_file:
+        logo_b64 = base64.b64encode(logo_file.read()).decode()
+    mime = 'image/png' if logo_path.lower().endswith('.png') else 'image/jpeg'
+    return (
+        f'<img src="data:{mime};base64,{logo_b64}" width="{width}" '
+        f'alt="IUSASOL" style="display:block;" />'
+    )
 
-def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
-    """Procesa un archivo usando la lógica de VerificaPerfil_1_ION.py"""
-    ruta_completa_origen = os.path.join(ruta_origen, nombre_archivo)
-    ruta_completa_destino = os.path.join(ruta_destino, nombre_archivo)
-    
-    if not os.path.exists(ruta_completa_origen):
-        return False, f"No se encuentra {nombre_archivo}"
-    
-    try:
-        # Leer el archivo
-        perfil = pd.read_csv(ruta_completa_origen, encoding='utf-8-sig')
-        
-        # Usar la función de procesamiento unificada
-        exito, perfil_completo, info = procesar_perfil_como_verifica_perfil(perfil, nombre_archivo)
-        
-        if exito:
-            # Guardar el archivo procesado
-            os.makedirs(ruta_destino, exist_ok=True)
-            perfil_completo.to_csv(ruta_completa_destino, index=False)
-            
-            return True, {
-                'archivo': nombre_archivo,
-                'registros_originales': info.get('registros_originales', 0),
-                'duplicados_eliminados': info.get('duplicados_eliminados', 0),
-                'faltantes_insertados': info.get('faltantes_insertados', 0),
-                'registros_finales': info.get('registros_finales', 0)
-            }
-        else:
-            return False, info.get('error', 'Error en el procesamiento')
-            
-    except Exception as e:
-        return False, str(e)
-
-def verificar_datos_fuente():
-    """
-    Verifica los archivos fuente, primero los identifica y renombra según patrones,
-    luego procesa los archivos estándar (ION.csv, BESS.csv, Banco1.csv)
-    """
-    # Paso 1: Identificar y renombrar archivos según patrones
-    resultado_renombrado = identificar_y_renombrar_archivos()
-    
-    # Paso 2: Procesar los archivos estándar
-    archivos = ['Banco1.csv', 'BESS.csv', 'ION.csv']
-    resultados = {}
-    
-    for archivo in archivos:
-        ruta_origen = os.path.join(DIRECTORIO_FUENTE, archivo)
-        
-        # Verificar si el archivo existe después del renombrado
-        if os.path.exists(ruta_origen):
-            exito, info = procesar_archivo_verificacion(DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS, archivo)
-            if exito:
-                resultados[archivo] = info
-                # Agregar información del renombrado si existe
-                nombre_base = archivo.replace('.csv', '')
-                if nombre_base in resultado_renombrado['renombrados']:
-                    resultados[archivo]['renombrado_desde'] = resultado_renombrado['renombrados'][nombre_base]['origen']
-                    resultados[archivo]['sobrescrito'] = resultado_renombrado['renombrados'][nombre_base].get('sobrescrito', False)
-            else:
-                resultados[archivo] = {'error': info}
-        else:
-            # Si el archivo no existe, verificar si ya se procesó algún renombrado
-            nombre_base = archivo.replace('.csv', '')
-            if nombre_base in resultado_renombrado['renombrados']:
-                # El archivo fue renombrado pero por alguna razón no se encontró
-                resultados[archivo] = {'error': f'El archivo {archivo} fue renombrado pero no se encontró para procesar'}
-            else:
-                resultados[archivo] = {'error': f'Archivo no encontrado: {archivo}'}
-    
-    # Agregar información del proceso de renombrado
-    if resultado_renombrado['errores']:
-        for error in resultado_renombrado['errores']:
-            resultados.setdefault('_advertencias', []).append(error)
-    
-    # Agregar información de renombrados para mostrar en la interfaz
-    if resultado_renombrado['renombrados']:
-        resultados['_renombrados'] = resultado_renombrado['renombrados']
-    
-    return resultados
-
-# ========== FUNCIONES PARA REPORTE PDF ==========
-
-def get_mes_espanol(mes_numero):
-    meses = {1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
-             7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'}
-    return meses.get(mes_numero, '')
-
-def formatear_fecha_espanol(fecha_dt):
-    dia = fecha_dt.day
-    mes = get_mes_espanol(fecha_dt.month)
-    ano = fecha_dt.year
-    return f"{dia} de {mes} de {ano}"
-
-def buscar_logo():
-    posibles_rutas = [
-        os.path.join(DIRECTORIO_BASE, 'LogoIUSASOL.jpeg'),
-        os.path.join(DIRECTORIO_TARIFAS, 'LogoIUSASOL.jpeg'),
-        os.path.join(DIRECTORIO_REPORTES_DIARIOS, 'LogoIUSASOL.jpeg'),
-        'LogoIUSASOL.jpeg'
-    ]
-    for ruta in posibles_rutas:
-        if os.path.exists(ruta):
-            return ruta
-    return None
-
-def generar_reporte_pdf(fecha_str, medidor):
-    """Genera el reporte PDF utilizando reportlab"""
-    try:
-        from reportlab.lib.pagesizes import letter, landscape
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
-        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.units import inch
-        from reportlab.lib import colors
-        from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
-        from PIL import Image as PILImage
-        import matplotlib.pyplot as plt
-        import matplotlib.dates as mdates
-        
-        prefijo = 'ION' if medidor == 'ION' else 'BANCO'
-        
-        # Cargar datos
-        ruta_combinado = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo}.csv')
-        ruta_acumulados = os.path.join(DIRECTORIO_REPORTES, f'ACUMULADOS_{prefijo}.csv')
-        ruta_bess_dia = os.path.join(DIRECTORIO_REPORTES, 'ENERGIA_BESS_POR_DIA.csv')
-        
-        if not os.path.exists(ruta_combinado):
-            return False, "No se encontraron datos para generar el reporte"
-        
-        df_combinado = pd.read_csv(ruta_combinado)
-        df_combinado['DATETIME'] = pd.to_datetime(df_combinado['FECHA_HORA'], format='%d/%m/%Y %H:%M')
-        
-        fecha_dt = datetime.strptime(fecha_str, '%d/%m/%Y')
-        inicio = fecha_dt.replace(hour=0, minute=0, second=0)
-        fin = (fecha_dt + timedelta(days=1)).replace(hour=0, minute=0, second=0)
-        
-        mask = (df_combinado['DATETIME'] >= inicio) & (df_combinado['DATETIME'] < fin)
-        df_dia = df_combinado[mask].copy()
-        df_dia = df_dia.sort_values('DATETIME').reset_index(drop=True)
-        
-        if len(df_dia) == 0:
-            return False, f"No hay datos para la fecha {fecha_str}"
-        
-        # Nombre del archivo
-        nombre_archivo = f'Reporte_{medidor}_{fecha_dt.strftime("%Y%m%d")}.pdf'
-        ruta_pdf = os.path.join(DIRECTORIO_REPORTES_DIARIOS, nombre_archivo)
-        os.makedirs(DIRECTORIO_REPORTES_DIARIOS, exist_ok=True)
-        
-        # Crear PDF
-        doc = SimpleDocTemplate(ruta_pdf, pagesize=landscape(letter),
-                               rightMargin=20, leftMargin=20,
-                               topMargin=25, bottomMargin=25)
-        
-        styles = getSampleStyleSheet()
-        styles.add(ParagraphStyle(name='CustomSubtitleRight', parent=styles['Normal'],
-                                  fontSize=10, alignment=TA_RIGHT, spaceAfter=1,
-                                  textColor=colors.HexColor('#34495e')))
-        styles.add(ParagraphStyle(name='Footer', parent=styles['Normal'],
-                                  fontSize=7, alignment=TA_CENTER, textColor=colors.HexColor('#7f8c8d')))
-        
-        archivos_temp = []
-        story = []
-        
-        # Logo
-        logo_path = buscar_logo()
-        if logo_path:
-            try:
-                img_logo = PILImage.open(logo_path)
-                logo_width = 1.8 * inch
-                logo_height = logo_width * (img_logo.height / img_logo.width)
-                logo_temp = os.path.join(DIRECTORIO_REPORTES_DIARIOS, 'temp_logo.png')
-                img_logo.save(logo_temp, 'PNG', quality=95)
-                archivos_temp.append(logo_temp)
-                story.append(Image(logo_temp, width=logo_width, height=logo_height))
-                story.append(Spacer(1, 0.02*inch))
-            except Exception as e:
-                pass
-        
-        # Fecha
-        fecha_espanol = formatear_fecha_espanol(fecha_dt)
-        story.append(Paragraph("Pastejé, Jocotitlán, Estado de México", styles['CustomSubtitleRight']))
-        story.append(Paragraph(f"Reporte del {fecha_espanol}", styles['CustomSubtitleRight']))
-        story.append(Spacer(1, 0.05*inch))
-        
-        # Generar gráfica con matplotlib
-        fig, ax = plt.subplots(figsize=(14, 4.5), facecolor='white', dpi=150)
-        ax.set_facecolor('#f0f2f5')
-        
-        horas = df_dia['DATETIME'].values
-        iusa_con = df_dia[f'IUSA_CON_BESS_{prefijo}_kW'].values
-        bess_rec = df_dia['BESS_REC_kW'].values
-        bess_ent = -df_dia['BESS_ENT_kW'].values
-        
-        ax.fill_between(horas, 0, iusa_con, alpha=0.3, color='#0055a4')
-        ax.fill_between(horas, 0, bess_rec, alpha=0.3, color='#00a86b')
-        ax.fill_between(horas, bess_ent, 0, alpha=0.3, color='#d62828')
-        
-        ax.plot(horas, iusa_con, color='#0055a4', linewidth=2.5, label='IUSA 1 - Con BESS')
-        ax.plot(horas, bess_rec, color='#00a86b', linewidth=2, label='Carga BESS')
-        ax.plot(horas, bess_ent, color='#d62828', linewidth=2, label='Descarga BESS')
-        
-        ax.set_title('Perfil de Carga', fontsize=16, fontweight='bold')
-        ax.set_xlabel('Hora', fontsize=13)
-        ax.set_ylabel('Potencia (kW)', fontsize=13)
-        ax.grid(True, alpha=0.15)
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
-        ax.xaxis.set_major_locator(mdates.HourLocator(interval=2))
-        plt.xticks(rotation=45)
-        ax.legend(loc='upper center', fontsize=11, ncol=3)
-        
-        plt.tight_layout()
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=200, bbox_inches='tight', facecolor='white')
-        buf.seek(0)
-        plt.close(fig)
-        
-        img_path = os.path.join(DIRECTORIO_REPORTES_DIARIOS, f'temp_perfil_{prefijo}_{fecha_dt.strftime("%Y%m%d")}.png')
-        archivos_temp.append(img_path)
-        img = PILImage.open(buf)
-        img.save(img_path, 'PNG', quality=95, dpi=(200, 200))
-        story.append(Image(img_path, width=10.5*inch, height=4.0*inch))
-        story.append(Spacer(1, 0.08*inch))
-        
-        # Tabla de datos
-        tarifas = cargar_tarifas()
-        mes = fecha_dt.month
-        
-        # Cargar datos acumulados
-        if os.path.exists(ruta_acumulados):
-            df_acum = pd.read_csv(ruta_acumulados)
-            fila_acum = df_acum[df_acum['FECHA'] == fecha_str]
-        else:
-            fila_acum = None
-        
-        if os.path.exists(ruta_bess_dia):
-            df_bess_dia = pd.read_csv(ruta_bess_dia)
-            fila_bess = df_bess_dia[df_bess_dia['FECHA'] == fecha_str]
-        else:
-            fila_bess = None
-        
-        data = [['Periodo', 'Base', 'Intermedio', 'Punta', 'Total']]
-        
-        if fila_acum is not None and len(fila_acum) > 0:
-            fila = fila_acum.iloc[0]
-            consumo_base = int(round(fila.get('BASE_REC_ACUM', 0)))
-            consumo_intermedio = int(round(fila.get('INTERMEDIO_REC_ACUM', 0)))
-            consumo_punta = int(round(fila.get('PUNTA_REC_ACUM', 0)))
-            consumo_total = consumo_base + consumo_intermedio + consumo_punta
-            
-            demanda_base = int(np.ceil(fila.get('BASE_DEM_CON_BESS_MAX', 0)))
-            demanda_intermedio = int(np.ceil(fila.get('INTERMEDIO_DEM_CON_BESS_MAX', 0)))
-            demanda_punta = int(np.ceil(fila.get('PUNTA_DEM_CON_BESS_MAX', 0)))
-        else:
-            consumo_base = consumo_intermedio = consumo_punta = consumo_total = 0
-            demanda_base = demanda_intermedio = demanda_punta = 0
-        
-        if fila_bess is not None and len(fila_bess) > 0:
-            fila = fila_bess.iloc[0]
-            carga_base = int(round(fila.get('BASE_REC', 0)))
-            carga_intermedio = int(round(fila.get('INTERMEDIO_REC', 0)))
-            carga_punta = int(round(fila.get('PUNTA_REC', 0)))
-            carga_total = carga_base + carga_intermedio + carga_punta
-            
-            descarga_base = int(round(fila.get('BASE_ENT', 0)))
-            descarga_intermedio = int(round(fila.get('INTERMEDIO_ENT', 0)))
-            descarga_punta = int(round(fila.get('PUNTA_ENT', 0)))
-            descarga_total = descarga_base + descarga_intermedio + descarga_punta
-        else:
-            carga_base = carga_intermedio = carga_punta = carga_total = 0
-            descarga_base = descarga_intermedio = descarga_punta = descarga_total = 0
-        
-        data.append(['Consumo Mensual (kWh)', f'{consumo_base:,}', f'{consumo_intermedio:,}', f'{consumo_punta:,}', f'{consumo_total:,}'])
-        data.append(['Demanda Rolada (kW)', f'{demanda_base:,}', f'{demanda_intermedio:,}', f'{demanda_punta:,}', f'{demanda_punta:,}'])
-        data.append(['Carga Diaria (kWh)', f'{carga_base:,}', f'{carga_intermedio:,}', f'{carga_punta:,}', f'{carga_total:,}'])
-        data.append(['Descarga Diaria (kWh)', f'{descarga_base:,}', f'{descarga_intermedio:,}', f'{descarga_punta:,}', f'{descarga_total:,}'])
-        
-        precio_base = tarifas['Base'].get(mes, 0)
-        precio_intermedio = tarifas['Intermedio'].get(mes, 0)
-        precio_punta = tarifas['Punta'].get(mes, 0)
-        
-        arbitraje_base = (descarga_base * precio_base) - (carga_base * precio_base)
-        arbitraje_intermedio = (descarga_intermedio * precio_intermedio) - (carga_intermedio * precio_intermedio)
-        arbitraje_punta = (descarga_punta * precio_punta) - (carga_punta * precio_punta)
-        arbitraje_total = arbitraje_base + arbitraje_intermedio + arbitraje_punta
-        
-        data.append(['Arbitraje de Energia (MXN)', f'${arbitraje_base:,.0f}', f'${arbitraje_intermedio:,.0f}', f'${arbitraje_punta:,.0f}', f'${arbitraje_total:,.0f}'])
-        
-        tabla = Table(data, colWidths=[2.5*inch, 1.3*inch, 1.3*inch, 1.3*inch, 1.3*inch])
-        tabla.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#2c3e50')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('ALIGN', (0, 0), (-1, 0), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 11),
-            ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-            ('FONTSIZE', (0, 1), (-1, -1), 10),
-            ('ALIGN', (0, 1), (0, -1), 'LEFT'),
-            ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
-            ('BOX', (0, 0), (-1, -1), 1.5, colors.black),
-            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#d5d8dc')),
-            ('FONTNAME', (4, 1), (4, -1), 'Helvetica-Bold'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 6),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
-            ('BACKGROUND', (0, 1), (-1, 1), colors.HexColor('#f8f9fa')),
-            ('BACKGROUND', (0, 3), (-1, 3), colors.HexColor('#f8f9fa')),
-            ('BACKGROUND', (0, 5), (-1, 5), colors.HexColor('#e8f4f8')),
-            ('FONTNAME', (0, 5), (-1, 5), 'Helvetica-Bold'),
-        ]))
-        story.append(tabla)
-        story.append(Spacer(1, 0.1*inch))
-        
-        story.append(Paragraph("Carretera Panamericana Mexico Queretaro S/N km. 100, Pesteje, Jocotitlan, Estado de Mexico", styles['Footer']))
-        
-        doc.build(story)
-        
-        # Limpiar archivos temporales
-        for archivo in archivos_temp:
-            if os.path.exists(archivo):
-                try:
-                    os.remove(archivo)
-                except:
-                    pass
-        
-        return True, ruta_pdf
-        
-    except Exception as e:
-        return False, str(e)
-
-# ========== INTERFAZ STREAMLIT ==========
-
-def main():
-    # Inicializar estado de sesión
-    init_session_state()
-    
-    # Si no está autenticado, mostrar login
-    if not st.session_state.get('autenticado', False):
-        login()
-        return
-    
-    # Usuario autenticado
-    usuario_actual = st.session_state.get('usuario', '')
-    rol_actual = st.session_state.get('rol', '')
-    nombre_actual = st.session_state.get('nombre_usuario', '')
-    es_admin = rol_actual == 'admin'
-    
-    # Cabecera con información del usuario
-    col1, col2, col3 = st.columns([2, 1, 1])
-    with col1:
-        st.title("⚡ BESS - Sistema de Procesamiento y Reportes de Energía")
-    with col2:
+def render_barra_superior(es_admin):
+    """Logo, título y cierre de sesión."""
+    logo_html = obtener_logo_html(72)
+    usuario = st.session_state.get('usuario', '')
+    rol_nombre = USUARIOS.get(usuario, {}).get('nombre', usuario)
+    rol_tipo = 'Administrador' if es_admin else 'Visualizador'
+    logo_block = (
+        f'<div style="flex-shrink:0;background:white;border-radius:8px;padding:4px 8px;">{logo_html}</div>'
+        if logo_html else ''
+    )
+    c1, c2 = st.columns([6, 1])
+    with c1:
         st.markdown(f"""
-        <div style="text-align: right; padding-top: 10px;">
-            <span style="color: #4a5568;">👤 {nombre_actual}</span>
+        <div class="app-header">
+            {logo_block}
+            <div>
+                <h1 class="app-header-title">BESS · Sistema de Energía</h1>
+                <p class="app-header-sub">{rol_tipo}: {rol_nombre}</p>
+            </div>
         </div>
         """, unsafe_allow_html=True)
-    with col3:
-        if st.button("🚪 Cerrar Sesión", use_container_width=True):
+    with c2:
+        st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
+        if st.button("Cerrar sesión", width="stretch", key="btn_logout"):
             logout()
-    
-    st.markdown("### 📊 Análisis de BESS vs ION / BANCO1")
-    st.markdown("---")
-    
-    # Sidebar - Solo visible para administradores
-    if es_admin:
-        with st.sidebar:
-            st.header("📋 Control")
-            st.markdown("---")
-            
-            # --- NUEVA SECCIÓN: CARGAR ARCHIVOS ---
-            with st.expander("📤 0. Cargar Archivos de Datos", expanded=True):
-                st.markdown("**📂 Cargar archivos CSV al sistema**")
-                
-                # Cargar archivos fuente
-                archivos_fuente = st.file_uploader(
-                    "📄 Archivos Fuente (ION, BESS, Banco1)",
-                    type=['csv'],
-                    accept_multiple_files=True,
-                    key="upload_fuente",
-                    help="Selecciona los archivos CSV de datos de energía"
+
+def render_selector_rango(df, prefijo, key_suffix, medidor=None):
+    """Selector de rango de fechas y resumen del periodo."""
+    if 'DATETIME' not in df.columns:
+        df = df.copy()
+        df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
+
+    fecha_min = df['DATETIME'].min().date()
+    fecha_max = df['DATETIME'].max().date()
+    fecha_def = datetime.now().date() - timedelta(days=1)
+    fecha_def = max(fecha_min, min(fecha_def, fecha_max))
+
+    if medidor:
+        st.markdown(
+            f'<p class="contexto-medidor">Medidor activo: <b>{medidor}</b></p>',
+            unsafe_allow_html=True,
+        )
+    col1, col2, col3 = st.columns([2, 2, 1])
+    with col1:
+        fecha_inicio = st.date_input(
+            "Desde",
+            fecha_def,
+            min_value=fecha_min,
+            max_value=fecha_max,
+            key=f"finicio_{prefijo}_{key_suffix}",
+        )
+    with col2:
+        fecha_fin = st.date_input(
+            "Hasta",
+            fecha_def,
+            min_value=fecha_min,
+            max_value=fecha_max,
+            key=f"ffin_{prefijo}_{key_suffix}",
+        )
+    with col3:
+        dias = (fecha_fin - fecha_inicio).days + 1
+        st.metric("Días", dias)
+
+    fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time())
+    fecha_fin_dt = datetime.combine(fecha_fin, datetime.max.time())
+    mask = (df['DATETIME'] >= fecha_inicio_dt) & (df['DATETIME'] <= fecha_fin_dt)
+    df_filtrado = df[mask].copy()
+
+    st.markdown(f"""
+    <div class="fecha-resumen">
+        <b>{len(df_filtrado):,}</b> registros ·
+        <b>{len(df_filtrado['FECHA_HORA'].unique()):,}</b> horas ·
+        del <b>{fecha_inicio.strftime('%d/%m/%Y')}</b> al <b>{fecha_fin.strftime('%d/%m/%Y')}</b>
+    </div>
+    """, unsafe_allow_html=True)
+
+    return fecha_inicio, fecha_fin, df_filtrado
+
+def estilizar_tabla_energia(df_tabla):
+    styler = df_tabla.style.set_properties(
+        subset=['Periodo'],
+        **{'font-weight': '500', 'text-align': 'left'}
+    )
+    for col in ['Base', 'Intermedio', 'Punta']:
+        styler = styler.set_properties(
+            subset=[col],
+            **{'background-color': PERIODO_BG[col], 'text-align': 'right'}
+        )
+    styler = styler.set_properties(
+        subset=['Total'],
+        **{'background-color': 'rgba(26, 82, 118, 0.10)', 'font-weight': '600', 'text-align': 'right'}
+    )
+    idx_arb = df_tabla[df_tabla['Periodo'].str.contains('Arbitraje', na=False)].index
+    if len(idx_arb) > 0:
+        styler = styler.set_properties(
+            subset=pd.IndexSlice[idx_arb[0], :],
+            **{'font-weight': '700', 'background-color': '#e8f4f8', 'border-top': '2px solid #1a5276'}
+        )
+    styler = styler.set_table_styles([
+        {'selector': 'thead th', 'props': [
+            ('background-color', '#2c3e50'), ('color', 'white'),
+            ('font-weight', '700'), ('text-align', 'center'), ('padding', '8px')
+        ]},
+        {'selector': 'thead th.col_heading.level0.col1', 'props': [
+            ('background-color', COLORES['base']), ('color', 'white')
+        ]},
+        {'selector': 'thead th.col_heading.level0.col2', 'props': [
+            ('background-color', '#d4ac0d'), ('color', 'white')
+        ]},
+        {'selector': 'thead th.col_heading.level0.col3', 'props': [
+            ('background-color', COLORES['punta']), ('color', 'white')
+        ]},
+        {'selector': 'thead th.col_heading.level0.col4', 'props': [
+            ('background-color', '#1a5276'), ('color', 'white')
+        ]},
+    ], overwrite=False)
+    return styler
+
+def tarjeta_arbitraje_html(periodo, valor, es_total=False):
+    if es_total:
+        color = COLORES['primary']
+        bg = '#e8f4f8'
+        label = 'TOTAL'
+    else:
+        color = color_periodo(periodo)
+        bg = PERIODO_BG.get(periodo, '#f8fafc')
+        label = periodo
+    clase_valor = 'positivo' if valor >= 0 else 'negativo'
+    return f"""
+    <div class="arbitraje-card" style="border-left:4px solid {color}; background:{bg};">
+        <div class="periodo" style="color:{color};">{label}</div>
+        <div class="valor {clase_valor}">${valor:,.2f}</div>
+    </div>
+    """
+
+def _etiqueta_capacidad_cfe(res):
+    """Texto de capacidad kW según criterio CFE aplicado."""
+    if res['criterio_aplicado'] == 'punta':
+        return f"{res['capacidad_kw']:,} kW · demanda punta"
+    return f"{res['capacidad_kw']:,} kW · DemandaCalculadaCFE"
+
+def html_comparacion_capacidad(res_con, res_sin, precio_cap, ahorro):
+    capacidad_con = res_con['costo_mxn']
+    capacidad_sin = res_sin['costo_mxn']
+    pct_ahorro = (ahorro / capacidad_sin * 100) if capacidad_sin > 0 else 0
+    reduccion_kw = res_sin['capacidad_kw'] - res_con['capacidad_kw']
+    clase_centro = '' if ahorro >= 0 else 'negativo'
+    etiqueta_ahorro = 'Ahorro mensual' if ahorro >= 0 else 'Incremento'
+    return f"""
+    <div class="cap-tarifa">
+        Tarifa capacidad: <b>${precio_cap:,.2f}</b> ·
+        Capacidad CFE = min(demanda punta, DemandaCalculadaCFE) × tarifa
+    </div>
+    <div class="capacidad-comparacion">
+        <div class="cap-bloque cap-sin">
+            <div class="cap-etiqueta">Sin BESS</div>
+            <div class="cap-demanda">{_etiqueta_capacidad_cfe(res_sin)}</div>
+            <div class="cap-costo">${capacidad_sin:,.2f}</div>
+        </div>
+        <div class="cap-centro {clase_centro}">
+            <div class="cap-ahorro-valor">${abs(ahorro):,.2f}</div>
+            <div class="cap-ahorro-label">{etiqueta_ahorro} ({pct_ahorro:+.1f}%)</div>
+            <div class="cap-ahorro-sub">{reduccion_kw:+,} kW de capacidad CFE</div>
+        </div>
+        <div class="cap-bloque cap-con">
+            <div class="cap-etiqueta">Con BESS</div>
+            <div class="cap-demanda">{_etiqueta_capacidad_cfe(res_con)}</div>
+            <div class="cap-costo">${capacidad_con:,.2f}</div>
+        </div>
+    </div>
+    """
+
+def graficar_comparacion_capacidad(capacidad_sin, capacidad_con, ahorro):
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=[capacidad_sin, capacidad_con],
+        y=['Sin BESS', 'Con BESS'],
+        orientation='h',
+        marker_color=['#e74c3c', '#27ae60'],
+        text=[f'${capacidad_sin:,.2f}', f'${capacidad_con:,.2f}'],
+        textposition='outside',
+        cliponaxis=False,
+    ))
+    fig.update_layout(
+        title='Comparación de costo por capacidad (criterio CFE)',
+        xaxis_title='MXN',
+        height=220,
+        margin=dict(l=10, r=80, t=45, b=20),
+        showlegend=False,
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+    )
+    fig.update_xaxes(tickformat=',.0f', gridcolor='#eef2f6')
+    fig.update_yaxes(tickfont=dict(size=12))
+    if ahorro > 0:
+        fig.add_annotation(
+            x=max(capacidad_sin, capacidad_con) * 0.55,
+            y=0.5,
+            text=f'▼ Ahorro ${ahorro:,.2f}',
+            showarrow=False,
+            font=dict(size=13, color='#1e8449', weight='bold'),
+            bgcolor='rgba(232, 248, 239, 0.95)',
+            bordercolor='#27ae60',
+            borderwidth=1,
+            borderpad=6,
+        )
+    return fig
+
+PERIODOS_ENERGIA = [
+    ('base', 'Base'),
+    ('intermedio', 'Intermedio'),
+    ('punta', 'Punta'),
+]
+
+_COLUMNAS_ENERGIA_CON = {
+    'base': 'BASE_REC',
+    'intermedio': 'INTERMEDIO_REC',
+    'punta': 'PUNTA_REC',
+}
+_COLUMNAS_ENERGIA_SIN = {
+    'base': 'BASE_REC_SIN_BESS',
+    'intermedio': 'INTERMEDIO_REC_SIN_BESS',
+    'punta': 'PUNTA_REC_SIN_BESS',
+}
+
+def calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, con_bess=True, tarifas=None):
+    """kWh por periodo en un rango de fechas × tarifa → costo MXN."""
+    if tarifas is None:
+        tarifas = cargar_tarifas()
+    columnas = _COLUMNAS_ENERGIA_CON if con_bess else _COLUMNAS_ENERGIA_SIN
+    ruta = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
+    if not os.path.exists(ruta):
+        return None
+    df = pd.read_csv(ruta)
+    df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
+    mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
+    df_r = df[mask]
+    if df_r.empty:
+        return None
+
+    por_periodo_raw = {}
+    for clave, col in columnas.items():
+        if col not in df_r.columns:
+            return None
+        por_periodo_raw[clave] = sumar_energia(pd.to_numeric(df_r[col], errors='coerce').fillna(0))
+
+    mes = fecha_fin.month
+    tarifa_keys = {'base': 'Base', 'intermedio': 'Intermedio', 'punta': 'Punta'}
+    por_periodo = {}
+    for clave, _ in PERIODOS_ENERGIA:
+        kwh = kwh_para_calculo(por_periodo_raw.get(clave, 0))
+        precio = tarifas.get(tarifa_keys[clave], {}).get(mes, 0)
+        por_periodo[clave] = {
+            'kwh': kwh,
+            'precio': precio,
+            'costo_mxn': redondear_mxn_energia(kwh * precio),
+        }
+    total_mxn = redondear_mxn_energia(sum(p['costo_mxn'] for p in por_periodo.values()))
+    return {
+        'por_periodo': por_periodo,
+        'total_kwh': sum(p['kwh'] for p in por_periodo.values()),
+        'total_mxn': total_mxn,
+        'dias_rango': (fecha_fin - fecha_inicio).days + 1,
+    }
+
+def calcular_costo_energia_mes(fecha, prefijo, con_bess=True, tarifas=None):
+    """Acumulado del mes: kWh por periodo × tarifa → costo MXN."""
+    fecha_inicio = fecha.replace(day=1)
+    res = calcular_costo_energia_rango(fecha_inicio, fecha, prefijo, con_bess, tarifas)
+    if res is None:
+        return None
+    res['dias_mes'] = dias_transcurridos_mes(fecha)
+    return res
+
+def calcular_arbitraje_desde_costos(res_sin, res_con):
+    """Ahorro/arbitraje = costo sin BESS − costo con BESS (misma regla que Energía y costos)."""
+    arbitraje = {}
+    for clave, _ in PERIODOS_ENERGIA:
+        arbitraje[clave] = (
+            res_sin['por_periodo'][clave]['costo_mxn']
+            - res_con['por_periodo'][clave]['costo_mxn']
+        )
+    return {
+        'base': arbitraje['base'],
+        'intermedio': arbitraje['intermedio'],
+        'punta': arbitraje['punta'],
+        'total': res_sin['total_mxn'] - res_con['total_mxn'],
+    }
+
+def _calcular_arbitraje_bess_periodo(carga_base, carga_intermedio, carga_punta,
+                                     descarga_base, descarga_intermedio, descarga_punta,
+                                     precio_base, precio_intermedio, precio_punta):
+    """Arbitraje operativo BESS: (descarga − carga) × tarifa por periodo."""
+    arbitraje_base = redondear_mxn_energia(
+        (kwh_para_calculo(descarga_base) - kwh_para_calculo(carga_base)) * precio_base
+    )
+    arbitraje_intermedio = redondear_mxn_energia(
+        (kwh_para_calculo(descarga_intermedio) - kwh_para_calculo(carga_intermedio)) * precio_intermedio
+    )
+    arbitraje_punta = redondear_mxn_energia(
+        (kwh_para_calculo(descarga_punta) - kwh_para_calculo(carga_punta)) * precio_punta
+    )
+    arbitraje_total = redondear_mxn_energia(
+        arbitraje_base + arbitraje_intermedio + arbitraje_punta
+    )
+    return arbitraje_base, arbitraje_intermedio, arbitraje_punta, arbitraje_total
+
+def _html_lineas_costo_periodo(res):
+    return ''.join(
+        f'<div class="cap-demanda">'
+        f'{res["por_periodo"][clave]["kwh"]:,} kWh {lbl} · '
+        f'${res["por_periodo"][clave]["costo_mxn"]:,.2f}'
+        f'</div>'
+        for clave, lbl in PERIODOS_ENERGIA
+    )
+
+def _texto_tarifas_mes(tarifas, mes_num):
+    partes = [
+        f'{lbl} ${tarifas.get(lbl, {}).get(mes_num, 0):,.4f}'
+        for _, lbl in PERIODOS_ENERGIA
+    ]
+    precio_cap = tarifas.get('Capacidad', {}).get(mes_num, 0)
+    partes.append(f'Capacidad ${precio_cap:,.2f}')
+    return ' · '.join(partes)
+
+def html_comparacion_costo_energia(res_con, res_sin, tarifas, mes_num):
+    tarifas_txt = _texto_tarifas_mes(tarifas, mes_num)
+    ahorro = res_sin['total_mxn'] - res_con['total_mxn']
+    pct_ahorro = (ahorro / res_sin['total_mxn'] * 100) if res_sin['total_mxn'] > 0 else 0
+    diff_kwh = res_sin['total_kwh'] - res_con['total_kwh']
+    clase_centro = '' if ahorro >= 0 else 'negativo'
+    etiqueta_ahorro = 'Ahorro acumulado' if ahorro >= 0 else 'Incremento'
+    return f"""
+    <div class="cap-tarifa">
+        Tarifas del mes: {tarifas_txt}<br>
+        Acumulado del mes al día seleccionado · kWh × tarifa por periodo
+    </div>
+    <div class="capacidad-comparacion">
+        <div class="cap-bloque cap-sin">
+            <div class="cap-etiqueta">Sin BESS</div>
+            {_html_lineas_costo_periodo(res_sin)}
+            <div class="cap-costo">${res_sin['total_mxn']:,.2f}</div>
+            <div class="cap-ahorro-sub">{res_sin['total_kwh']:,} kWh total</div>
+        </div>
+        <div class="cap-centro {clase_centro}">
+            <div class="cap-ahorro-valor">${abs(ahorro):,.2f}</div>
+            <div class="cap-ahorro-label">{etiqueta_ahorro} ({pct_ahorro:+.1f}%)</div>
+            <div class="cap-ahorro-sub">{diff_kwh:+,} kWh vs sin BESS</div>
+        </div>
+        <div class="cap-bloque cap-con">
+            <div class="cap-etiqueta">Con BESS</div>
+            {_html_lineas_costo_periodo(res_con)}
+            <div class="cap-costo">${res_con['total_mxn']:,.2f}</div>
+            <div class="cap-ahorro-sub">{res_con['total_kwh']:,} kWh total</div>
+        </div>
+    </div>
+    """
+
+def construir_tabla_costo_energia(res_con, res_sin):
+    filas = []
+    for clave, lbl in PERIODOS_ENERGIA:
+        pc = res_con['por_periodo'][clave]
+        ps = res_sin['por_periodo'][clave]
+        filas.append({
+            'Periodo': lbl,
+            'kWh con BESS': f"{pc['kwh']:,}",
+            'kWh sin BESS': f"{ps['kwh']:,}",
+            'Tarifa ($/kWh)': f"${pc['precio']:.4f}",
+            'Costo con BESS (MXN)': f"${pc['costo_mxn']:,.2f}",
+            'Costo sin BESS (MXN)': f"${ps['costo_mxn']:,.2f}",
+            'Diferencia (MXN)': f"${ps['costo_mxn'] - pc['costo_mxn']:,.2f}",
+        })
+    filas.append({
+        'Periodo': 'Total',
+        'kWh con BESS': f"{res_con['total_kwh']:,}",
+        'kWh sin BESS': f"{res_sin['total_kwh']:,}",
+        'Tarifa ($/kWh)': '—',
+        'Costo con BESS (MXN)': f"${res_con['total_mxn']:,.2f}",
+        'Costo sin BESS (MXN)': f"${res_sin['total_mxn']:,.2f}",
+        'Diferencia (MXN)': f"${res_sin['total_mxn'] - res_con['total_mxn']:,.2f}",
+    })
+    return pd.DataFrame(filas)
+
+def graficar_costo_energia_periodo(res_con, res_sin):
+    periodos = [lbl for _, lbl in PERIODOS_ENERGIA]
+    costo_sin = [res_sin['por_periodo'][k]['costo_mxn'] for k, _ in PERIODOS_ENERGIA]
+    costo_con = [res_con['por_periodo'][k]['costo_mxn'] for k, _ in PERIODOS_ENERGIA]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        name='Sin BESS',
+        x=periodos,
+        y=costo_sin,
+        marker_color='#e74c3c',
+        text=[f'${v:,.2f}' for v in costo_sin],
+        textposition='outside',
+        cliponaxis=False,
+    ))
+    fig.add_trace(go.Bar(
+        name='Con BESS',
+        x=periodos,
+        y=costo_con,
+        marker_color='#27ae60',
+        text=[f'${v:,.2f}' for v in costo_con],
+        textposition='outside',
+        cliponaxis=False,
+    ))
+    fig.update_layout(
+        title='Costo de energía acumulado por periodo',
+        barmode='group',
+        yaxis_title='MXN',
+        height=320,
+        margin=dict(l=10, r=20, t=45, b=20),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+    )
+    fig.update_xaxes(tickfont=dict(size=12))
+    fig.update_yaxes(gridcolor='#eef2f6', tickformat=',.0f')
+    return fig
+
+def _fila_por_fecha(df, fecha):
+    if df is None:
+        return None
+    fecha_str = fecha.strftime('%d/%m/%Y')
+    filas = df[df['FECHA'] == fecha_str]
+    return filas.iloc[0] if len(filas) > 0 else None
+
+def _cargar_acumulados(prefijo):
+    ruta = os.path.join(DIRECTORIO_REPORTES, f'ACUMULADOS_{prefijo}.csv')
+    if not os.path.exists(ruta):
+        return None
+    df = pd.read_csv(ruta)
+    df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
+    return df
+
+def _formatear_celda_demanda(fila, clave_periodo, tipo_bess):
+    col_kw = f'{clave_periodo}_DEM_{tipo_bess}_MAX'
+    col_fh = f'{clave_periodo}_DEM_{tipo_bess}_MAX_FECHA_HORA'
+    if col_kw not in fila.index:
+        return '—', '—'
+    kw = pd.to_numeric(fila.get(col_kw, 0), errors='coerce')
+    kw = 0 if pd.isna(kw) else kw
+    fh = fila.get(col_fh, '') or '—'
+    if pd.isna(fh) or fh == '':
+        fh = '—'
+    return f'{redondear_arriba_kw(kw):,}', fh
+
+def _construir_tabla_demanda_acumulados(fila):
+    if fila is None:
+        return None
+    periodos = [
+        ('Base', 'BASE'),
+        ('Intermedio', 'INTERMEDIO'),
+        ('Punta', 'PUNTA'),
+    ]
+    filas = []
+    for nombre, clave in periodos:
+        con_kw, con_fh = _formatear_celda_demanda(fila, clave, 'CON_BESS')
+        sin_kw, sin_fh = _formatear_celda_demanda(fila, clave, 'SIN_BESS')
+        filas.append({
+            'Periodo': nombre,
+            'Con BESS (kW)': con_kw,
+            'Hora con BESS': con_fh,
+            'Sin BESS (kW)': sin_kw,
+            'Hora sin BESS': sin_fh,
+        })
+    return pd.DataFrame(filas)
+
+def construir_tabla_demanda_max_mes(fecha, prefijo):
+    """Demanda máxima del mes por periodo (valor y hora pico en ACUMULADOS_*.csv)."""
+    df = _cargar_acumulados(prefijo)
+    if df is None:
+        return None
+    mes = pd.Period(fecha, freq='M')
+    df_mes = df[df['FECHA_DT'].dt.to_period('M') == mes]
+    if df_mes.empty:
+        return None
+    fila = df_mes.loc[df_mes['FECHA_DT'].idxmax()]
+    return _construir_tabla_demanda_acumulados(fila)
+
+def obtener_demanda_rolada_punta(fecha, prefijo, con_bess=True):
+    """Demanda rolada máxima en horario punta (kW) al día indicado."""
+    fila = _fila_por_fecha(_cargar_acumulados(prefijo), fecha)
+    if fila is None:
+        return None
+    tipo = 'CON_BESS' if con_bess else 'SIN_BESS'
+    col = f'PUNTA_DEM_{tipo}_MAX'
+    if col not in fila.index:
+        return None
+    kw = pd.to_numeric(fila.get(col, 0), errors='coerce')
+    if pd.isna(kw):
+        return 0
+    return redondear_arriba_kw(kw)
+
+def acumulados_tiene_demanda_sin_bess(prefijo):
+    df = _cargar_acumulados(prefijo)
+    if df is None:
+        return False
+    return 'BASE_DEM_SIN_BESS_MAX' in df.columns
+
+def estilizar_tabla_demanda_periodo(df_tabla):
+    styler = df_tabla.style.set_properties(
+        subset=['Periodo'],
+        **{'font-weight': '600', 'text-align': 'left'}
+    )
+    for idx, periodo in df_tabla['Periodo'].items():
+        bg = PERIODO_BG.get(periodo, '#f8fafc')
+        styler = styler.set_properties(
+            subset=pd.IndexSlice[idx, ['Con BESS (kW)', 'Hora con BESS']],
+            **{'background-color': bg, 'text-align': 'right'}
+        )
+        styler = styler.set_properties(
+            subset=pd.IndexSlice[idx, ['Sin BESS (kW)', 'Hora sin BESS']],
+            **{'background-color': bg, 'text-align': 'right', 'opacity': '0.92'}
+        )
+    styler = styler.set_table_styles([
+        {'selector': 'thead th', 'props': [
+            ('background-color', '#2c3e50'), ('color', 'white'),
+            ('font-weight', '700'), ('text-align', 'center'), ('padding', '8px')
+        ]},
+    ], overwrite=False)
+    return styler
+
+def _sumar_columnas_en_rango(ruta_csv, fecha_inicio, fecha_fin, columnas):
+    resultado = {c: 0.0 for c in columnas}
+    if not os.path.exists(ruta_csv):
+        return resultado
+    df = pd.read_csv(ruta_csv)
+    df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
+    mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
+    df_r = df[mask]
+    for col in columnas:
+        if col in df_r.columns:
+            resultado[col] = df_r[col].sum()
+    return resultado
+
+def _celdas_kwh_tabla(base, intermedio, punta):
+    """kWh por periodo redondeados; total = suma de periodos redondeados."""
+    b = kwh_para_calculo(base)
+    i = kwh_para_calculo(intermedio)
+    p = kwh_para_calculo(punta)
+    t = b + i + p
+    return f"{b:,}", f"{i:,}", f"{p:,}", f"{t:,}"
+
+def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
+    """Calcula filas de la tabla de energía según el rango seleccionado."""
+    rango_un_dia = fecha_inicio == fecha_fin
+    rango_label = (
+        fecha_inicio.strftime('%d/%m/%Y')
+        if rango_un_dia
+        else f"{fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}"
+    )
+
+    ruta_acumulados = os.path.join(DIRECTORIO_REPORTES, f'ACUMULADOS_{prefijo}.csv')
+    ruta_med_dia = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
+    ruta_bess_dia = os.path.join(DIRECTORIO_REPORTES, 'ENERGIA_BESS_POR_DIA.csv')
+
+    df_acum = pd.read_csv(ruta_acumulados) if os.path.exists(ruta_acumulados) else None
+    fila_acum_fin = _fila_por_fecha(df_acum, fecha_fin)
+
+    if rango_un_dia:
+        titulo_tabla = f"Detalle de Energía por Periodo · acumulado al {fecha_fin.strftime('%d/%m/%Y')}"
+        lbl_consumo = 'Consumo Mensual (kWh)'
+
+        if fila_acum_fin is not None:
+            consumo_base = _a_num(fila_acum_fin.get('BASE_REC_ACUM', 0))
+            consumo_intermedio = _a_num(fila_acum_fin.get('INTERMEDIO_REC_ACUM', 0))
+            consumo_punta = _a_num(fila_acum_fin.get('PUNTA_REC_ACUM', 0))
+            demanda_base = redondear_arriba_kw(fila_acum_fin.get('BASE_DEM_CON_BESS_MAX', 0))
+            demanda_intermedio = redondear_arriba_kw(fila_acum_fin.get('INTERMEDIO_DEM_CON_BESS_MAX', 0))
+            demanda_punta = redondear_arriba_kw(fila_acum_fin.get('PUNTA_DEM_CON_BESS_MAX', 0))
+        else:
+            consumo_base = consumo_intermedio = consumo_punta = 0
+            demanda_base = demanda_intermedio = demanda_punta = 0
+    else:
+        titulo_tabla = f"Detalle de Energía por Periodo · {rango_label}"
+        lbl_consumo = 'Consumo del Periodo (kWh)'
+
+        sums_med = _sumar_columnas_en_rango(
+            ruta_med_dia, fecha_inicio, fecha_fin,
+            ['BASE_REC', 'INTERMEDIO_REC', 'PUNTA_REC']
+        )
+        consumo_base = sumar_energia(sums_med['BASE_REC'])
+        consumo_intermedio = sumar_energia(sums_med['INTERMEDIO_REC'])
+        consumo_punta = sumar_energia(sums_med['PUNTA_REC'])
+
+        if fila_acum_fin is not None:
+            demanda_base = redondear_arriba_kw(fila_acum_fin.get('BASE_DEM_CON_BESS_MAX', 0))
+            demanda_intermedio = redondear_arriba_kw(fila_acum_fin.get('INTERMEDIO_DEM_CON_BESS_MAX', 0))
+            demanda_punta = redondear_arriba_kw(fila_acum_fin.get('PUNTA_DEM_CON_BESS_MAX', 0))
+        else:
+            demanda_base = demanda_intermedio = demanda_punta = 0
+
+    # Carga, descarga y arbitraje: siempre estrictamente al rango seleccionado
+    lbl_carga = 'Carga BESS del Periodo (kWh)'
+    lbl_descarga = 'Descarga BESS del Periodo (kWh)'
+    resumen_periodo = f"Periodo ({rango_label})"
+
+    sums_bess = _sumar_columnas_en_rango(
+        ruta_bess_dia, fecha_inicio, fecha_fin,
+        ['BASE_REC', 'INTERMEDIO_REC', 'PUNTA_REC', 'BASE_ENT', 'INTERMEDIO_ENT', 'PUNTA_ENT']
+    )
+    carga_base = sumar_energia(sums_bess['BASE_REC'])
+    carga_intermedio = sumar_energia(sums_bess['INTERMEDIO_REC'])
+    carga_punta = sumar_energia(sums_bess['PUNTA_REC'])
+    descarga_base = sumar_energia(sums_bess['BASE_ENT'])
+    descarga_intermedio = sumar_energia(sums_bess['INTERMEDIO_ENT'])
+    descarga_punta = sumar_energia(sums_bess['PUNTA_ENT'])
+
+    tarifas = cargar_tarifas()
+    mes_num = fecha_fin.month
+    precio_base = tarifas['Base'].get(mes_num, 0)
+    precio_intermedio = tarifas['Intermedio'].get(mes_num, 0)
+    precio_punta = tarifas['Punta'].get(mes_num, 0)
+
+    if energia_diaria_tiene_sin_bess(prefijo):
+        res_con = calcular_costo_energia_rango(
+            fecha_inicio, fecha_fin, prefijo, con_bess=True, tarifas=tarifas
+        )
+        res_sin = calcular_costo_energia_rango(
+            fecha_inicio, fecha_fin, prefijo, con_bess=False, tarifas=tarifas
+        )
+        if res_con is not None and res_sin is not None:
+            arb = calcular_arbitraje_desde_costos(res_sin, res_con)
+            arbitraje_base = arb['base']
+            arbitraje_intermedio = arb['intermedio']
+            arbitraje_punta = arb['punta']
+            arbitraje_total = arb['total']
+        else:
+            arbitraje_base, arbitraje_intermedio, arbitraje_punta, arbitraje_total = (
+                _calcular_arbitraje_bess_periodo(
+                    carga_base, carga_intermedio, carga_punta,
+                    descarga_base, descarga_intermedio, descarga_punta,
+                    precio_base, precio_intermedio, precio_punta,
                 )
-                
-                if archivos_fuente:
-                    for archivo in archivos_fuente:
-                        if st.button(f"📤 Subir {archivo.name}", key=f"btn_{archivo.name}"):
-                            # Validar el archivo
-                            valido, mensaje = validar_archivo_csv(archivo)
-                            if valido:
-                                exito, resultado = guardar_archivo_cargado(archivo, 'fuente')
-                                if exito:
-                                    st.success(f"✅ {resultado}")
-                                    st.session_state['archivos_cargados'] = True
-                                else:
-                                    st.error(f"❌ {resultado}")
-                            else:
-                                st.error(f"❌ {mensaje}")
-                
-                st.markdown("---")
-                
-                # Cargar archivos de tarifas
-                archivos_tarifas = st.file_uploader(
-                    "💰 Archivos de Tarifas",
-                    type=['csv'],
-                    accept_multiple_files=True,
-                    key="upload_tarifas",
-                    help="Selecciona los archivos CSV de tarifas"
-                )
-                
-                if archivos_tarifas:
-                    for archivo in archivos_tarifas:
-                        if st.button(f"📤 Subir {archivo.name}", key=f"btn_tarifa_{archivo.name}"):
-                            exito, resultado = guardar_archivo_cargado(archivo, 'tarifa')
-                            if exito:
-                                st.success(f"✅ {resultado}")
-                                st.session_state['archivos_cargados'] = True
-                            else:
-                                st.error(f"❌ {resultado}")
-                
-                st.markdown("---")
-                
-                # Mostrar archivos cargados
-                if st.button("🔄 Actualizar lista de archivos", use_container_width=True):
-                    st.rerun()
-                
-                mostrar_archivos_cargados()
-            
-            st.markdown("---")
-            
-            # Sección de verificación y filtrado
-            with st.expander("📁 1. Verificar y Filtrar Datos", expanded=True):
-                col1, col2 = st.columns(2)
-                with col1:
-                    if st.button("🔍 Verificar y Limpiar", use_container_width=True):
-                        with st.spinner("Verificando archivos..."):
-                            resultados = verificar_datos_fuente()
-                            st.session_state['verificacion'] = resultados
-                        st.success("✅ Verificación completada")
+            )
+    else:
+        arbitraje_base, arbitraje_intermedio, arbitraje_punta, arbitraje_total = (
+            _calcular_arbitraje_bess_periodo(
+                carga_base, carga_intermedio, carga_punta,
+                descarga_base, descarga_intermedio, descarga_punta,
+                precio_base, precio_intermedio, precio_punta,
+            )
+        )
+
+    c_b, c_i, c_p, c_t = _celdas_kwh_tabla(consumo_base, consumo_intermedio, consumo_punta)
+    g_b, g_i, g_p, g_t = _celdas_kwh_tabla(carga_base, carga_intermedio, carga_punta)
+    d_b, d_i, d_p, d_t = _celdas_kwh_tabla(descarga_base, descarga_intermedio, descarga_punta)
+
+    data = [['Periodo', 'Base', 'Intermedio', 'Punta', 'Total']]
+    data.append([lbl_consumo, c_b, c_i, c_p, c_t])
+    data.append(['Demanda Rolada (kW)', f'{demanda_base:,}', f'{demanda_intermedio:,}', f'{demanda_punta:,}', f'{demanda_punta:,}'])
+    data.append([lbl_carga, g_b, g_i, g_p, g_t])
+    data.append([lbl_descarga, d_b, d_i, d_p, d_t])
+    data.append(['Arbitraje de Energía (MXN)', f'${arbitraje_base:,.2f}', f'${arbitraje_intermedio:,.2f}', f'${arbitraje_punta:,.2f}', f'${arbitraje_total:,.2f}'])
+
+    return {
+        'titulo_tabla': titulo_tabla,
+        'resumen_periodo': resumen_periodo,
+        'df_tabla': pd.DataFrame(data[1:], columns=data[0]),
+        'arbitraje_base': arbitraje_base,
+        'arbitraje_intermedio': arbitraje_intermedio,
+        'arbitraje_punta': arbitraje_punta,
+        'arbitraje_total': arbitraje_total,
+        'carga_total': kwh_para_calculo(carga_base) + kwh_para_calculo(carga_intermedio) + kwh_para_calculo(carga_punta),
+        'descarga_total': kwh_para_calculo(descarga_base) + kwh_para_calculo(descarga_intermedio) + kwh_para_calculo(descarga_punta),
+        'rango_label': rango_label,
+    }
+
+# ========== ESTILOS CSS ==========
+def aplicar_estilos():
+    st.markdown("""
+    <style>
+        .main-container { padding: 0 10px; }
+        .section-container {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid #f0f0f0;
+        }
+        .section-title {
+            font-size: 17px;
+            font-weight: 600;
+            color: #1a5276;
+            margin: 0 0 6px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e8ecef;
+        }
+        .section-title-sm {
+            font-size: 14px;
+            font-weight: 600;
+            color: #1a5276;
+            margin: 0 0 8px 0;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #e8ecef;
+        }
+        .section-desc {
+            font-size: 12px;
+            color: #718096;
+            margin: 0 0 14px 0;
+            line-height: 1.45;
+        }
+        .tabla-bloque {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 4px;
+            margin: 10px 0 16px 0;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stDataFrame"] {
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #f8fafc;
+            margin: 8px 0 14px 0;
+        }
+        .app-header {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            background: transparent;
+            border-radius: 0;
+            padding: 0;
+            border: none;
+            margin-bottom: 0;
+        }
+        .contexto-medidor {
+            font-size: 13px;
+            color: #4a5568;
+            margin: 0 0 10px 0;
+        }
+        .panel-controles {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 14px 16px;
+            border: 1px solid #e8ecef;
+            margin-bottom: 16px;
+        }
+        .app-header-title {
+            margin: 0;
+            font-size: 1.55rem;
+            color: #1a5276;
+            font-weight: 700;
+        }
+        .app-header-sub {
+            margin: 4px 0 0;
+            color: #718096;
+            font-size: 0.88rem;
+        }
+        .app-header-badge {
+            color: #1a5276;
+            font-weight: 600;
+        }
+        
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.stDateInput) {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 12px 16px;
+            border-color: #e8ecef !important;
+            margin-bottom: 28px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) {
+            padding: 8px 12px !important;
+            margin-bottom: 12px !important;
+            border-radius: 10px !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .section-title-sm {
+            margin: 0 0 2px 0;
+            padding-bottom: 4px;
+            font-size: 13px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .section-desc {
+            margin: 0 0 6px 0;
+            font-size: 11px;
+            line-height: 1.35;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .stDateInput label {
+            font-size: 12px !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .stDateInput > div {
+            min-height: 0 !important;
+            padding: 0 8px !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .metric-compact {
+            padding: 6px 6px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .metric-compact .label {
+            font-size: 10px;
+            margin-bottom: 2px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .metric-compact .value {
+            font-size: 13px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) [data-testid="column"] {
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:not(:has(.stDateInput)):not(:has(form)) {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 18px 20px;
+            border-color: #e2e8f0 !important;
+            border-width: 1px !important;
+            margin-bottom: 18px;
+            box-shadow: 0 1px 6px rgba(26, 82, 118, 0.05);
+        }
+        div[data-testid="stTabs"] {
+            margin-top: 4px;
+        }
+        div[data-testid="stTabs"] button {
+            font-size: 16px !important;
+        }
+        div[data-testid="stTabs"] button p {
+            font-size: 16px !important;
+        }
+        div[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"] {
+            box-shadow: none;
+            border: none;
+            padding: 0;
+            margin-bottom: 12px;
+            background: transparent;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.stDateInput) .stDateInput > div {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #d5d8dc;
+            padding: 2px 10px;
+        }
+        .fecha-resumen {
+            background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f7 100%);
+            border-radius: 8px;
+            padding: 10px 16px;
+            border-left: 4px solid #1a5276;
+            font-size: 13px;
+            margin: 8px 0 12px 0;
+        }
+        
+        .metric-card {
+            background: white;
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+            border: 1px solid #e8ecef;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        }
+        .metric-card .icon { display: none; }
+        .metric-card .label { font-size: 13px; color: #718096; font-weight: 500; }
+        .metric-card .value { font-size: 24px; font-weight: 700; color: #1a202c; }
+        .metric-card .sub { font-size: 12px; color: #a0aec0; }
+
+        .metric-compact {
+            background: #fafbfc;
+            border-radius: 8px;
+            padding: 10px 8px;
+            text-align: center;
+            border: 1px solid #e8ecef;
+        }
+        .metric-compact .label {
+            font-size: 11px;
+            color: #718096;
+            font-weight: 500;
+            line-height: 1.3;
+            margin-bottom: 4px;
+        }
+        .metric-compact .value {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1a202c;
+            line-height: 1.25;
+        }
+
+        .sidebar-tarifas-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .sidebar-tarifa-item {
+            background: #f8fafc;
+            border-radius: 6px;
+            padding: 6px 10px;
+            border: 1px solid #e8ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+        .sidebar-tarifa-item .label {
+            font-size: 12px;
+            color: #718096;
+            font-weight: 500;
+            line-height: 1.2;
+            flex-shrink: 0;
+        }
+        .sidebar-tarifa-item .value {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1a202c;
+            line-height: 1.25;
+            text-align: right;
+        }
+        
+        .arbitraje-card {
+            border-radius: 10px;
+            padding: 14px;
+            text-align: center;
+            border-left: 4px solid #27ae60;
+            background: #f0fff4;
+        }
+        .arbitraje-card.negativo {
+            border-left-color: #e74c3c;
+            background: #fff5f5;
+        }
+        .arbitraje-card .periodo { font-size: 13px; font-weight: 600; color: #4a5568; }
+        .arbitraje-card .valor { font-size: 20px; font-weight: 700; }
+        .arbitraje-card .valor.positivo { color: #27ae60; }
+        .arbitraje-card .valor.negativo { color: #e74c3c; }
+
+        .capacidad-comparacion {
+            display: flex;
+            align-items: stretch;
+            gap: 12px;
+            margin: 8px 0 12px 0;
+        }
+        @media (max-width: 960px) {
+            .capacidad-comparacion {
+                flex-direction: column;
+            }
+            .cap-centro {
+                order: -1;
+            }
+        }
+        .cap-bloque {
+            flex: 1;
+            border-radius: 10px;
+            padding: 16px 14px;
+            text-align: center;
+            border: 1px solid #e8ecef;
+        }
+        .cap-bloque.cap-sin {
+            background: #fff5f5;
+            border-left: 4px solid #e74c3c;
+        }
+        .cap-bloque.cap-con {
+            background: #f0fff4;
+            border-left: 4px solid #27ae60;
+        }
+        .cap-etiqueta {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #718096;
+            margin-bottom: 6px;
+        }
+        .cap-demanda {
+            font-size: 13px;
+            color: #4a5568;
+            margin-bottom: 4px;
+        }
+        .cap-costo {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1a202c;
+        }
+        .cap-centro {
+            flex: 1.1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 12px;
+            padding: 14px 10px;
+            background: linear-gradient(135deg, #e8f8ef 0%, #d4efdf 100%);
+            border: 2px solid #27ae60;
+            text-align: center;
+        }
+        .cap-centro.negativo {
+            background: linear-gradient(135deg, #fdecea 0%, #fadbd8 100%);
+            border-color: #e74c3c;
+        }
+        .cap-ahorro-valor {
+            font-size: 28px;
+            font-weight: 800;
+            color: #1e8449;
+            line-height: 1.1;
+        }
+        .cap-centro.negativo .cap-ahorro-valor { color: #c0392b; }
+        .cap-ahorro-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-top: 4px;
+        }
+        .cap-ahorro-sub {
+            font-size: 12px;
+            color: #718096;
+            margin-top: 6px;
+        }
+        .cap-tarifa {
+            font-size: 12px;
+            color: #718096;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+        
+        .stButton button {
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        .btn-primary button {
+            background: #1a5276;
+            color: white;
+        }
+        .btn-primary button:hover {
+            background: #154360;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+# ========== GRÁFICAS ==========
+def graficar_perfil(df, prefijo, titulo):
+    """Grafica el perfil de carga. Un día: eje X por hora. Varios días: eje X por día (máx. diario)."""
+    df = df.copy()
+    if 'DATETIME' not in df.columns:
+        df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
+
+    col_con = f'IUSA_CON_BESS_{prefijo}_kW'
+    if col_con not in df.columns:
+        for col in df.columns:
+            if 'IUSA_CON_BESS' in col and prefijo in col:
+                col_con = col
+                break
+
+    multidia = df['DATETIME'].dt.date.nunique() > 1
+
+    if multidia:
+        agg_cols = [c for c in [col_con, 'BESS_REC_kW', 'BESS_ENT_kW'] if c in df.columns]
+        df['FECHA_DIA'] = df['DATETIME'].dt.date
+        df_plot = df.groupby('FECHA_DIA', as_index=False)[agg_cols].max()
+        df_plot['FECHA_DIA'] = pd.to_datetime(df_plot['FECHA_DIA'])
+        x_vals = df_plot['FECHA_DIA']
+        x_title = 'Día'
+        x_tickformat = '%d/%m/%Y'
+        x_dtick = 86400000
+        marker_size = 7
+        titulo_suffix = ' (máx. diario)' if titulo else ''
+    else:
+        df_plot = df
+        x_vals = df['DATETIME']
+        x_title = 'Hora'
+        x_tickformat = '%H:%M'
+        x_dtick = 7200000
+        marker_size = 0
+        titulo_suffix = ''
+
+    fig = go.Figure()
+    trace_mode = 'lines+markers' if multidia else 'lines'
+
+    if col_con in df_plot.columns:
+        fig.add_trace(go.Scatter(
+            x=x_vals,
+            y=df_plot[col_con],
+            name=f'IUSA Con BESS ({prefijo})',
+            mode=trace_mode,
+            line=dict(color=COLORES['primary'], width=2.5),
+            marker=dict(size=marker_size, color=COLORES['primary']),
+            fill='tozeroy',
+            fillcolor='rgba(26,82,118,0.12)'
+        ))
+
+    if 'BESS_REC_kW' in df_plot.columns:
+        fig.add_trace(go.Scatter(
+            x=x_vals,
+            y=df_plot['BESS_REC_kW'],
+            name='Carga BESS',
+            mode=trace_mode,
+            line=dict(color=COLORES['carga'], width=2),
+            marker=dict(size=marker_size, color=COLORES['carga']),
+            fill='tozeroy',
+            fillcolor='rgba(46,204,113,0.12)'
+        ))
+
+    if 'BESS_ENT_kW' in df_plot.columns:
+        fig.add_trace(go.Scatter(
+            x=x_vals,
+            y=-df_plot['BESS_ENT_kW'],
+            name='Descarga BESS',
+            mode=trace_mode,
+            line=dict(color=COLORES['danger'], width=2),
+            marker=dict(size=marker_size, color=COLORES['danger']),
+            fill='tozeroy',
+            fillcolor='rgba(231,76,60,0.12)'
+        ))
+
+    fig.update_layout(
+        title=dict(
+            text=f"{titulo}{titulo_suffix}".strip(),
+            x=0.5,
+            xanchor='center',
+            font=dict(size=16),
+            pad=dict(t=6, b=18),
+        ),
+        xaxis_title=x_title,
+        yaxis_title='Potencia (kW)',
+        height=420,
+        hovermode='x unified',
+        legend=dict(orientation='h', yanchor='bottom', y=1.0, xanchor='center', x=0.5),
+        margin=dict(l=52, r=52, t=72, b=40),
+    )
+    fig.update_xaxes(tickformat=x_tickformat, dtick=x_dtick)
+    fig.update_yaxes(zeroline=True, zerolinecolor='#95a5a6', zerolinewidth=1)
+
+    return fig
+
+def graficar_demanda_dia(df, prefijo, titulo=''):
+    """Compara demanda IUSA con y sin BESS (ventana rolling 15 min)."""
+    df = df.copy()
+    if 'DATETIME' not in df.columns:
+        df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
+
+    col_con = f'IUSA_CON_BESS_{prefijo}_kW_DEM_15min'
+    col_sin = f'IUSA_SIN_BESS_{prefijo}_kW_DEM_15min'
+
+    if col_con not in df.columns or col_sin not in df.columns:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Columnas de demanda no disponibles",
+            x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False,
+            font=dict(size=14, color='#718096')
+        )
+        fig.update_layout(height=420, margin=dict(l=50, r=20, t=50, b=40))
+        return fig
+
+    df[col_con] = pd.to_numeric(df[col_con], errors='coerce')
+    df[col_sin] = pd.to_numeric(df[col_sin], errors='coerce')
+    df_plot = df.dropna(subset=[col_con, col_sin]).sort_values('DATETIME')
+
+    if df_plot.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Sin datos de demanda (15 min) para este día",
+            x=0.5, y=0.5, xref='paper', yref='paper', showarrow=False,
+            font=dict(size=14, color='#718096')
+        )
+        fig.update_layout(height=420, margin=dict(l=50, r=20, t=50, b=40))
+        return fig
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df_plot['DATETIME'],
+        y=df_plot[col_sin],
+        name='Demanda sin BESS',
+        mode='lines+markers',
+        line=dict(color=COLORES['danger'], width=2, dash='dash'),
+        marker=dict(size=5, color=COLORES['danger']),
+    ))
+    fig.add_trace(go.Scatter(
+        x=df_plot['DATETIME'],
+        y=df_plot[col_con],
+        name='Demanda con BESS',
+        mode='lines+markers',
+        line=dict(color=COLORES['primary'], width=2.5),
+        marker=dict(size=5, color=COLORES['primary']),
+        fill='tonexty',
+        fillcolor='rgba(39, 174, 96, 0.18)',
+    ))
+
+    fig.update_layout(
+        title=dict(
+            text=titulo or f'Análisis de Demanda · {prefijo}',
+            x=0.5,
+            xanchor='center',
+            font=dict(size=16),
+            pad=dict(t=10, b=24),
+        ),
+        xaxis_title='Hora',
+        yaxis_title='Demanda (kW) · ventana 15 min',
+        height=460,
+        hovermode='x unified',
+        legend=dict(
+            orientation='h',
+            yanchor='bottom',
+            y=0.98,
+            xanchor='center',
+            x=0.5,
+            bgcolor='rgba(255,255,255,0.9)',
+            bordercolor='#e8ecef',
+            borderwidth=1,
+        ),
+        margin=dict(l=55, r=25, t=72, b=50),
+    )
+    fig.update_xaxes(tickformat='%H:%M', dtick=7200000)
+    fig.update_yaxes(zeroline=True, zerolinecolor='#95a5a6', zerolinewidth=1)
+
+    return fig
+
+def graficar_arbitraje(arbitraje_data, titulo):
+    periodos = ['Base', 'Intermedio', 'Punta']
+    valores = [arbitraje_data['arbitraje'].get(p, 0) for p in periodos]
+    colores = ['#3498db', '#f1c40f', '#e74c3c']
+    
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=periodos,
+        y=valores,
+        text=[f'${v:,.2f}' for v in valores],
+        textposition='outside',
+        marker=dict(color=colores, line=dict(color='white', width=1))
+    ))
+    fig.add_hline(y=0, line=dict(color='#4a5568', width=1, dash='dash'))
+    
+    fig.update_layout(
+        title=dict(text=titulo, x=0.5, font=dict(size=16)),
+        xaxis_title='Periodo',
+        yaxis_title='Arbitraje ($)',
+        height=350,
+        showlegend=False,
+        margin=dict(l=50, r=20, t=50, b=40)
+    )
+    
+    return fig
+
+# ========== FUNCIONES DE AUTENTICACIÓN ==========
+USUARIOS = {
+    'admin': {'password': hashlib.sha256('admin123'.encode()).hexdigest(), 'rol': 'admin', 'nombre': 'Administrador'},
+    'user': {'password': hashlib.sha256('user123'.encode()).hexdigest(), 'rol': 'user', 'nombre': 'Usuario'}
+}
+
+def init_session():
+    if 'autenticado' not in st.session_state:
+        st.session_state.autenticado = False
+        st.session_state.usuario = None
+        st.session_state.rol = None
+
+def login():
+    st.markdown("""
+    <style>
+        [data-testid="stSidebar"] { display: none; }
+        [data-testid="stAppViewContainer"] > .main .block-container {
+            padding-top: 4rem;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) {
+            background: white;
+            border-radius: 14px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+            border-top: 4px solid #1a5276 !important;
+            border-color: #e8ecef !important;
+            padding: 20px 18px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) .stTextInput > div > div {
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"] {
+            background: #1a5276;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"]:hover {
+            background: #154360;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    _, col, _ = st.columns([3, 1, 3])
+
+    with col:
+        logo_html = obtener_logo_html(204)
+
+        st.markdown(f"""
+        <div style="text-align:center; margin-bottom: 1.25rem;">
+            {f'<div style="display:flex;justify-content:center;">{logo_html}</div>' if logo_html else ''}
+            <h1 style="font-size:26px; font-weight:700; color:#1a202c; margin-bottom:0.35rem;">⚡ BESS</h1>
+            <p style="color:#718096; font-size:12px; margin:0; line-height:1.4;">Sistema de Procesamiento y Reportes de Energía</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        with st.container(border=True):
+            with st.form("login"):
+                usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
+                password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
+                submit = st.form_submit_button("Iniciar Sesión", width="stretch", type="primary")
+
+                if submit and usuario and password:
+                    if usuario in USUARIOS and hashlib.sha256(password.encode()).hexdigest() == USUARIOS[usuario]['password']:
+                        st.session_state.autenticado = True
+                        st.session_state.usuario = usuario
+                        st.session_state.rol = USUARIOS[usuario]['rol']
                         st.rerun()
-                
-                with col2:
-                    if st.button("📊 Filtrar y Combinar", use_container_width=True):
-                        with st.spinner("Filtrando datos..."):
+                    else:
+                        st.error("❌ Usuario o contraseña incorrectos")
+
+def logout():
+    for key in ['autenticado', 'usuario', 'rol']:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.rerun()
+
+# ========== FUNCIONES DE PROCESAMIENTO ==========
+def _tarifas_vacias():
+    return {t: {i: 0 for i in range(1, 13)} for t in ['Base', 'Intermedio', 'Punta', 'Capacidad']}
+
+def cargar_tarifas():
+    ruta = os.path.join(DIRECTORIO_TARIFAS, 'Tarifas_2026.csv')
+    if not os.path.exists(ruta):
+        return _tarifas_vacias()
+    try:
+        df = pd.read_csv(ruta)
+        tarifas = _tarifas_vacias()
+        tipos = {'base': 'Base', 'intermedio': 'Intermedio', 'punta': 'Punta', 'capacidad': 'Capacidad'}
+        for _, row in df.iterrows():
+            tipo_key = str(row['Tarifa']).strip().lower()
+            if tipo_key not in tipos:
+                continue
+            tipo = tipos[tipo_key]
+            for mes in range(1, 13):
+                tarifas[tipo][mes] = float(row.get(str(mes), 0) or 0)
+        return tarifas
+    except:
+        return _tarifas_vacias()
+
+FACTOR_CFE_CAPACIDAD = 0.74
+
+def dias_transcurridos_mes(fecha):
+    """Días transcurridos del mes a la fecha seleccionada."""
+    return fecha.day
+
+def _filtrar_mes_hasta_fecha(df, fecha, col_fecha='FECHA_DT'):
+    mes = fecha.month
+    año = fecha.year
+    return df[
+        (df[col_fecha].dt.year == año)
+        & (df[col_fecha].dt.month == mes)
+        & (df[col_fecha].dt.date <= fecha)
+    ]
+
+def _obtener_energia_mes_desde_diario(fecha, prefijo, columnas_periodo):
+    """Suma energía por periodo desde ENERGIA_*_POR_DIA.csv (mes al día indicado)."""
+    ruta = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
+    if not os.path.exists(ruta):
+        return None
+    df = pd.read_csv(ruta)
+    df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
+    df_r = _filtrar_mes_hasta_fecha(df, fecha)
+    if df_r.empty:
+        return None
+    por_periodo = {}
+    for clave, col in columnas_periodo.items():
+        if col not in df_r.columns:
+            return None
+        por_periodo[clave] = sumar_energia(pd.to_numeric(df_r[col], errors='coerce').fillna(0))
+    return {'total': sum(por_periodo.values()), 'por_periodo': por_periodo}
+
+def obtener_energia_con_bess_mes(fecha, prefijo):
+    """Energía con BESS por periodos (medidor), del mes al día indicado."""
+    return _obtener_energia_mes_desde_diario(fecha, prefijo, {
+        'base': 'BASE_REC',
+        'intermedio': 'INTERMEDIO_REC',
+        'punta': 'PUNTA_REC',
+    })
+
+def obtener_energia_sin_bess_mes(fecha, prefijo):
+    """Energía sin BESS por periodos, del mes al día indicado (ENERGIA_*_POR_DIA.csv)."""
+    return _obtener_energia_mes_desde_diario(fecha, prefijo, {
+        'base': 'BASE_REC_SIN_BESS',
+        'intermedio': 'INTERMEDIO_REC_SIN_BESS',
+        'punta': 'PUNTA_REC_SIN_BESS',
+    })
+
+def energia_diaria_tiene_sin_bess(prefijo):
+    ruta = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
+    if not os.path.exists(ruta):
+        return False
+    return 'BASE_REC_SIN_BESS' in pd.read_csv(ruta, nrows=0).columns
+
+def calcular_criterio2_cfe_kw(energia_kwh, dias):
+    """Factor de carga CFE: energía total / (0.74 × 24 × días transcurridos)."""
+    divisor = FACTOR_CFE_CAPACIDAD * 24 * dias
+    return energia_kwh / divisor if divisor > 0 else 0
+
+def calcular_criterio_cfe(fecha, prefijo, con_bess=True, tarifas=None):
+    """
+    Criterio CFE: capacidad (kW) = min(demanda máx. punta, factor de carga).
+    Costo = capacidad × tarifa capacidad del mes.
+    """
+    demanda_punta = obtener_demanda_rolada_punta(fecha, prefijo, con_bess=con_bess)
+    if con_bess:
+        energia_info = obtener_energia_con_bess_mes(fecha, prefijo)
+    else:
+        energia_info = obtener_energia_sin_bess_mes(fecha, prefijo)
+    if demanda_punta is None or energia_info is None:
+        return None
+
+    dias = dias_transcurridos_mes(fecha)
+    energia_kwh = energia_info['total']
+    criterio1_kw = redondear_arriba_kw(demanda_punta)
+    criterio2_kw = redondear_arriba_kw(calcular_criterio2_cfe_kw(energia_kwh, dias))
+    capacidad_kw = min(criterio1_kw, criterio2_kw)
+    criterio_aplicado = 'punta' if criterio1_kw <= criterio2_kw else 'factor_carga'
+
+    if tarifas is None:
+        tarifas = cargar_tarifas()
+    mes = fecha.month
+    precio_cap = tarifas.get('Capacidad', {}).get(mes, 0)
+
+    return {
+        'criterio1_punta_kw': criterio1_kw,
+        'criterio2_factor_kw': criterio2_kw,
+        'capacidad_kw': capacidad_kw,
+        'criterio_aplicado': criterio_aplicado,
+        'energia_kwh': energia_kwh,
+        'energia_por_periodo': energia_info['por_periodo'],
+        'dias_mes': dias,
+        'precio_cap': precio_cap,
+        'costo_mxn': redondear_arriba_mxn(capacidad_kw * precio_cap),
+    }
+
+def construir_tabla_criterio_cfe(resultado_con, resultado_sin=None):
+    filas = []
+    for escenario, res in [('Con BESS', resultado_con), ('Sin BESS', resultado_sin)]:
+        if res is None:
+            continue
+        lbl_criterio = (
+            'Demanda punta'
+            if res['criterio_aplicado'] == 'punta'
+            else 'DemandaCalculadaCFE'
+        )
+        pp = res.get('energia_por_periodo', {})
+        filas.append({
+            'Escenario': escenario,
+            'Energía (kWh)': fmt_kwh(res['energia_kwh']),
+            'Base (kWh)': fmt_kwh(pp.get('base', 0)),
+            'Intermedio (kWh)': fmt_kwh(pp.get('intermedio', 0)),
+            'Punta (kWh)': fmt_kwh(pp.get('punta', 0)),
+            'Días transcurridos': res['dias_mes'],
+            'Demanda punta (kW)': f"{int(res['criterio1_punta_kw']):,}",
+            'DemandaCalculadaCFE': f"{res['criterio2_factor_kw']:,}",
+            'Capacidad CFE (kW)': f"{res['capacidad_kw']:,}",
+            'Criterio aplicado': lbl_criterio,
+            'Costo capacidad (MXN)': f"${res['costo_mxn']:,.2f}",
+        })
+    return pd.DataFrame(filas) if filas else None
+
+def graficar_criterio_cfe(resultado_con, resultado_sin=None):
+    categorias = ['Demanda punta', 'DemandaCalculadaCFE', 'Capacidad CFE']
+    fig = go.Figure()
+
+    def colores_criterio(res):
+        if res['criterio_aplicado'] == 'punta':
+            return ['#e74c3c', '#d5d8dc', '#27ae60']
+        return ['#d5d8dc', '#3498db', '#27ae60']
+
+    if resultado_con is not None:
+        fig.add_trace(go.Bar(
+            name='Con BESS',
+            x=categorias,
+            y=[
+                resultado_con['criterio1_punta_kw'],
+                resultado_con['criterio2_factor_kw'],
+                resultado_con['capacidad_kw'],
+            ],
+            marker_color=colores_criterio(resultado_con),
+            text=[
+                f"{resultado_con['criterio1_punta_kw']:,.0f}",
+                f"{resultado_con['criterio2_factor_kw']:,.0f}",
+                f"{resultado_con['capacidad_kw']:,.0f}",
+            ],
+            textposition='outside',
+            cliponaxis=False,
+        ))
+    if resultado_sin is not None:
+        fig.add_trace(go.Bar(
+            name='Sin BESS',
+            x=categorias,
+            y=[
+                resultado_sin['criterio1_punta_kw'],
+                resultado_sin['criterio2_factor_kw'],
+                resultado_sin['capacidad_kw'],
+            ],
+            marker_color=colores_criterio(resultado_sin),
+            text=[
+                f"{resultado_sin['criterio1_punta_kw']:,.0f}",
+                f"{resultado_sin['criterio2_factor_kw']:,.0f}",
+                f"{resultado_sin['capacidad_kw']:,.0f}",
+            ],
+            textposition='outside',
+            cliponaxis=False,
+        ))
+
+    fig.update_layout(
+        title='Criterio CFE · comparación de criterios (kW)',
+        barmode='group',
+        height=360,
+        margin=dict(l=40, r=20, t=50, b=40),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+        plot_bgcolor='rgba(0,0,0,0)',
+        paper_bgcolor='rgba(0,0,0,0)',
+        yaxis_title='kW',
+    )
+    fig.update_xaxes(tickfont=dict(size=11))
+    fig.update_yaxes(gridcolor='#eef2f6', tickformat=',.0f')
+    return fig
+
+# ========== FUNCIONES DE SIDEBAR ==========
+def sidebar_branding(es_admin):
+    logo_html = obtener_logo_html(72)
+    subtitulo = 'Panel de Control' if es_admin else 'Visualizador'
+    logo_block = (
+        f'<div style="background:white;border-radius:8px;padding:6px 10px;display:inline-block;margin-bottom:8px;">{logo_html}</div>'
+        if logo_html else '<h2 style="color:white;margin:0;font-size:20px;">⚡ BESS</h2>'
+    )
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,#1a5276,#2e86c1);padding:16px;border-radius:12px;text-align:center;margin-bottom:16px;">
+        {logo_block}
+        <p style="color:rgba(255,255,255,0.9);margin:4px 0 0;font-size:12px;font-weight:500;">{subtitulo}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+def sidebar_admin():
+    with st.sidebar:
+        sidebar_branding(es_admin=True)
+        
+        with st.expander("Cargar archivos", expanded=False):
+            archivos = st.file_uploader(
+                "Archivos CSV (ION, BESS, Banco1)",
+                type=['csv'],
+                accept_multiple_files=True,
+                key="upload"
+            )
+            if archivos:
+                for archivo in archivos:
+                    if st.button(f"📤 {archivo.name}", key=f"subir_{archivo.name}"):
+                        try:
+                            ruta = os.path.join(DIRECTORIO_FUENTE, archivo.name)
+                            with open(ruta, 'wb') as f:
+                                f.write(archivo.getbuffer())
+                            st.success(f"✅ {archivo.name} subido")
+                            st.session_state['archivos_subidos'] = True
+                        except Exception as e:
+                            st.error(f"❌ Error: {e}")
+            
+            st.divider()
+            if st.button("Ver archivos fuente", width="stretch"):
+                archivos_fuente = os.listdir(DIRECTORIO_FUENTE) if os.path.exists(DIRECTORIO_FUENTE) else []
+                if archivos_fuente:
+                    for a in archivos_fuente:
+                        st.write(f"📄 {a}")
+                else:
+                    st.info("No hay archivos fuente")
+        
+        with st.expander("Procesar datos", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("Verificar", width="stretch"):
+                    with st.spinner("Verificando archivos..."):
+                        try:
+                            from bess_core import verificar_datos_fuente
+                            resultado = verificar_datos_fuente()
+                            if resultado:
+                                st.success("✅ Verificación completada exitosamente")
+                                st.session_state['verificado'] = True
+                            else:
+                                st.error("❌ Error en la verificación")
+                        except Exception as e:
+                            st.error(f"❌ Error: {e}")
+            
+            with col2:
+                if st.button("Filtrar", width="stretch"):
+                    with st.spinner("Filtrando datos..."):
+                        try:
                             from bess_core import filtrar_datos
-                            exito, msg = filtrar_datos()
+                            exito, mensaje = filtrar_datos()
                             if exito:
-                                st.success(f"✅ {msg}")
+                                st.success(f"✅ {mensaje}")
                                 st.session_state['filtrado'] = True
                             else:
-                                st.error(f"❌ {msg}")
-                        st.rerun()
-                
-                # Mostrar resultados de verificación
-                if 'verificacion' in st.session_state:
-                    with st.expander("📊 Resultados de Verificación", expanded=False):
-                        # Mostrar información de renombrado
-                        if '_renombrados' in st.session_state['verificacion'] and st.session_state['verificacion']['_renombrados']:
-                            st.info("🔄 Archivos identificados y renombrados:")
-                            for nombre, info in st.session_state['verificacion']['_renombrados'].items():
-                                if info.get('sobrescrito', False):
-                                    st.write(f"   • {info['origen']} → {nombre}.csv (sobrescrito)")
-                                else:
-                                    st.write(f"   • {info['origen']} → {nombre}.csv")
-                            st.markdown("---")
-                        
-                        # Mostrar advertencias/errores
-                        if '_advertencias' in st.session_state['verificacion']:
-                            st.warning("⚠️ Advertencias:")
-                            for advertencia in st.session_state['verificacion']['_advertencias']:
-                                st.write(f"   • {advertencia}")
-                            st.markdown("---")
-                        
-                        # Mostrar los resultados de procesamiento de cada archivo
-                        for archivo, info in st.session_state['verificacion'].items():
-                            if archivo in ['_advertencias', '_renombrados']:
-                                continue
-                                
-                            if isinstance(info, dict) and 'error' not in info:
-                                st.markdown(f"**{archivo}**")
-                                if 'renombrado_desde' in info:
-                                    st.write(f"- Renombrado desde: {info['renombrado_desde']}")
-                                    if info.get('sobrescrito', False):
-                                        st.write(f"- ⚠️ Archivo anterior sobrescrito")
-                                st.write(f"- Registros originales: {info.get('registros_originales', 0)}")
-                                st.write(f"- Duplicados eliminados: {info.get('duplicados_eliminados', 0)}")
-                                st.write(f"- Faltantes insertados: {info.get('faltantes_insertados', 0)}")
-                                st.write(f"- Registros finales: {info.get('registros_finales', 0)}")
-                            else:
-                                st.warning(f"⚠️ {archivo}: {info.get('error', 'Error desconocido')}")
+                                st.error(f"❌ {mensaje}")
+                        except Exception as e:
+                            st.error(f"❌ Error: {e}")
             
-            # Sección de reporte
-            with st.expander("📊 2. Generar Reporte BESS", expanded=True):
-                if st.button("🚀 Procesar Reportes BESS", use_container_width=True):
-                    with st.spinner("Generando reportes..."):
+            if st.button("Generar reportes", width="stretch", type="primary"):
+                with st.spinner("Generando reportes..."):
+                    try:
                         from bess_core import reporte_bess
                         exito, msg_ion, msg_banco = reporte_bess()
                         if exito:
                             st.success("✅ Reportes generados exitosamente")
-                            st.success(f"   ✅ ION: {msg_ion}")
-                            st.success(f"   ✅ BANCO1: {msg_banco}")
+                            st.success(f"   ION: {msg_ion}")
+                            st.success(f"   BANCO1: {msg_banco}")
+                            st.session_state['reportes_generados'] = True
                         else:
                             st.warning(f"⚠️ Procesamiento parcial")
                             st.warning(f"   ION: {msg_ion}")
                             st.warning(f"   BANCO1: {msg_banco}")
-                    st.rerun()
-                    
-            st.markdown("---")
-            
-            # Sección de tarifas
-            with st.expander("💰 3. Tarifas", expanded=False):
-                tarifas = cargar_tarifas()
-                mes_actual = datetime.now().month
-                if tarifas:
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Base", f"${tarifas['Base'].get(mes_actual, 0):.4f}")
-                    with col2:
-                        st.metric("Intermedio", f"${tarifas['Intermedio'].get(mes_actual, 0):.4f}")
-                    with col3:
-                        st.metric("Punta", f"${tarifas['Punta'].get(mes_actual, 0):.4f}")
-            
-            st.markdown("---")
-            st.caption("Sistema BESS v5.0 - Admin")
-    else:
-        # Sidebar para usuarios normales (solo información básica)
-        with st.sidebar:
-            st.header("📋 Información")
-            st.markdown("---")
-            st.info(f"👤 Usuario: {nombre_actual}")
-            st.info("📊 Rol: Visualizador")
-            st.markdown("---")
-            st.caption("Sistema BESS v5.0 - Visualizador")
-    
-    # Área principal - Pestañas (visible para todos los usuarios autenticados)
-    tab1, tab2, tab3, tab4 = st.tabs([
-        "📊 Dashboard", 
-        "💹 Análisis de Arbitraje", 
-        "📄 Reporte PDF",
-        "📈 Análisis Avanzado"
-    ])
-    
-    with tab1:
-        st.markdown("## 📊 Dashboard de Energía")
-        st.markdown("---")
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
         
-        ruta_ion = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_ION.csv')
-        ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
-        
-        if not os.path.exists(ruta_ion) and not os.path.exists(ruta_banco):
-            if es_admin:
-                st.warning("⚠️ No hay datos procesados. Ejecuta 'Procesar Reportes BESS' primero.")
-            else:
-                st.warning("⚠️ No hay datos procesados. Contacta al administrador para procesar los datos.")
-        else:
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                medidor_dash = st.selectbox("📌 Medidor", ["ION", "BANCO"], key="dash_medidor")
-            with col2:
-                prefijo = 'ION' if medidor_dash == 'ION' else 'BANCO'
-                ruta_datos = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo}.csv')
-                
-                if os.path.exists(ruta_datos):
-                    df_dash = pd.read_csv(ruta_datos)
-                    df_dash['DATETIME'] = pd.to_datetime(df_dash['FECHA_HORA'], format='%d/%m/%Y %H:%M')
-                    fechas_disponibles = sorted(df_dash['DATETIME'].dt.date.unique())
-                    fechas_str = [d.strftime('%d/%m/%Y') for d in fechas_disponibles]
-                    fecha_seleccionada = st.selectbox("📅 Fecha", fechas_str, key="dash_fecha")
-                else:
-                    st.warning(f"No se encontraron datos para {medidor_dash}")
-                    fecha_seleccionada = None
-            
-            if fecha_seleccionada:
-                fecha_dt = datetime.strptime(fecha_seleccionada, '%d/%m/%Y')
-                inicio = fecha_dt.replace(hour=0, minute=0, second=0)
-                fin = (fecha_dt + timedelta(days=1)).replace(hour=0, minute=0, second=0)
-                
-                mask = (df_dash['DATETIME'] >= inicio) & (df_dash['DATETIME'] < fin)
-                df_dia = df_dash[mask].copy()
-                df_dia = df_dia.sort_values('DATETIME').reset_index(drop=True)
-                
-                if not df_dia.empty:
-                    st.markdown("### 💹 Arbitraje de Energía")
-                    
-                    tarifas = cargar_tarifas()
-                    mes = fecha_dt.month
-                    arbitraje_data = calcular_arbitraje_diario(df_dia, tarifas, mes)
-                    
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.markdown(mostrar_metrica_arbitraje(
-                            arbitraje_data['arbitraje'].get('Base', 0), "Base"
-                        ), unsafe_allow_html=True)
-                    with col2:
-                        st.markdown(mostrar_metrica_arbitraje(
-                            arbitraje_data['arbitraje'].get('Intermedio', 0), "Intermedio"
-                        ), unsafe_allow_html=True)
-                    with col3:
-                        st.markdown(mostrar_metrica_arbitraje(
-                            arbitraje_data['arbitraje'].get('Punta', 0), "Punta"
-                        ), unsafe_allow_html=True)
-                    with col4:
-                        st.markdown(mostrar_metrica_arbitraje(
-                            arbitraje_data['total_arbitraje'], None
-                        ), unsafe_allow_html=True)
-                    
-                    st.markdown("---")
-                    
-                    st.markdown("### ⚡ Métricas BESS")
-                    mostrar_tarjeta_bess(
-                        arbitraje_data['total_carga'],
-                        arbitraje_data['total_descarga'],
-                        arbitraje_data['eficiencia']
-                    )
-                    
-                    st.markdown("---")
-                    
-                    key_suffix = f"{medidor_dash}_{fecha_seleccionada.replace('/', '_')}"
-                    
-                    st.markdown("### 📊 Comparación IUSA")
-                    fig1 = graficar_comparacion_iusa_plotly(df_dia, prefijo, fecha_seleccionada)
-                    st.plotly_chart(fig1, use_container_width=True, config={'displayModeBar': True}, key=f"fig_iusa_{key_suffix}")
-                    
-                    st.markdown("### ⚡ Perfil de Carga")
-                    fig2 = graficar_perfil_carga_plotly(df_dia, prefijo, fecha_seleccionada)
-                    st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': True}, key=f"fig_perfil_{key_suffix}")
-                    
-                    st.markdown("### ⚡ Carga vs Descarga BESS")
-                    fig3 = graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada)
-                    st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': True}, key=f"fig_carga_{key_suffix}")
-                    
-                else:
-                    st.warning(f"No hay datos para la fecha {fecha_seleccionada}")
-    
-    with tab2:
-        st.markdown("## 💹 Análisis Detallado de Arbitraje")
-        st.markdown("---")
-        
-        ruta_ion = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_ION.csv')
-        ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
-        
-        if not os.path.exists(ruta_ion) and not os.path.exists(ruta_banco):
-            if es_admin:
-                st.warning("⚠️ No hay datos procesados. Ejecuta 'Procesar Reportes BESS' primero.")
-            else:
-                st.warning("⚠️ No hay datos procesados. Contacta al administrador para procesar los datos.")
-        else:
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                medidor_arb = st.selectbox("📌 Medidor", ["ION", "BANCO"], key="arb_medidor")
-            with col2:
-                prefijo_arb = 'ION' if medidor_arb == 'ION' else 'BANCO'
-                ruta_datos_arb = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo_arb}.csv')
-                
-                if os.path.exists(ruta_datos_arb):
-                    df_arb = pd.read_csv(ruta_datos_arb)
-                    df_arb['DATETIME'] = pd.to_datetime(df_arb['FECHA_HORA'], format='%d/%m/%Y %H:%M')
-                    fechas_arb = sorted(df_arb['DATETIME'].dt.date.unique())
-                    fechas_arb_str = [d.strftime('%d/%m/%Y') for d in fechas_arb]
-                    fecha_arb = st.selectbox("📅 Fecha", fechas_arb_str, key="arb_fecha")
-                else:
-                    st.warning(f"No se encontraron datos para {medidor_arb}")
-                    fecha_arb = None
-            
-            if fecha_arb:
-                key_suffix_arb = f"{medidor_arb}_{fecha_arb.replace('/', '_')}"
-                
-                fecha_dt_arb = datetime.strptime(fecha_arb, '%d/%m/%Y')
-                inicio_arb = fecha_dt_arb.replace(hour=0, minute=0, second=0)
-                fin_arb = (fecha_dt_arb + timedelta(days=1)).replace(hour=0, minute=0, second=0)
-                
-                mask_arb = (df_arb['DATETIME'] >= inicio_arb) & (df_arb['DATETIME'] < fin_arb)
-                df_dia_arb = df_arb[mask_arb].copy()
-                df_dia_arb = df_dia_arb.sort_values('DATETIME').reset_index(drop=True)
-                
-                if not df_dia_arb.empty:
-                    tarifas = cargar_tarifas()
-                    mes_arb = fecha_dt_arb.month
-                    arbitraje_data_arb = calcular_arbitraje_diario(df_dia_arb, tarifas, mes_arb)
-                    
-                    st.markdown("### 📊 Detalle de Arbitraje por Periodo")
-                    
-                    data_arb = []
-                    for periodo in ['Base', 'Intermedio', 'Punta']:
-                        carga = df_dia_arb[df_dia_arb['PERIODO'] == periodo]['KWH_REC_BESS'].sum()
-                        descarga = df_dia_arb[df_dia_arb['PERIODO'] == periodo]['KWH_ENT_BESS'].sum()
-                        precio = tarifas.get(periodo, {}).get(mes_arb, 0)
-                        arbitraje = (descarga - carga) * precio
-                        
-                        data_arb.append({
-                            'Periodo': periodo,
-                            'Carga (kWh)': f"{carga:,.2f}",
-                            'Descarga (kWh)': f"{descarga:,.2f}",
-                            'Precio ($/kWh)': f"${precio:.4f}",
-                            'Arbitraje ($)': f"${arbitraje:,.0f}"
-                        })
-                    
-                    total_carga = df_dia_arb['KWH_REC_BESS'].sum()
-                    total_descarga = df_dia_arb['KWH_ENT_BESS'].sum()
-                    total_arbitraje = arbitraje_data_arb['total_arbitraje']
-                    
-                    data_arb.append({
-                        'Periodo': '**TOTAL**',
-                        'Carga (kWh)': f"**{total_carga:,.2f}**",
-                        'Descarga (kWh)': f"**{total_descarga:,.2f}**",
-                        'Precio ($/kWh)': '—',
-                        'Arbitraje ($)': f"**${total_arbitraje:,.0f}**"
-                    })
-                    
-                    df_arb_tabla = pd.DataFrame(data_arb)
-                    st.dataframe(df_arb_tabla, use_container_width=True, hide_index=True)
-                    
-                    st.markdown("### 📊 Comparativa de Arbitraje por Periodo")
-                    fig_arb = graficar_arbitraje_periodos_plotly(arbitraje_data_arb, fecha_arb)
-                    st.plotly_chart(fig_arb, use_container_width=True, config={'displayModeBar': True}, key=f"fig_arbitraje_{key_suffix_arb}")
-                    
-                    st.markdown("### 📈 Análisis de Eficiencia BESS")
-                    col1, col2, col3 = st.columns(3)
-                    
-                    with col1:
-                        st.metric(
-                            "⚡ Energía de Carga", 
-                            f"{total_carga:,.2f} kWh",
-                            help="Energía consumida por el BESS para cargarse"
-                        )
-                    with col2:
-                        st.metric(
-                            "🔋 Energía de Descarga", 
-                            f"{total_descarga:,.2f} kWh",
-                            help="Energía entregada por el BESS"
-                        )
-                    with col3:
-                        eficiencia = (total_descarga / total_carga * 100) if total_carga > 0 else 0
-                        st.metric(
-                            "📊 Eficiencia", 
-                            f"{eficiencia:.1f}%",
-                            delta=f"{eficiencia - 85:.1f}%" if eficiencia > 0 else None,
-                            help="Relación entre energía descargada y cargada"
-                        )
-                else:
-                    st.warning(f"No hay datos para la fecha {fecha_arb}")
-    
-    with tab3:
-        st.markdown("## 📄 Generar Reporte PDF")
-        st.markdown("---")
-        
-        ruta_ion = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_ION.csv')
-        ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
-        
-        if not os.path.exists(ruta_ion) and not os.path.exists(ruta_banco):
-            if es_admin:
-                st.warning("⚠️ No hay datos procesados. Ejecuta 'Procesar Reportes BESS' primero.")
-            else:
-                st.warning("⚠️ No hay datos procesados. Contacta al administrador para procesar los datos.")
-        else:
-            col1, col2 = st.columns([1, 2])
-            with col1:
-                medidor_pdf = st.selectbox("📌 Medidor", ["ION", "BANCO"], key="pdf_medidor")
-            with col2:
-                prefijo_pdf = 'ION' if medidor_pdf == 'ION' else 'BANCO'
-                ruta_combinado_pdf = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo_pdf}.csv')
-                
-                if os.path.exists(ruta_combinado_pdf):
-                    df_pdf = pd.read_csv(ruta_combinado_pdf)
-                    df_pdf['DATETIME'] = pd.to_datetime(df_pdf['FECHA_HORA'], format='%d/%m/%Y %H:%M')
-                    fechas_pdf = sorted(df_pdf['DATETIME'].dt.date.unique())
-                    fechas_pdf_str = [d.strftime('%d/%m/%Y') for d in fechas_pdf]
-                    fecha_pdf = st.selectbox("📅 Fecha", fechas_pdf_str, key="pdf_fecha")
-                else:
-                    st.warning(f"No se encontraron datos para {medidor_pdf}")
-                    fecha_pdf = None
-            
-            if fecha_pdf:
-                st.info(f"📄 Generando reporte para {medidor_pdf} - {fecha_pdf}")
-                
-                if st.button("📄 Generar Reporte PDF", use_container_width=True, type="primary"):
-                    with st.spinner("Generando reporte PDF..."):
-                        exito, resultado = generar_reporte_pdf(fecha_pdf, medidor_pdf)
-                        
-                        if exito:
-                            st.success(f"✅ Reporte generado exitosamente")
-                            
-                            st.markdown(f"**📁 Archivo:** `{os.path.basename(resultado)}`")
-                            st.markdown(f"**📂 Ubicación:** `{os.path.dirname(resultado)}`")
-                            
-                            with open(resultado, 'rb') as f:
-                                pdf_bytes = f.read()
-                            
-                            st.download_button(
-                                label="📥 Descargar PDF",
-                                data=pdf_bytes,
-                                file_name=os.path.basename(resultado),
-                                mime="application/pdf",
-                                use_container_width=True
-                            )
+            if st.button("Procesar todo", width="stretch"):
+                with st.spinner("Verificando, filtrando y generando reportes..."):
+                    try:
+                        from bess_core import verificar_datos_fuente, filtrar_datos, reporte_bess
+                        if not verificar_datos_fuente():
+                            st.error("Error en la verificación")
                         else:
-                            st.error(f"❌ Error al generar el reporte: {resultado}")
-    
-    with tab4:
-        st.markdown("## 📈 Análisis Avanzado")
-        st.markdown("---")
+                            exito_f, msg_f = filtrar_datos()
+                            if not exito_f:
+                                st.error(msg_f)
+                            else:
+                                exito_r, msg_ion, msg_banco = reporte_bess()
+                                if exito_r:
+                                    st.success("Proceso completo: ION y BANCO actualizados")
+                                else:
+                                    st.warning(f"Parcial — ION: {msg_ion} · BANCO: {msg_banco}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+        with st.expander("Tarifas del mes", expanded=False):
+            tarifas = cargar_tarifas()
+            mes = datetime.now().month
+            nombres_mes = (
+                'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
+            )
+            st.caption(f"{nombres_mes[mes - 1]} {datetime.now().year}")
+            st.markdown(html_tarifas_sidebar(tarifas, mes), unsafe_allow_html=True)
         
-        col1, col2 = st.columns([1, 2])
+        st.divider()
+        st.caption("Sistema BESS v5.0")
+
+def sidebar_user():
+    with st.sidebar:
+        sidebar_branding(es_admin=False)
+        
+        st.info("Modo visualización")
+        st.caption("Sistema BESS v5.0")
+
+# ========== FUNCIONES DE TABS ==========
+def tab_dashboard(df, prefijo, medidor):
+    with st.container(border=True):
+        fecha_inicio, fecha_fin, df_filtrado = render_selector_rango(
+            df, prefijo, key_suffix='dashboard', medidor=medidor
+        )
+
+    if len(df_filtrado) == 0:
+        st.warning("No hay datos en el rango seleccionado")
+        return
+
+    rango_label = f"{fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}"
+    detalle = calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo)
+
+    carga = sumar_energia(df_filtrado['KWH_REC_BESS'])
+    descarga = sumar_energia(df_filtrado['KWH_ENT_BESS'])
+    eficiencia = (descarga / carga * 100) if carga > 0 else 0
+
+    with st.container(border=True):
+        section_header(f"Resumen del periodo · {rango_label}")
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            medidor_trend = st.selectbox("📌 Medidor", ["ION", "BANCO"], key="trend_medidor")
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['carga']};">
+                <div class="label">Carga BESS</div>
+                <div class="value">{fmt_kwh(carga)}</div>
+                <div class="sub">kWh</div>
+            </div>
+            """, unsafe_allow_html=True)
         with col2:
-            prefijo_trend = 'ION' if medidor_trend == 'ION' else 'BANCO'
-            st.markdown(f"### 📊 Datos de {medidor_trend}")
-        
-        st.markdown("### 📈 Tendencia de Consumo Diario")
-        fig_trend = graficar_tendencia_mensual_plotly(prefijo_trend, DIRECTORIO_REPORTES)
-        st.plotly_chart(fig_trend, use_container_width=True, config={'displayModeBar': True}, key=f"fig_trend_{medidor_trend}")
-        
-        st.markdown("### 📊 Estadísticas Descriptivas")
-        ruta_dia = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo_trend}_POR_DIA.csv')
-        if os.path.exists(ruta_dia):
-            df_stats = pd.read_csv(ruta_dia)
-            df_stats['FECHA_DT'] = pd.to_datetime(df_stats['FECHA'], format='%d/%m/%Y')
-            
-            col1, col2, col3, col4 = st.columns(4)
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['descarga']};">
+                <div class="label">Descarga BESS</div>
+                <div class="value">{fmt_kwh(descarga)}</div>
+                <div class="sub">kWh</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['primary']};">
+                <div class="label">Eficiencia</div>
+                <div class="value">{eficiencia:.1f}%</div>
+                <div class="sub">{'Óptima' if eficiencia >= 80 else 'Revisar'}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col4:
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['success']};">
+                <div class="label">Arbitraje</div>
+                <div class="value">${detalle['arbitraje_total']:,.2f}</div>
+                <div class="sub">MXN</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    section_header("Perfil de carga")
+    fig_perfil = graficar_perfil(df_filtrado, prefijo, "")
+    st.plotly_chart(fig_perfil, use_container_width=True, config={'displayModeBar': False})
+
+    with st.container(border=True):
+        section_header(detalle["titulo_tabla"])
+        st.dataframe(
+            estilizar_tabla_energia(detalle['df_tabla']),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    section_header(f"Arbitraje por periodo · {detalle['rango_label']}")
+    col1, col2, col3, col4 = st.columns(4)
+    for i, periodo in enumerate(['Base', 'Intermedio', 'Punta']):
+        valor = [detalle['arbitraje_base'], detalle['arbitraje_intermedio'], detalle['arbitraje_punta']][i]
+        with [col1, col2, col3][i]:
+            st.markdown(tarjeta_arbitraje_html(periodo, valor), unsafe_allow_html=True)
+    with col4:
+        st.markdown(tarjeta_arbitraje_html('', detalle['arbitraje_total'], es_total=True), unsafe_allow_html=True)
+
+def tab_analisis(df, prefijo):
+    if 'DATETIME' not in df.columns:
+        df = df.copy()
+        df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
+
+    col_con = f'IUSA_CON_BESS_{prefijo}_kW_DEM_15min'
+    col_sin = f'IUSA_SIN_BESS_{prefijo}_kW_DEM_15min'
+
+    fecha_min = df['DATETIME'].min().date()
+    fecha_max = df['DATETIME'].max().date()
+    fecha_def = datetime.now().date() - timedelta(days=1)
+    fecha_def = max(fecha_min, min(fecha_def, fecha_max))
+
+    fecha_sel = render_selector_fecha_unica(
+        'Análisis',
+        'Fecha de corte para demanda del día y acumulados mensuales.',
+        'Fecha de corte',
+        fecha_def,
+        fecha_min,
+        fecha_max,
+        key=f"fecha_analisis_{prefijo}",
+        metric_label='Registros del día',
+        metric_fn=lambda f: f"{len(df[df['DATETIME'].dt.date == f]):,}",
+    )
+
+    estado_bess = estado_datos_sin_bess(prefijo)
+    mostrar_aviso_sin_bess(estado_bess)
+
+    fecha_str = fecha_sel.strftime('%d/%m/%Y')
+    mes_label = fecha_sel.strftime('%m/%Y')
+    df_dia = df[df['DATETIME'].dt.date == fecha_sel].copy()
+    if df_dia.empty:
+        st.warning(f"No hay datos para la fecha {fecha_str}")
+        return
+
+    tarifas = cargar_tarifas()
+    mes_num = fecha_sel.month
+    res_energia_con = calcular_costo_energia_mes(fecha_sel, prefijo, con_bess=True, tarifas=tarifas)
+    res_energia_sin = (
+        calcular_costo_energia_mes(fecha_sel, prefijo, con_bess=False, tarifas=tarifas)
+        if estado_bess['energia'] else None
+    )
+    demanda_punta_sin = obtener_demanda_rolada_punta(fecha_sel, prefijo, con_bess=False)
+    res_cfe_con = calcular_criterio_cfe(fecha_sel, prefijo, con_bess=True, tarifas=tarifas)
+    res_cfe_sin = (
+        calcular_criterio_cfe(fecha_sel, prefijo, con_bess=False, tarifas=tarifas)
+        if demanda_punta_sin is not None else None
+    )
+    precio_cap = tarifas.get('Capacidad', {}).get(mes_num, 0)
+
+    tab_dem, tab_ene, tab_cfe = st.tabs(["Demanda", "Energía y costos", "Capacidad CFE"])
+
+    with tab_dem:
+        df_dem = df_dia.copy()
+        if col_con in df_dem.columns:
+            df_dem[col_con] = pd.to_numeric(df_dem[col_con], errors='coerce')
+        if col_sin in df_dem.columns:
+            df_dem[col_sin] = pd.to_numeric(df_dem[col_sin], errors='coerce')
+        df_dem_valid = df_dem.dropna(subset=[col_con, col_sin], how='any')
+
+        section_header(
+            f"Demanda del día · {fecha_str}",
+            'Curva con y sin BESS en intervalos de 15 minutos.',
+        )
+        if df_dem_valid.empty:
+            st.warning(f"No hay lecturas de demanda (15 min) para el {fecha_str}")
+        else:
+            fig = graficar_demanda_dia(df_dia, prefijo, f"Demanda · {fecha_str}")
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+
+        section_header(
+            f"Demanda máxima del mes · {mes_label}",
+            'Acumulado mensual hasta la fecha de corte.',
+        )
+        df_dem_mes = construir_tabla_demanda_max_mes(fecha_sel, prefijo)
+        if df_dem_mes is not None:
+            st.dataframe(
+                estilizar_tabla_demanda_periodo(df_dem_mes),
+                use_container_width=True,
+                hide_index=True,
+            )
+        else:
+            st.warning(f"No hay demanda acumulada para el mes {mes_label}")
+
+    with tab_ene:
+        section_header(
+            f"Costo de energía por periodo · {mes_label}",
+            'kWh acumulados redondeados × tarifa por periodo (Base, Intermedio, Punta).',
+        )
+        if res_energia_con is None:
+            st.warning(f"No hay energía acumulada para el mes {mes_label}")
+        elif res_energia_sin is None:
+            col_e1, col_e2, col_e3 = st.columns(3)
+            with col_e1:
+                st.metric("Energía acumulada (con BESS)", f"{fmt_kwh(res_energia_con['total_kwh'])} kWh")
+            with col_e2:
+                st.metric("Días transcurridos", res_energia_con['dias_mes'])
+            with col_e3:
+                st.metric("Costo acumulado (con BESS)", f"${res_energia_con['total_mxn']:,.2f}")
+        else:
+            st.markdown(
+                f"""<div class="cap-tarifa">
+                Días transcurridos: <b>{res_energia_con['dias_mes']}</b> ·
+                Fuente: <b>ENERGIA_{prefijo}_POR_DIA.csv</b>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            st.markdown(
+                html_comparacion_costo_energia(res_energia_con, res_energia_sin, tarifas, mes_num),
+                unsafe_allow_html=True,
+            )
+            df_costo_energia = construir_tabla_costo_energia(res_energia_con, res_energia_sin)
+            st.dataframe(df_costo_energia, use_container_width=True, hide_index=True)
+            with st.expander("Gráfica comparativa de costos"):
+                fig_energia = graficar_costo_energia_periodo(res_energia_con, res_energia_sin)
+                st.plotly_chart(fig_energia, use_container_width=True, config={'displayModeBar': False})
+
+    with tab_cfe:
+        section_header(
+            f"Capacidad CFE · {mes_label}",
+            'Capacidad = min(demanda punta, DemandaCalculadaCFE). '
+            'DemandaCalculadaCFE = Energía / (0.74 × 24 × días transcurridos).',
+        )
+        if res_cfe_con is None:
+            st.warning(f"No hay datos para calcular capacidad al {fecha_str}")
+        elif res_cfe_sin is None:
+            col_cap1, col_cap2, col_cap3 = st.columns(3)
+            with col_cap1:
+                st.metric("Capacidad CFE (con BESS)", f"{res_cfe_con['capacidad_kw']:,} kW")
+            with col_cap2:
+                st.metric("Tarifa capacidad", f"${precio_cap:,.2f}")
+            with col_cap3:
+                st.metric("Costo capacidad (con BESS)", f"${res_cfe_con['costo_mxn']:,.2f}")
+        else:
+            ahorro_cap = res_cfe_sin['costo_mxn'] - res_cfe_con['costo_mxn']
+            st.markdown(
+                html_comparacion_capacidad(
+                    res_cfe_con, res_cfe_sin, precio_cap, ahorro_cap,
+                ),
+                unsafe_allow_html=True,
+            )
+
+        if res_cfe_con is not None:
+            dias = res_cfe_con['dias_mes']
+            pp_con = res_cfe_con.get('energia_por_periodo', {})
+            detalle_con = (
+                f"Con BESS: {fmt_kwh(res_cfe_con['energia_kwh'])} kWh "
+                f"(Base {fmt_kwh(pp_con.get('base', 0))} · "
+                f"Intermedio {fmt_kwh(pp_con.get('intermedio', 0))} · "
+                f"Punta {fmt_kwh(pp_con.get('punta', 0))})"
+            )
+            detalle_sin = ''
+            if res_cfe_sin is not None:
+                pp_sin = res_cfe_sin.get('energia_por_periodo', {})
+                detalle_sin = (
+                    f" · Sin BESS: {fmt_kwh(res_cfe_sin['energia_kwh'])} kWh "
+                    f"(Base {fmt_kwh(pp_sin.get('base', 0))} · "
+                    f"Intermedio {fmt_kwh(pp_sin.get('intermedio', 0))} · "
+                    f"Punta {fmt_kwh(pp_sin.get('punta', 0))})"
+                )
+            st.markdown(
+                f"""<div class="cap-tarifa">
+                Días transcurridos: <b>{dias}</b> ·
+                Fuente: <b>ENERGIA_{prefijo}_POR_DIA.csv</b><br>
+                {detalle_con}{detalle_sin}<br>
+                Tarifa capacidad: <b>${res_cfe_con['precio_cap']:,.2f}</b>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+            df_cfe = construir_tabla_criterio_cfe(res_cfe_con, res_cfe_sin)
+            if df_cfe is not None:
+                st.dataframe(df_cfe, use_container_width=True, hide_index=True)
+            fig_cfe = graficar_criterio_cfe(res_cfe_con, res_cfe_sin)
+            st.plotly_chart(fig_cfe, use_container_width=True, config={'displayModeBar': False})
+
+def _mtime_fuente_reporte(prefijo):
+    ruta = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo}.csv')
+    return os.path.getmtime(ruta) if os.path.exists(ruta) else 0
+
+@st.cache_data(show_spinner="Generando reporte PDF...")
+def _pdf_bytes_descarga(fecha_str, prefijo, _mtime_fuente):
+    from bess_core import generar_reporte_pdf
+    exito, ruta = generar_reporte_pdf(fecha_str, prefijo)
+    if not exito:
+        raise RuntimeError(ruta)
+    with open(ruta, 'rb') as f:
+        return f.read(), os.path.basename(ruta)
+
+def _render_boton_descarga_pdf(pdf_bytes, pdf_name):
+    """Botón de descarga en iframe para evitar estilos de enlace de Streamlit."""
+    pdf_b64 = base64.b64encode(pdf_bytes).decode()
+    nombre_seguro = html.escape(pdf_name, quote=True)
+    components.html(
+        f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <style>
+            html, body {{
+                margin: 0;
+                padding: 0;
+                background: transparent;
+                font-family: "Source Sans Pro", sans-serif;
+            }}
+            .reporte-dl-box {{
+                max-width: 320px;
+                margin: 0 auto;
+                background: linear-gradient(135deg, #1e8449 0%, #27ae60 100%);
+                padding: 10px 14px;
+                border-radius: 10px;
+                text-align: center;
+                box-shadow: 0 2px 8px rgba(39, 174, 96, 0.28);
+            }}
+            .reporte-dl-btn,
+            .reporte-dl-btn:link,
+            .reporte-dl-btn:visited,
+            .reporte-dl-btn:hover,
+            .reporte-dl-btn:active {{
+                display: block;
+                width: 100%;
+                box-sizing: border-box;
+                background: #ffffff;
+                color: #000000;
+                padding: 0.55rem 0.85rem;
+                border-radius: 6px;
+                font-weight: 700;
+                font-size: 1.05rem;
+                text-decoration: none;
+                text-align: center;
+                line-height: 1.35;
+            }}
+            .reporte-dl-btn:hover {{
+                background: #eafaf1;
+            }}
+        </style>
+        </head>
+        <body>
+        <div class="reporte-dl-box">
+            <a class="reporte-dl-btn"
+               href="data:application/pdf;base64,{pdf_b64}"
+               download="{nombre_seguro}">
+                Generar Reporte Diario
+            </a>
+        </div>
+        </body>
+        </html>
+        """,
+        height=76,
+    )
+
+def tab_reporte(df, prefijo):
+    """Vista previa y generación del reporte PDF diario."""
+    if df is None or len(df) == 0:
+        st.warning("No hay datos disponibles para generar reportes")
+        return
+
+    if 'DATETIME' not in df.columns:
+        df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
+
+    fecha_min = df['DATETIME'].min().date()
+    fecha_max = df['DATETIME'].max().date()
+    fecha_por_defecto = datetime.now().date() - timedelta(days=1)
+    fecha_por_defecto = max(fecha_min, min(fecha_por_defecto, fecha_max))
+
+    fecha_seleccionada = render_selector_fecha_unica(
+        'Reporte diario',
+        'PDF con perfil de carga, consumo acumulado del mes y arbitraje del día.',
+        'Fecha del reporte',
+        fecha_por_defecto,
+        fecha_min,
+        fecha_max,
+        key=f"fecha_reporte_pdf_calendario_{prefijo}",
+    )
+
+    fecha_str = fecha_seleccionada.strftime('%d/%m/%Y')
+    df_dia = df[df['DATETIME'].dt.date == fecha_seleccionada].copy()
+    if df_dia.empty:
+        st.warning(f"No hay datos para la fecha {fecha_str}")
+        return
+
+    tarifas = cargar_tarifas()
+    from bess_core import calcular_arbitraje_dia
+
+    detalle = calcular_detalle_energia_periodo(fecha_seleccionada, fecha_seleccionada, prefijo)
+    arb_dia = calcular_arbitraje_dia(fecha_str, prefijo, tarifas=tarifas)
+
+    carga_dia = sumar_energia(df_dia['KWH_REC_BESS'])
+    descarga_dia = sumar_energia(df_dia['KWH_ENT_BESS'])
+    eficiencia = (descarga_dia / carga_dia * 100) if carga_dia > 0 else 0
+
+    with st.container(border=True):
+        section_header(f'Resumen del día · {fecha_str}')
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['carga']};">
+                <div class="label">Carga BESS</div>
+                <div class="value">{fmt_kwh(carga_dia)}</div>
+                <div class="sub">kWh del día</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['descarga']};">
+                <div class="label">Descarga BESS</div>
+                <div class="value">{fmt_kwh(descarga_dia)}</div>
+                <div class="sub">kWh del día</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col3:
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['primary']};">
+                <div class="label">Eficiencia</div>
+                <div class="value">{eficiencia:.1f}%</div>
+                <div class="sub">{'Óptima' if eficiencia >= 80 else 'Revisar'}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col4:
+            st.markdown(f"""
+            <div class="metric-card" style="border-top:3px solid {COLORES['success']};">
+                <div class="label">Arbitraje del día</div>
+                <div class="value">${arb_dia['total']:,.2f}</div>
+                <div class="sub">MXN</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+    section_header(
+        'Vista previa del PDF',
+        'Gráfica y tabla con el mismo contenido que se exportará al reporte.',
+        compact=True,
+    )
+    fig_perfil = graficar_perfil(df_dia, prefijo, f'Perfil de carga · {fecha_str}')
+    st.plotly_chart(fig_perfil, use_container_width=True, config={'displayModeBar': False})
+
+    with st.container(border=True):
+        section_header(
+            'Detalle de energía',
+            f'Acumulado mensual al {fecha_str} · arbitraje del día.',
+            compact=True,
+        )
+        st.dataframe(
+            estilizar_tabla_energia(detalle['df_tabla']),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        section_header(f'Arbitraje del día · {fecha_str}', compact=True)
+        col_a1, col_a2, col_a3, col_a4 = st.columns(4)
+        for i, periodo in enumerate(['Base', 'Intermedio', 'Punta']):
+            valor = [arb_dia['base'], arb_dia['intermedio'], arb_dia['punta']][i]
+            with [col_a1, col_a2, col_a3][i]:
+                st.markdown(tarjeta_arbitraje_html(periodo, valor), unsafe_allow_html=True)
+        with col_a4:
+            st.markdown(tarjeta_arbitraje_html('', arb_dia['total'], es_total=True), unsafe_allow_html=True)
+
+    try:
+        pdf_bytes, pdf_name = _pdf_bytes_descarga(
+            fecha_str, prefijo, _mtime_fuente_reporte(prefijo)
+        )
+        _render_boton_descarga_pdf(pdf_bytes, pdf_name)
+    except RuntimeError as e:
+        st.error(f"Error al generar el reporte: {e}")
+
+# ========== TENDENCIA ==========
+def _cargar_energia_diaria_rango(prefijo, fecha_inicio, fecha_fin):
+    ruta = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
+    if not os.path.exists(ruta):
+        return None
+    df = pd.read_csv(ruta)
+    df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
+    mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
+    df = df[mask].sort_values('FECHA_DT').reset_index(drop=True)
+    if df.empty:
+        return None
+    df['TOTAL_CON'] = (
+        pd.to_numeric(df['BASE_REC'], errors='coerce').fillna(0)
+        + pd.to_numeric(df['INTERMEDIO_REC'], errors='coerce').fillna(0)
+        + pd.to_numeric(df['PUNTA_REC'], errors='coerce').fillna(0)
+    )
+    if energia_diaria_tiene_sin_bess(prefijo):
+        df['TOTAL_SIN'] = (
+            pd.to_numeric(df['BASE_REC_SIN_BESS'], errors='coerce').fillna(0)
+            + pd.to_numeric(df['INTERMEDIO_REC_SIN_BESS'], errors='coerce').fillna(0)
+            + pd.to_numeric(df['PUNTA_REC_SIN_BESS'], errors='coerce').fillna(0)
+        )
+    return df
+
+def _cargar_bess_diaria_rango(fecha_inicio, fecha_fin):
+    ruta = os.path.join(DIRECTORIO_REPORTES, 'ENERGIA_BESS_POR_DIA.csv')
+    if not os.path.exists(ruta):
+        return None
+    df = pd.read_csv(ruta)
+    df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
+    mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
+    df = df[mask].sort_values('FECHA_DT').reset_index(drop=True)
+    return df if not df.empty else None
+
+def construir_serie_arbitraje_diaria(df_med, prefijo, tarifas=None):
+    from bess_core import calcular_arbitraje_dia
+    if tarifas is None:
+        tarifas = cargar_tarifas()
+    df = df_med.copy()
+    df['ARBITRAJE_MXN'] = [
+        calcular_arbitraje_dia(fecha, prefijo, tarifas)['total']
+        for fecha in df['FECHA']
+    ]
+    return df
+
+def _layout_fig_tendencia(fig, y_title='', height=400):
+    fig.update_layout(
+        height=height,
+        hovermode='x unified',
+        margin=dict(l=50, r=24, t=36, b=48),
+        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='center', x=0.5),
+        plot_bgcolor='white',
+        paper_bgcolor='white',
+        xaxis_title='Fecha',
+        yaxis_title=y_title,
+    )
+    fig.update_xaxes(tickformat='%d/%m', gridcolor='#eef2f6', showgrid=True)
+    fig.update_yaxes(gridcolor='#eef2f6', zeroline=True, zerolinecolor='#dee2e6')
+    return fig
+
+def graficar_tendencia_consumo_periodo(df, rango_label):
+    fig = go.Figure()
+    cols = [
+        ('BASE_REC', 'Base', COLORES['base']),
+        ('INTERMEDIO_REC', 'Intermedio', COLORES['intermedio']),
+        ('PUNTA_REC', 'Punta', COLORES['punta']),
+    ]
+    for i, (col, lbl, color) in enumerate(cols):
+        y = pd.to_numeric(df[col], errors='coerce').fillna(0)
+        fig.add_trace(go.Scatter(
+            x=df['FECHA_DT'], y=y, name=lbl, stackgroup='one',
+            mode='lines', line=dict(width=1, color=color),
+            fill='tozeroy' if i == 0 else 'tonexty',
+            hovertemplate=f'<b>{lbl}</b><br>%{{x|%d/%m/%Y}}<br>%{{y:,.0f}} kWh<extra></extra>',
+        ))
+    if len(df) > 7:
+        media = df['TOTAL_CON'].rolling(7, min_periods=1).mean()
+        fig.add_trace(go.Scatter(
+            x=df['FECHA_DT'], y=media, name='Promedio 7 días (total)',
+            mode='lines', line=dict(color=COLORES['primary'], width=2, dash='dot'),
+            hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+        ))
+    fig.update_layout(title=f'Consumo diario por periodo · {rango_label}')
+    return _layout_fig_tendencia(fig, 'kWh', height=420)
+
+def graficar_tendencia_con_sin_bess(df, rango_label):
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df['FECHA_DT'], y=df['TOTAL_CON'], name='Con BESS',
+        mode='lines+markers', line=dict(color=COLORES['success'], width=2),
+        marker=dict(size=5),
+        hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+    ))
+    fig.add_trace(go.Scatter(
+        x=df['FECHA_DT'], y=df['TOTAL_SIN'], name='Sin BESS',
+        mode='lines+markers', line=dict(color=COLORES['danger'], width=2, dash='dash'),
+        marker=dict(size=5),
+        hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+    ))
+    ahorro = df['TOTAL_SIN'] - df['TOTAL_CON']
+    fig.add_trace(go.Bar(
+        x=df['FECHA_DT'], y=ahorro, name='Ahorro diario (kWh)',
+        marker_color='rgba(39, 174, 96, 0.35)',
+        yaxis='y2',
+        hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+    ))
+    fig.update_layout(
+        title=f'Consumo con vs sin BESS · {rango_label}',
+        yaxis2=dict(title='Δ kWh', overlaying='y', side='right', showgrid=False),
+    )
+    return _layout_fig_tendencia(fig, 'kWh', height=420)
+
+def graficar_tendencia_bess_operacion(df_bess, rango_label):
+    carga = (
+        pd.to_numeric(df_bess['BASE_REC'], errors='coerce').fillna(0)
+        + pd.to_numeric(df_bess['INTERMEDIO_REC'], errors='coerce').fillna(0)
+        + pd.to_numeric(df_bess['PUNTA_REC'], errors='coerce').fillna(0)
+    )
+    descarga = (
+        pd.to_numeric(df_bess['BASE_ENT'], errors='coerce').fillna(0)
+        + pd.to_numeric(df_bess['INTERMEDIO_ENT'], errors='coerce').fillna(0)
+        + pd.to_numeric(df_bess['PUNTA_ENT'], errors='coerce').fillna(0)
+    )
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=df_bess['FECHA_DT'], y=carga, name='Carga BESS',
+        marker_color=COLORES['carga'], opacity=0.85,
+        hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+    ))
+    fig.add_trace(go.Bar(
+        x=df_bess['FECHA_DT'], y=descarga, name='Descarga BESS',
+        marker_color=COLORES['descarga'], opacity=0.85,
+        hovertemplate='%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
+    ))
+    fig.update_layout(title=f'Carga y descarga BESS · {rango_label}', barmode='group')
+    return _layout_fig_tendencia(fig, 'kWh', height=380)
+
+def graficar_tendencia_arbitraje(df, rango_label):
+    colores = [COLORES['success'] if v >= 0 else COLORES['danger'] for v in df['ARBITRAJE_MXN']]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=df['FECHA_DT'], y=df['ARBITRAJE_MXN'], name='Arbitraje',
+        marker_color=colores,
+        hovertemplate='%{x|%d/%m/%Y}<br>$%{y:,.2f}<extra></extra>',
+    ))
+    if len(df) > 7:
+        media = df['ARBITRAJE_MXN'].rolling(7, min_periods=1).mean()
+        fig.add_trace(go.Scatter(
+            x=df['FECHA_DT'], y=media, name='Promedio 7 días',
+            mode='lines', line=dict(color=COLORES['primary'], width=2, dash='dot'),
+            hovertemplate='%{x|%d/%m/%Y}<br>$%{y:,.2f}<extra></extra>',
+        ))
+    fig.update_layout(title=f'Arbitraje diario · {rango_label}')
+    fig.update_yaxes(tickformat='$,.0f')
+    return _layout_fig_tendencia(fig, 'MXN', height=380)
+
+def tab_tendencia(df, prefijo):
+    with st.container(border=True):
+        fecha_inicio, fecha_fin, _ = render_selector_rango(
+            df, prefijo, key_suffix='tendencia'
+        )
+
+    if fecha_fin < fecha_inicio:
+        st.warning("La fecha final debe ser posterior o igual a la inicial")
+        return
+
+    rango_label = f"{fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}"
+    dias = (fecha_fin - fecha_inicio).days + 1
+
+    section_header(f'Tendencia · {rango_label}')
+
+    df_med = _cargar_energia_diaria_rango(prefijo, fecha_inicio, fecha_fin)
+    if df_med is None:
+        st.warning(f"No hay datos de energía para el periodo {rango_label}")
+        return
+
+    df_bess = _cargar_bess_diaria_rango(fecha_inicio, fecha_fin)
+    estado_bess = estado_datos_sin_bess(prefijo)
+    mostrar_aviso_sin_bess(estado_bess)
+
+    tarifas = cargar_tarifas()
+    df_arb = construir_serie_arbitraje_diaria(df_med, prefijo, tarifas)
+
+    total_con = sumar_energia(df_med['TOTAL_CON'])
+    prom_con = total_con / dias if dias else 0
+    arbitraje_acum = sumar_energia(df_arb['ARBITRAJE_MXN'])
+    carga_tot = descarga_tot = 0.0
+    if df_bess is not None:
+        carga_tot = sumar_energia(
+            pd.to_numeric(df_bess['BASE_REC'], errors='coerce').fillna(0)
+            + pd.to_numeric(df_bess['INTERMEDIO_REC'], errors='coerce').fillna(0)
+            + pd.to_numeric(df_bess['PUNTA_REC'], errors='coerce').fillna(0)
+        )
+        descarga_tot = sumar_energia(
+            pd.to_numeric(df_bess['BASE_ENT'], errors='coerce').fillna(0)
+            + pd.to_numeric(df_bess['INTERMEDIO_ENT'], errors='coerce').fillna(0)
+            + pd.to_numeric(df_bess['PUNTA_ENT'], errors='coerce').fillna(0)
+        )
+
+    with st.container(border=True):
+        section_header('Resumen del periodo', compact=True)
+        if estado_bess['energia'] and 'TOTAL_SIN' in df_med.columns:
+            total_sin = sumar_energia(df_med['TOTAL_SIN'])
+            ahorro_kwh = total_sin - total_con
+            col1, col2, col3, col4, col5, col6 = st.columns(6)
             with col1:
-                st.metric("📅 Total Días", len(df_stats))
+                metric_compact('Días', dias)
             with col2:
-                st.metric("⚡ Consumo Promedio", f"{df_stats['BASE_REC'].mean() + df_stats['INTERMEDIO_REC'].mean() + df_stats['PUNTA_REC'].mean():,.0f} kWh")
+                metric_compact('Consumo con BESS', f'{fmt_kwh(total_con)} kWh')
             with col3:
-                st.metric("📊 Consumo Máximo", f"{df_stats['BASE_REC'].max() + df_stats['INTERMEDIO_REC'].max() + df_stats['PUNTA_REC'].max():,.0f} kWh")
+                metric_compact('Consumo sin BESS', f'{fmt_kwh(total_sin)} kWh')
             with col4:
-                st.metric("📉 Consumo Mínimo", f"{df_stats['BASE_REC'].min() + df_stats['INTERMEDIO_REC'].min() + df_stats['PUNTA_REC'].min():,.0f} kWh")
-            
-            st.markdown("### 📋 Datos Históricos")
-            st.dataframe(df_stats, use_container_width=True)
+                metric_compact('Ahorro energía', f'{fmt_kwh(ahorro_kwh)} kWh')
+            with col5:
+                metric_compact('Arbitraje acum.', f'${arbitraje_acum:,.2f}')
+            with col6:
+                metric_compact('Promedio diario', f'{fmt_kwh(prom_con)} kWh')
+        else:
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                metric_compact('Días', dias)
+            with col2:
+                metric_compact('Consumo total', f'{fmt_kwh(total_con)} kWh')
+            with col3:
+                metric_compact('Promedio diario', f'{fmt_kwh(prom_con)} kWh')
+            with col4:
+                metric_compact('Carga BESS', f'{fmt_kwh(carga_tot)} kWh')
+            with col5:
+                metric_compact('Arbitraje acum.', f'${arbitraje_acum:,.2f}')
+
+    tab_con, tab_cmp, tab_ops = st.tabs(['Consumo por periodo', 'Con vs sin BESS', 'Operación BESS'])
+
+    with tab_con:
+        section_header(
+            'Consumo diario por periodo tarifario',
+            'Áreas apiladas Base, Intermedio y Punta. Línea punteada: promedio móvil 7 días del total.',
+        )
+        st.plotly_chart(
+            graficar_tendencia_consumo_periodo(df_med, rango_label),
+            use_container_width=True, config={'displayModeBar': False},
+        )
+
+    with tab_cmp:
+        section_header(
+            'Comparativa con y sin BESS',
+            'Líneas: consumo diario. Barras (eje derecho): diferencia en kWh.',
+        )
+        if estado_bess['energia'] and 'TOTAL_SIN' in df_med.columns:
+            st.plotly_chart(
+                graficar_tendencia_con_sin_bess(df_med, rango_label),
+                use_container_width=True, config={'displayModeBar': False},
+            )
+            res_con = calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, True, tarifas)
+            res_sin = calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, False, tarifas)
+            if res_con and res_sin:
+                ahorro_mxn = res_sin['total_mxn'] - res_con['total_mxn']
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.metric('Costo con BESS', f'${res_con["total_mxn"]:,.2f}')
+                with c2:
+                    st.metric('Costo sin BESS', f'${res_sin["total_mxn"]:,.2f}')
+                with c3:
+                    st.metric('Ahorro acumulado', f'${ahorro_mxn:,.2f}')
+        else:
+            st.info('No hay columnas sin BESS en el archivo diario. Procesa los datos para habilitar esta vista.')
+
+    with tab_ops:
+        section_header(
+            'Operación del BESS',
+            'Barras diarias de carga y descarga, y arbitraje calculado con la misma regla del dashboard.',
+        )
+        if df_bess is not None:
+            st.plotly_chart(
+                graficar_tendencia_bess_operacion(df_bess, rango_label),
+                use_container_width=True, config={'displayModeBar': False},
+            )
+        else:
+            st.warning('No hay datos en ENERGIA_BESS_POR_DIA.csv para este rango.')
+        st.plotly_chart(
+            graficar_tendencia_arbitraje(df_arb, rango_label),
+            use_container_width=True, config={'displayModeBar': False},
+        )
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.metric('Carga acumulada', f'{fmt_kwh(carga_tot)} kWh')
+        with c2:
+            st.metric('Descarga acumulada', f'{fmt_kwh(descarga_tot)} kWh')
+        with c3:
+            ef = (descarga_tot / carga_tot * 100) if carga_tot > 0 else 0
+            st.metric('Eficiencia BESS', f'{ef:.1f}%')
+
+# ========== MAIN ==========
+def main():
+    init_session()
+    
+    if not st.session_state.autenticado:
+        login()
+        return
+    
+    es_admin = st.session_state.rol == 'admin'
+    aplicar_estilos()
+    
+    if es_admin:
+        sidebar_admin()
+    else:
+        sidebar_user()
+    
+    ruta_ion = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_ION.csv')
+    ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
+    
+    if not os.path.exists(ruta_ion) and not os.path.exists(ruta_banco):
+        st.warning("No hay datos procesados. Contacta al administrador.")
+        return
+
+    with st.container(border=True):
+        render_barra_superior(es_admin)
+        medidor = st.selectbox("Medidor", ["ION", "BANCO"], key="medidor_principal")
+
+    prefijo = 'ION' if medidor == 'ION' else 'BANCO'
+    ruta = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo}.csv')
+
+    if not os.path.exists(ruta):
+        st.warning(f"No hay datos para {medidor}")
+        return
+
+    df = pd.read_csv(ruta)
+    df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
+
+    tabs = st.tabs(["Operación BESS", "Análisis", "Tendencia", "Reporte"])
+
+    with tabs[0]:
+        tab_dashboard(df, prefijo, medidor)
+
+    with tabs[1]:
+        tab_analisis(df, prefijo)
+
+    with tabs[2]:
+        tab_tendencia(df, prefijo)
+
+    with tabs[3]:
+        tab_reporte(df, prefijo)
 
 if __name__ == "__main__":
     main()
