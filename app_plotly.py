@@ -2642,7 +2642,7 @@ def tab_tendencia(df, prefijo):
             with col4:
                 metric_compact('Arbitraje acum.', f'${arbitraje_acum:,.2f}')
 
-    tab_con, tab_cmp, tab_ops = st.tabs(['Consumo por periodo', 'Con vs sin BESS', 'Operación BESS'])
+    tab_con, tab_cmp, tab_ops = st.tabs(['Consumo por periodo', 'Consumo con BESS', 'Operación BESS'])
 
     with tab_con:
         section_header(
