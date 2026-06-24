@@ -872,6 +872,11 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
 def aplicar_estilos():
     st.markdown("""
     <style>
+        [data-testid="stAppViewContainer"] > .main .block-container {
+            max-width: 100% !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+        }
         .main-container { padding: 0 10px; }
         .section-container {
             background: #ffffff;
@@ -1441,7 +1446,12 @@ def login():
     <style>
         [data-testid="stSidebar"] { display: none; }
         [data-testid="stAppViewContainer"] > .main .block-container {
+            max-width: min(440px, 94vw) !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
             padding-top: 4rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) {
             background: white;
@@ -1450,16 +1460,25 @@ def login():
             border-top: 4px solid #1a5276 !important;
             border-color: #e8ecef !important;
             padding: 20px 18px;
+            width: 100%;
+            min-width: 280px;
+            box-sizing: border-box;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) .stTextInput > div > div {
             background: #f8fafc;
             border-radius: 8px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) label p {
+            white-space: normal;
+            word-break: normal;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"] {
             background: #1a5276;
             border: none;
             border-radius: 8px;
             font-weight: 600;
+            white-space: nowrap;
+            width: 100%;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"]:hover {
             background: #154360;
@@ -1467,33 +1486,30 @@ def login():
     </style>
     """, unsafe_allow_html=True)
 
-    _, col, _ = st.columns([3, 1, 3])
+    logo_html = obtener_logo_html(204)
 
-    with col:
-        logo_html = obtener_logo_html(204)
+    st.markdown(f"""
+    <div style="text-align:center; margin-bottom: 1.25rem;">
+        {f'<div style="display:flex;justify-content:center;">{logo_html}</div>' if logo_html else ''}
+        <h1 style="font-size:26px; font-weight:700; color:#1a202c; margin-bottom:0.35rem;">⚡ BESS</h1>
+        <p style="color:#718096; font-size:14px; margin:0; line-height:1.45;">Sistema de Procesamiento y Reportes de Energía</p>
+    </div>
+    """, unsafe_allow_html=True)
 
-        st.markdown(f"""
-        <div style="text-align:center; margin-bottom: 1.25rem;">
-            {f'<div style="display:flex;justify-content:center;">{logo_html}</div>' if logo_html else ''}
-            <h1 style="font-size:26px; font-weight:700; color:#1a202c; margin-bottom:0.35rem;">⚡ BESS</h1>
-            <p style="color:#718096; font-size:12px; margin:0; line-height:1.4;">Sistema de Procesamiento y Reportes de Energía</p>
-        </div>
-        """, unsafe_allow_html=True)
+    with st.container(border=True):
+        with st.form("login"):
+            usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
+            password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
+            submit = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
 
-        with st.container(border=True):
-            with st.form("login"):
-                usuario = st.text_input("Usuario", placeholder="Ingresa tu usuario")
-                password = st.text_input("Contraseña", type="password", placeholder="Ingresa tu contraseña")
-                submit = st.form_submit_button("Iniciar Sesión", width="stretch", type="primary")
-
-                if submit and usuario and password:
-                    if usuario in USUARIOS and hashlib.sha256(password.encode()).hexdigest() == USUARIOS[usuario]['password']:
-                        st.session_state.autenticado = True
-                        st.session_state.usuario = usuario
-                        st.session_state.rol = USUARIOS[usuario]['rol']
-                        st.rerun()
-                    else:
-                        st.error("❌ Usuario o contraseña incorrectos")
+            if submit and usuario and password:
+                if usuario in USUARIOS and hashlib.sha256(password.encode()).hexdigest() == USUARIOS[usuario]['password']:
+                    st.session_state.autenticado = True
+                    st.session_state.usuario = usuario
+                    st.session_state.rol = USUARIOS[usuario]['rol']
+                    st.rerun()
+                else:
+                    st.error("❌ Usuario o contraseña incorrectos")
 
 def logout():
     for key in ['autenticado', 'usuario', 'rol']:
