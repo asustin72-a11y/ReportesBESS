@@ -57,6 +57,8 @@ COLORES = {
     'descarga': '#e74c3c',
 }
 
+APP_BUILD = '2026.06.24'
+
 def color_periodo(periodo):
     return {'Base': COLORES['base'], 'Intermedio': COLORES['intermedio'], 'Punta': COLORES['punta']}.get(periodo, '#95a5a6')
 
@@ -216,7 +218,7 @@ def render_barra_superior(es_admin):
             {logo_block}
             <div>
                 <h1 class="app-header-title">BESS · Sistema de Energía</h1>
-                <p class="app-header-sub">{rol_tipo}: {rol_nombre}</p>
+                <p class="app-header-sub">{rol_tipo}: {rol_nombre} · build {APP_BUILD}</p>
             </div>
         </div>
         """, unsafe_allow_html=True)
