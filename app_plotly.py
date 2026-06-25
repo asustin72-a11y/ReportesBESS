@@ -16,6 +16,8 @@ import hashlib
 import base64
 import html
 import shutil
+import subprocess
+import sys
 import plotly.graph_objects as go
 import plotly.express as px
 from decimal import Decimal, ROUND_HALF_UP
@@ -1450,17 +1452,49 @@ def _nombre_archivo_recibo(fecha, prefijo, con_bess):
     escenario = 'ConBESS' if con_bess else 'SinBESS'
     return f'Recibo_{prefijo}_{escenario}_{fecha.strftime("%Y%m%d")}.pdf'
 
-def generar_recibo_pdf_bytes(datos):
-    """PDF carta vertical: render Chromium del mismo HTML/CSS que la pantalla."""
-    html_doc = render_html_recibo_documento(datos)
+_CHROMIUM_LAUNCH_ARGS = (
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+)
+
+@st.cache_resource(show_spinner='Preparando Chromium para PDF...')
+def _ensure_playwright_chromium():
+    """Instala el navegador Chromium si falta (necesario en Streamlit Cloud)."""
+    from pathlib import Path
+
+    browsers = Path.home() / '.cache' / 'ms-playwright'
+    if browsers.exists() and any(browsers.glob('chromium-*')):
+        return True
+
+    result = subprocess.run(
+        [sys.executable, '-m', 'playwright', 'install', 'chromium'],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or '').strip()
+        raise RuntimeError(
+            'No se pudo instalar Chromium para Playwright.'
+            + (f' {detail}' if detail else '')
+        )
+    return True
+
+@st.cache_data(show_spinner='Generando PDF del recibo...')
+def _html_a_pdf_playwright(html_doc, doc_key):
+    """Convierte HTML del recibo a PDF carta (Playwright/Chromium)."""
+    _ensure_playwright_chromium()
     from playwright.sync_api import sync_playwright
 
     margin = {'top': '8mm', 'bottom': '8mm', 'left': '8mm', 'right': '8mm'}
-    # Altura útil aprox. en carta con márgenes de 8 mm (96 dpi).
     altura_util_px = 980
 
     with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=True)
+        browser = playwright.chromium.launch(
+            headless=True,
+            args=list(_CHROMIUM_LAUNCH_ARGS),
+        )
         try:
             page = browser.new_page(viewport={'width': 920, 'height': 1400})
             page.set_content(html_doc, wait_until='load')
@@ -1476,6 +1510,12 @@ def generar_recibo_pdf_bytes(datos):
             )
         finally:
             browser.close()
+
+def generar_recibo_pdf_bytes(datos):
+    """PDF carta vertical: render Chromium del mismo HTML/CSS que la pantalla."""
+    html_doc = render_html_recibo_documento(datos)
+    doc_key = hashlib.sha256(html_doc.encode('utf-8')).hexdigest()
+    return _html_a_pdf_playwright(html_doc, doc_key)
 
 
 def render_html_recibo_documento(datos):
@@ -1524,14 +1564,22 @@ def _render_recibo_escenario(fecha, prefijo, con_bess, tarifas):
 
     with st.container(border=False):
         st.markdown(render_html_recibo_cfe(datos), unsafe_allow_html=True)
-        pdf_bytes = generar_recibo_pdf_bytes(datos)
         pdf_name = _nombre_archivo_recibo(fecha, prefijo, con_bess)
-        _render_boton_descarga_archivo(
-            pdf_bytes,
-            pdf_name,
-            mime_type='application/pdf',
-            etiqueta='Descargar recibo',
-        )
+        try:
+            pdf_bytes = generar_recibo_pdf_bytes(datos)
+        except Exception as exc:
+            st.error(
+                'No se pudo generar el PDF del recibo. '
+                'La vista en pantalla sigue disponible.'
+            )
+            st.caption(str(exc))
+        else:
+            _render_boton_descarga_archivo(
+                pdf_bytes,
+                pdf_name,
+                mime_type='application/pdf',
+                etiqueta='Descargar recibo',
+            )
 
 def tab_recibo(df, prefijo):
     """Recibo estimado con/sin BESS para el mes al día seleccionado."""
@@ -3003,7 +3051,7 @@ def sidebar_admin():
             render_editor_tarifas_sidebar()
         
         st.divider()
-        st.caption("Sistema BESS v5.3")
+        st.caption("Sistema BESS v5.3.1")
 
 def _inyectar_script_sidebar(expandida):
     """Ajusta la sidebar tras el login (Streamlit fija el estado inicial solo al cargar la app)."""
@@ -3044,7 +3092,7 @@ def sidebar_user():
     with st.sidebar:
         sidebar_branding(es_admin=False)
         st.info("Modo visualización")
-        st.caption("Sistema BESS v5.3")
+        st.caption("Sistema BESS v5.3.1")
 
 # ========== FUNCIONES DE TABS ==========
 def tab_dashboard(df, prefijo, medidor):
