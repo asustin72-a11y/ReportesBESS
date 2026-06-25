@@ -774,6 +774,13 @@ def _fmt_mxn_entero(val):
 def _fmt_mxn_decimal(val):
     return f'${_a_num(val):,.2f}'
 
+def _fmt_cargo_fp_recibo(val):
+    """Penalización positiva; bonificación negativa en el desglose."""
+    monto = _a_num(val)
+    if monto < 0:
+        return f'-${abs(monto):,.2f}'
+    return _fmt_mxn_decimal(monto)
+
 def _numero_menor_1000_a_letras(n):
     n = int(n)
     if n == 0:
@@ -895,21 +902,36 @@ def calcular_factor_potencia_recibo(res_energia, kvarh_total):
         _kwh_activo_tres_periodos(res_energia), kvarh_total
     )
 
+FP_UMBRAL_PCT = 97.0
+FP_MAX_BONIFICACION = 0.025   # tope 2.5 %
+FP_MAX_PENALIZACION = 1.20    # tope 120 %
+
+def _coef_cargo_fp_redondeado(coef):
+    return float(Decimal(str(coef)).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP))
+
 def calcular_cargo_fp(factor_potencia_pct, cargo_fijo, energia, capacidad):
     """
-    Cargo FP si FP < 97%:
-    (3/5) × ((97 / FP) − 1), redondeado a 3 decimales, × (Cargo Fijo + Energía + Capacidad).
-    FP en porcentaje (ej. 95.98).
+    Cargo FP por factor de potencia (base = Cargo Fijo + Energía + Capacidad):
+    - FP < 97%: penalización min((3/5)×((97/FP)−1), 120%) × base.
+    - FP > 97%: bonificación −min((1/4)×(1−(97/FP)), 2.5%) × base.
+    - FP = 97% o sin dato: 0.
+    Coeficiente redondeado a 3 decimales en ambos casos.
     """
-    if factor_potencia_pct is None or factor_potencia_pct >= 97:
+    if factor_potencia_pct is None:
         return 0.0
     fp = _a_num(factor_potencia_pct)
     if fp <= 0:
         return 0.0
-    coef = (3 / 5) * ((97 / fp) - 1)
-    coef = float(Decimal(str(coef)).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP))
     base = _a_num(cargo_fijo) + _a_num(energia) + _a_num(capacidad)
-    return redondear_mxn_energia(coef * base)
+    if fp < FP_UMBRAL_PCT:
+        coef = min((3 / 5) * ((97 / fp) - 1), FP_MAX_PENALIZACION)
+        coef = _coef_cargo_fp_redondeado(coef)
+        return redondear_mxn_energia(coef * base)
+    if fp > FP_UMBRAL_PCT:
+        coef = min((1 / 4) * (1 - (97 / fp)), FP_MAX_BONIFICACION)
+        coef = _coef_cargo_fp_redondeado(coef)
+        return redondear_mxn_energia(-coef * base)
+    return 0.0
 
 def _tarifa_mes(tarifas, mes, *nombres):
     """Obtiene tarifa del mes probando varios nombres de fila (CSV)."""
@@ -1434,7 +1456,7 @@ def render_html_recibo_cfe(datos):
         <tr><td>Cargo Fijo</td><td class="num">{_fmt_mxn_decimal(d['cargo_fijo'])}</td></tr>
         <tr><td>Energía</td><td class="num">{_fmt_mxn_decimal(d['energia'])}</td></tr>
         <tr><td>Capacidad ({datos['capacidad_kw']:,} kW · {datos['capacidad_criterio']})</td><td class="num">{_fmt_mxn_decimal(d['capacidad'])}</td></tr>
-        <tr><td>Cargo FP</td><td class="num">{_fmt_mxn_decimal(d['cargo_fp'])}</td></tr>
+        <tr><td>Cargo FP</td><td class="num">{_fmt_cargo_fp_recibo(d['cargo_fp'])}</td></tr>
         <tr><td>Subtotal</td><td class="num">{_fmt_mxn_decimal(d['subtotal'])}</td></tr>
         <tr><td>IVA 16%</td><td class="num">{_fmt_mxn_decimal(d['iva'])}</td></tr>
         <tr class="cfe-desglose-total"><td>Facturación del periodo (simulada)</td><td class="num">{_fmt_mxn_decimal(d['total'])}</td></tr>
@@ -3051,7 +3073,7 @@ def sidebar_admin():
             render_editor_tarifas_sidebar()
         
         st.divider()
-        st.caption("Sistema BESS v5.3.1")
+        st.caption("Sistema BESS v5.3.2")
 
 def _inyectar_script_sidebar(expandida):
     """Ajusta la sidebar tras el login (Streamlit fija el estado inicial solo al cargar la app)."""
@@ -3092,7 +3114,7 @@ def sidebar_user():
     with st.sidebar:
         sidebar_branding(es_admin=False)
         st.info("Modo visualización")
-        st.caption("Sistema BESS v5.3.1")
+        st.caption("Sistema BESS v5.3.2")
 
 # ========== FUNCIONES DE TABS ==========
 def tab_dashboard(df, prefijo, medidor):
