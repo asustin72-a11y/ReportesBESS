@@ -2,10 +2,13 @@
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
 
+**Versión actual:** 5.3 — recibo simulado CFE, descarga PDF (Playwright) y cargo FP con redondeo a 3 decimales.
+
 ## Ejecución local
 
 ```bash
 pip install -r requirements.txt
+python -m playwright install chromium
 streamlit run streamlit_app.py
 ```
 

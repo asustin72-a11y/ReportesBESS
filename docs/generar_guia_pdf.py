@@ -34,7 +34,7 @@ CAPTURAS = DOCS / "capturas"
 PDF_OUT = DOCS / "GUIA_USUARIO.pdf"
 LOGO = ROOT / "data" / "Logo IUSASOL.png"
 APP_URL = os.environ.get("BESS_APP_URL", "http://localhost:8501")
-VERSION = "5.2"
+VERSION = "5.3"
 
 PAGE_W = letter[0]
 MARGIN = 0.75 * inch

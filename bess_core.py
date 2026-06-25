@@ -7,6 +7,7 @@ Contiene todas las funciones de procesamiento para el sistema BESS
 import pandas as pd
 import numpy as np
 import os
+import sys
 from datetime import datetime, timedelta
 import warnings
 import shutil
@@ -15,6 +16,20 @@ from decimal import Decimal, ROUND_HALF_UP
 
 warnings.filterwarnings('ignore')
 
+def _configurar_salida_consola():
+    """Evita UnicodeEncodeError en Windows (cp1252) al imprimir emojis en consola."""
+    for name in ('stdout', 'stderr'):
+        stream = getattr(sys, name, None)
+        if stream is None:
+            continue
+        try:
+            if hasattr(stream, 'reconfigure'):
+                stream.reconfigure(encoding='utf-8', errors='replace')
+        except (AttributeError, OSError, ValueError, TypeError):
+            pass
+
+_configurar_salida_consola()
+
 # ========== CONFIGURACIÓN GLOBAL ==========
 DIRECTORIO_BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'data')
 DIRECTORIO_FUENTE = os.path.join(DIRECTORIO_BASE, 'ArchivosFuente')
@@ -22,6 +37,37 @@ DIRECTORIO_PROCESADOS = os.path.join(DIRECTORIO_BASE, 'ArchivosProcesados')
 DIRECTORIO_REPORTES = os.path.join(DIRECTORIO_BASE, 'ArchivosReporte')
 DIRECTORIO_REPORTES_DIARIOS = os.path.join(DIRECTORIO_BASE, 'ReportesDiarios')
 DIRECTORIO_TARIFAS = os.path.join(DIRECTORIO_BASE, 'Tarifas')
+
+_COLUMNAS_KVARH = ('KVARH_Q1', 'KVARH_Q2', 'KVARH_Q3', 'KVARH_Q4')
+
+def _columnas_kvarh(df):
+    """Columnas de reactivos presentes en un DataFrame."""
+    return [c for c in _COLUMNAS_KVARH if c in df.columns]
+
+def _normalizar_columnas_kvarh(df):
+    """Conserva precisión completa de kVArh por cuadrante."""
+    for col in _columnas_kvarh(df):
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    return df
+
+def _columnas_kvarh_prefijo(prefijo):
+    """Cuadrantes de kVArh según medidor: ION=Q1; BANCO=Q1+Q4."""
+    if prefijo == 'ION':
+        return ('KVARH_Q1',)
+    if prefijo == 'BANCO':
+        return ('KVARH_Q1', 'KVARH_Q4')
+    return _COLUMNAS_KVARH
+
+def _kvarh_total(df, prefijo=None):
+    """kVArh por fila según reglas del medidor (ION: Q1; BANCO: Q1+Q4)."""
+    cols = (
+        [c for c in _columnas_kvarh_prefijo(prefijo) if c in df.columns]
+        if prefijo
+        else _columnas_kvarh(df)
+    )
+    if not cols:
+        return pd.Series(0.0, index=df.index)
+    return df[cols].sum(axis=1)
 
 # Crear directorios
 for dir_path in [DIRECTORIO_BASE, DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS,
@@ -508,23 +554,33 @@ def identificar_y_renombrar_archivos():
         
         if archivo_encontrado:
             ruta_origen = os.path.join(DIRECTORIO_FUENTE, archivo_encontrado)
-            ruta_destino = os.path.join(DIRECTORIO_FUENTE, f"{nombre_estandar}.csv")
-            
+            nombre_destino = f'{nombre_estandar}.csv'
+            ruta_destino = os.path.join(DIRECTORIO_FUENTE, nombre_destino)
+
+            # Ya está con el nombre estándar (p. ej. ION.csv → ION.csv)
+            if os.path.normcase(ruta_origen) == os.path.normcase(ruta_destino):
+                renombrados[nombre_estandar] = {
+                    'origen': archivo_encontrado,
+                    'destino': nombre_destino,
+                }
+                print(f'✅ {archivo_encontrado} (nombre estándar, sin cambios)')
+                continue
+
             try:
                 # Si el archivo destino ya existe, hacer backup
                 if os.path.exists(ruta_destino):
                     backup_path = ruta_destino.replace('.csv', '_backup.csv')
                     shutil.move(ruta_destino, backup_path)
-                    print(f"💾 Backup creado: {os.path.basename(backup_path)}")
-                
+                    print(f'💾 Backup creado: {os.path.basename(backup_path)}')
+
                 os.rename(ruta_origen, ruta_destino)
                 renombrados[nombre_estandar] = {
                     'origen': archivo_encontrado,
-                    'destino': f"{nombre_estandar}.csv"
+                    'destino': nombre_destino,
                 }
-                print(f"✅ {archivo_encontrado} → {nombre_estandar}.csv")
+                print(f'✅ {archivo_encontrado} → {nombre_destino}')
             except Exception as e:
-                errores.append(f"Error al renombrar {archivo_encontrado}: {str(e)}")
+                errores.append(f'Error al renombrar {archivo_encontrado}: {str(e)}')
         else:
             errores.append(f"⚠️ No se encontró archivo que coincida con los patrones de {nombre_estandar}")
     
@@ -586,6 +642,7 @@ def leer_archivo_perfil(ruta, nombre_archivo,intercambiar_columnas=False):
     
     df['KWH_REC'] = pd.to_numeric(df['KWH_REC'], errors='coerce').fillna(0)
     df['KWH_ENT'] = pd.to_numeric(df['KWH_ENT'], errors='coerce').fillna(0)
+    df = _normalizar_columnas_kvarh(df)
     
     if intercambiar_columnas:
         print(f"🔄 {nombre_archivo}: Intercambiando KWH_REC ↔ KWH_ENT")
@@ -597,55 +654,71 @@ def leer_archivo_perfil(ruta, nombre_archivo,intercambiar_columnas=False):
     return df
 
 def leer_sin_agrupar(ruta_archivo):
-    """Lee el archivo original SIN agrupar"""
+    """Lee el archivo original SIN agrupar (incluye kVArh si existen)."""
     df = pd.read_csv(ruta_archivo, encoding='utf-8-sig')
     columna_fecha = df.columns[0]
     df['DATETIME'] = pd.to_datetime(df[columna_fecha], format='%d/%m/%Y %H:%M', errors='coerce')
+    if df['DATETIME'].isna().all():
+        df['DATETIME'] = pd.to_datetime(df[columna_fecha], errors='coerce')
     df = df.dropna(subset=['DATETIME']).reset_index(drop=True)
-    
-    col_kwh_rec = df.columns[1]
-    col_kwh_ent = df.columns[2]
-    df['KWH_REC'] = pd.to_numeric(df[col_kwh_rec], errors='coerce').fillna(0)
-    df['KWH_ENT'] = pd.to_numeric(df[col_kwh_ent], errors='coerce').fillna(0)
-    
+
+    if 'KWH_REC' in df.columns and 'KWH_ENT' in df.columns:
+        df['KWH_REC'] = pd.to_numeric(df['KWH_REC'], errors='coerce').fillna(0)
+        df['KWH_ENT'] = pd.to_numeric(df['KWH_ENT'], errors='coerce').fillna(0)
+    else:
+        col_kwh_rec = df.columns[1]
+        col_kwh_ent = df.columns[2]
+        df['KWH_REC'] = pd.to_numeric(df[col_kwh_rec], errors='coerce').fillna(0)
+        df['KWH_ENT'] = pd.to_numeric(df[col_kwh_ent], errors='coerce').fillna(0)
+
+    df = _normalizar_columnas_kvarh(df)
     df['FECHA_HORA'] = df['DATETIME'].dt.strftime('%d/%m/%Y %H:%M')
-    
-    return df[['FECHA_HORA', 'KWH_REC', 'KWH_ENT']]
+
+    columnas = ['FECHA_HORA', 'KWH_REC', 'KWH_ENT'] + _columnas_kvarh(df)
+    return df[columnas]
 
 def leer_y_agrupar_por_hora(ruta_archivo, nombre_archivo):
-    """Lee y agrupa datos por hora"""
+    """Lee y agrupa datos por hora (incluye kVArh si existen)."""
     df = pd.read_csv(ruta_archivo, encoding='utf-8-sig')
     columna_fecha = df.columns[0]
     df['DATETIME'] = pd.to_datetime(df[columna_fecha], format='%d/%m/%Y %H:%M', errors='coerce')
+    if df['DATETIME'].isna().all():
+        df['DATETIME'] = pd.to_datetime(df[columna_fecha], errors='coerce')
     df = df.dropna(subset=['DATETIME']).reset_index(drop=True)
-    
-    col_kwh_rec = df.columns[1]
-    col_kwh_ent = df.columns[2]
-    df['KWH_REC'] = pd.to_numeric(df[col_kwh_rec], errors='coerce').fillna(0)
-    df['KWH_ENT'] = pd.to_numeric(df[col_kwh_ent], errors='coerce').fillna(0)
-    
+
+    if 'KWH_REC' in df.columns and 'KWH_ENT' in df.columns:
+        df['KWH_REC'] = pd.to_numeric(df['KWH_REC'], errors='coerce').fillna(0)
+        df['KWH_ENT'] = pd.to_numeric(df['KWH_ENT'], errors='coerce').fillna(0)
+    else:
+        col_kwh_rec = df.columns[1]
+        col_kwh_ent = df.columns[2]
+        df['KWH_REC'] = pd.to_numeric(df[col_kwh_rec], errors='coerce').fillna(0)
+        df['KWH_ENT'] = pd.to_numeric(df[col_kwh_ent], errors='coerce').fillna(0)
+
+    df = _normalizar_columnas_kvarh(df)
     df = df.sort_values('DATETIME').reset_index(drop=True)
     num_registros = len(df)
     num_horas = num_registros // 12
-    
+
     if num_registros % 12 != 0:
         print(f"  - ADVERTENCIA: {num_registros % 12} registros sobrantes en {nombre_archivo}")
         df = df.iloc[:num_horas * 12].reset_index(drop=True)
-    
+
     df['GRUPO'] = np.arange(len(df)) // 12
-    
-    df_agrupado = df.groupby('GRUPO').agg({
-        'DATETIME': 'first',
-        'KWH_REC': 'sum',
-        'KWH_ENT': 'sum'
-    }).reset_index(drop=True)
-    
+
+    agg = {'DATETIME': 'first', 'KWH_REC': 'sum', 'KWH_ENT': 'sum'}
+    for col in _columnas_kvarh(df):
+        agg[col] = 'sum'
+
+    df_agrupado = df.groupby('GRUPO').agg(agg).reset_index(drop=True)
+
     df_agrupado['HORA'] = df_agrupado['DATETIME'].dt.hour + 1
     df_agrupado['HORA'] = df_agrupado['HORA'].replace(25, 1)
     df_agrupado['FECHA'] = df_agrupado['DATETIME'].dt.strftime('%d/%m/%Y')
     df_agrupado['FECHA_HORA'] = df_agrupado['DATETIME'].dt.strftime('%d/%m/%Y %H:%M')
-    
-    return df_agrupado[['FECHA', 'HORA', 'FECHA_HORA', 'KWH_REC', 'KWH_ENT']]
+
+    columnas = ['FECHA', 'HORA', 'FECHA_HORA', 'KWH_REC', 'KWH_ENT'] + _columnas_kvarh(df_agrupado)
+    return df_agrupado[columnas]
 
 # ========== FUNCIONES DE PROCESAMIENTO ==========
 
@@ -759,10 +832,10 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo, int
         return False
 
 def verificar_datos_fuente():
-    """Función principal de verificación de datos fuente"""
+    """Función principal de verificación de datos fuente. Retorna (éxito, mensaje)."""
     
     # PASO 1: Identificar y renombrar archivos
-    resultado_renombrado = identificar_y_renombrar_archivos()
+    identificar_y_renombrar_archivos()
     
     # PASO 2: Procesar archivos estándar
     archivos = ['Banco1.csv', 'BESS.csv', 'ION.csv']
@@ -778,7 +851,7 @@ def verificar_datos_fuente():
         print(f"❌ Error: No existe la carpeta {DIRECTORIO_FUENTE}")
         os.makedirs(DIRECTORIO_FUENTE, exist_ok=True)
         print(f"✅ Carpeta creada: {DIRECTORIO_FUENTE}")
-        return False
+        return False, f"No existía la carpeta {DIRECTORIO_FUENTE}. Coloque ION.csv, BESS.csv y Banco1.csv ahí."
     
     archivos_encontrados = []
     for archivo in archivos:
@@ -788,7 +861,10 @@ def verificar_datos_fuente():
     
     if not archivos_encontrados:
         print(f"❌ No se encontraron archivos en {DIRECTORIO_FUENTE}")
-        return False
+        return False, (
+            "No se encontraron archivos en ArchivosFuente. "
+            "Copie ION.csv, BESS.csv y Banco1.csv en data/ArchivosFuente."
+        )
     
     print(f"\n📋 Archivos encontrados: {', '.join(archivos_encontrados)}")
     
@@ -810,11 +886,26 @@ def verificar_datos_fuente():
         estado = "✅ Éxito" if exito else "❌ Falló"
         print(f"   {archivo}: {estado}")
     
-    return all(resultados.values())
+    if all(resultados.values()):
+        return True, "Verificación completada para ION, BESS y Banco1."
+
+    faltantes = [a for a in archivos if not os.path.exists(os.path.join(DIRECTORIO_FUENTE, a))]
+    fallidos = [a for a, ok in resultados.items() if not ok]
+    partes = []
+    if faltantes:
+        partes.append(f"faltan en fuente: {', '.join(faltantes)}")
+    if fallidos:
+        partes.append(f"error al procesar: {', '.join(fallidos)}")
+    detalle = '; '.join(partes)
+    return False, (
+        f"Verificación incompleta ({detalle}). "
+        "Cierre Excel u otros programas que tengan abiertos los CSV en ArchivosProcesados."
+    )
 
 def generar_archivo_limpio(df, ruta_salida):
-    """Genera un archivo CSV limpio"""
-    df_limpio = df[['Fecha', 'KWH_REC', 'KWH_ENT']].copy()
+    """Genera un archivo CSV limpio (conserva kVArh por cuadrante si existen)."""
+    columnas = ['Fecha', 'KWH_REC', 'KWH_ENT'] + _columnas_kvarh(df)
+    df_limpio = df[columnas].copy()
     df_limpio['Fecha'] = df_limpio['Fecha'].apply(normalizar_fecha)
     df_limpio.to_csv(ruta_salida, index=False, encoding='utf-8-sig')
     print(f"✅ Archivo generado: {ruta_salida} ({len(df_limpio)} registros)")
@@ -1121,9 +1212,18 @@ def generar_diarios_con_demandas(prefijo):
     
     for df_temp in [df_con_max_kw, df_con_max_fh, df_sin_max_kw, df_sin_max_fh]:
         df_med_diario = df_med_diario.merge(df_temp, on='FECHA', how='left').fillna(0 if 'DEM' in df_temp.columns[1] else '')
+
+    if _columnas_kvarh(df_medidor_hora):
+        df_medidor_hora = _normalizar_columnas_kvarh(df_medidor_hora)
+        df_medidor_hora['KVARH'] = _kvarh_total(df_medidor_hora, prefijo)
+        df_kvarh_dia = df_medidor_hora.groupby('FECHA')['KVARH'].sum().reset_index()
+        df_med_diario = df_med_diario.merge(df_kvarh_dia, on='FECHA', how='left')
+        df_med_diario['KVARH'] = pd.to_numeric(df_med_diario['KVARH'], errors='coerce').fillna(0)
+    else:
+        df_med_diario['KVARH'] = 0.0
     
     columnas_med = ['FECHA', 'BASE_ENT', 'INTERMEDIO_ENT', 'PUNTA_ENT', 'BASE_REC', 'INTERMEDIO_REC', 'PUNTA_REC',
-                    'BASE_REC_SIN_BESS', 'INTERMEDIO_REC_SIN_BESS', 'PUNTA_REC_SIN_BESS',
+                    'BASE_REC_SIN_BESS', 'INTERMEDIO_REC_SIN_BESS', 'PUNTA_REC_SIN_BESS', 'KVARH',
                     'BASE_DEM_CON_BESS', 'BASE_DEM_CON_BESS_FECHA_HORA', 'INTERMEDIO_DEM_CON_BESS', 'INTERMEDIO_DEM_CON_BESS_FECHA_HORA',
                     'PUNTA_DEM_CON_BESS', 'PUNTA_DEM_CON_BESS_FECHA_HORA', 'BASE_DEM_SIN_BESS', 'BASE_DEM_SIN_BESS_FECHA_HORA',
                     'INTERMEDIO_DEM_SIN_BESS', 'INTERMEDIO_DEM_SIN_BESS_FECHA_HORA', 'PUNTA_DEM_SIN_BESS', 'PUNTA_DEM_SIN_BESS_FECHA_HORA']
@@ -1161,6 +1261,9 @@ def generar_acumulados(prefijo):
     
     for col in ('BASE_REC', 'INTERMEDIO_REC', 'PUNTA_REC'):
         df_acum_med[f"{col}_ACUM"] = df_med_dia.groupby('MES')[col].cumsum()
+
+    if 'KVARH' in df_med_dia.columns:
+        df_acum_med['KVARH_ACUM'] = df_med_dia.groupby('MES')['KVARH'].cumsum()
 
     grupos_demanda = [
         ['BASE_DEM_CON_BESS', 'INTERMEDIO_DEM_CON_BESS', 'PUNTA_DEM_CON_BESS'],
@@ -1286,7 +1389,10 @@ def procesar_grupo(ruta_bess, ruta_medidor, prefijo, nombre_medidor, generar_bes
         df_bess_output.to_csv(ruta_general, index=False)
         print(f"OK ENERGIA_BESS_POR_HORA.csv - {len(df_bess_output)} registros (archivo general)")
     
-    df_medidor_output = df_medidor_hora_con_periodo[['FECHA', 'HORA', 'FECHA_HORA', 'KWH_REC', 'KWH_ENT', 'PERIODO']].copy()
+    df_medidor_output = df_medidor_hora_con_periodo[
+        ['FECHA', 'HORA', 'FECHA_HORA', 'KWH_REC', 'KWH_ENT', 'PERIODO']
+        + _columnas_kvarh(df_medidor_hora_con_periodo)
+    ].copy()
     nombre_med_hora = f'ENERGIA_{prefijo}_POR_HORA.csv'
     ruta_salida = os.path.join(DIRECTORIO_REPORTES, nombre_med_hora)
     df_medidor_output.to_csv(ruta_salida, index=False)

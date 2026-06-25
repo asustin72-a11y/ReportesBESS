@@ -39,7 +39,11 @@ DIRECTORIO_REPORTES = os.path.join(DIRECTORIO_BASE, 'ArchivosReporte')
 DIRECTORIO_REPORTES_DIARIOS = os.path.join(DIRECTORIO_BASE, 'ReportesDiarios')
 DIRECTORIO_TARIFAS = os.path.join(DIRECTORIO_BASE, 'Tarifas')
 ARCHIVO_TARIFAS = 'Tarifas_2026.csv'
-TIPOS_TARIFA = ['Base', 'Intermedio', 'Punta', 'Capacidad']
+TIPOS_TARIFA = [
+    'Base', 'Intermedio', 'Punta', 'Capacidad',
+    'CargoFijo', 'Suministro', 'Distribucion', 'ServiciosAuxiliares',
+    'Transmision', 'CENACE',
+]
 
 for dir_path in [DIRECTORIO_BASE, DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS,
                  DIRECTORIO_REPORTES, DIRECTORIO_REPORTES_DIARIOS, DIRECTORIO_TARIFAS]:
@@ -236,6 +240,25 @@ def obtener_logo_html(width=110):
         f'<img src="data:{mime};base64,{logo_b64}" width="{width}" '
         f'alt="IUSASOL" style="display:block;" />'
     )
+
+def obtener_logo_cfe_html(width=200):
+    """Logo CFE embebido en base64 para el recibo simulado."""
+    candidatos = [
+        os.path.join(DIRECTORIO_BASE, 'Comisión_Federal_de_Electricidad_(logo).jpg'),
+        os.path.join(DIRECTORIO_BASE, 'Comision_Federal_de_Electricidad_(logo).jpg'),
+    ]
+    for logo_path in candidatos:
+        if not os.path.exists(logo_path):
+            continue
+        with open(logo_path, 'rb') as logo_file:
+            logo_b64 = base64.b64encode(logo_file.read()).decode()
+        ext = os.path.splitext(logo_path)[1].lower()
+        mime = 'image/jpeg' if ext in ('.jpg', '.jpeg') else 'image/png'
+        return (
+            f'<img class="cfe-logo-img" src="data:{mime};base64,{logo_b64}" '
+            f'width="{width}" alt="Comisión Federal de Electricidad" />'
+        )
+    return ''
 
 def render_barra_superior(es_admin):
     """Logo, título y cierre de sesión."""
@@ -498,9 +521,11 @@ def calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, con_bess=True
             'costo_mxn': redondear_mxn_energia(kwh * precio),
         }
     total_mxn = redondear_mxn_energia(sum(p['costo_mxn'] for p in por_periodo.values()))
+    kwh_activo = sum(por_periodo_raw.get(clave, 0) for clave, _ in PERIODOS_ENERGIA)
     return {
         'por_periodo': por_periodo,
         'total_kwh': sum(p['kwh'] for p in por_periodo.values()),
+        'kwh_activo': kwh_activo,
         'total_mxn': total_mxn,
         'dias_rango': (fecha_fin - fecha_inicio).days + 1,
     }
@@ -622,6 +647,932 @@ def construir_tabla_costo_energia(res_con, res_sin):
         'Diferencia (MXN)': f"${res_sin['total_mxn'] - res_con['total_mxn']:,.2f}",
     })
     return pd.DataFrame(filas)
+
+def construir_tabla_recibo_energia(res_energia):
+    """Desglose de energía para un escenario (con o sin BESS)."""
+    filas = []
+    for clave, lbl in PERIODOS_ENERGIA:
+        p = res_energia['por_periodo'][clave]
+        filas.append({
+            'Concepto': f'Energía {lbl}',
+            'kWh': f"{p['kwh']:,}",
+            'Tarifa ($/kWh)': f"${p['precio']:.4f}",
+            'Importe (MXN)': f"${p['costo_mxn']:,.2f}",
+        })
+    filas.append({
+        'Concepto': 'Subtotal energía',
+        'kWh': f"{res_energia['total_kwh']:,}",
+        'Tarifa ($/kWh)': '—',
+        'Importe (MXN)': f"${res_energia['total_mxn']:,.2f}",
+    })
+    return pd.DataFrame(filas)
+
+def construir_tabla_recibo_completo(res_energia, res_cfe):
+    """Tabla unificada del recibo: energía + capacidad CFE + total."""
+    filas = construir_tabla_recibo_energia(res_energia).to_dict('records')
+    if res_cfe is not None:
+        lbl_criterio = (
+            'Demanda punta'
+            if res_cfe['criterio_aplicado'] == 'punta'
+            else 'DemandaCalculadaCFE'
+        )
+        filas.append({
+            'Concepto': 'Capacidad CFE',
+            'kWh': (
+                f"{res_cfe['capacidad_kw']:,} kW · {lbl_criterio} · "
+                f"${res_cfe['precio_cap']:,.2f}/kW"
+            ),
+            'Tarifa ($/kWh)': '—',
+            'Importe (MXN)': f"${res_cfe['costo_mxn']:,.2f}",
+        })
+    total = res_energia['total_mxn'] + (res_cfe['costo_mxn'] if res_cfe else 0)
+    filas.append({
+        'Concepto': 'Total recibo',
+        'kWh': '—',
+        'Tarifa ($/kWh)': '—',
+        'Importe (MXN)': f"${total:,.2f}",
+    })
+    return pd.DataFrame(filas), total
+
+MESES_CFE = (
+    'ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN',
+    'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC',
+)
+
+DATOS_CLIENTE_RECIBO = {
+    'ION': {
+        'razon_social': 'INDUSTRIAS UNIDAS SA DE CV',
+        'direccion': (
+            'CARR PANAMERICANA MEXICO QUERE',
+            'JOCOTITLAN C FZA',
+            'C.P.50700',
+            'JOCOTITLAN,MEX.',
+        ),
+        'no_servicio': '306140811981',
+        'cuenta': '84DG41H108350020',
+        'rmu': '50700 14-07-31 IUN -390731 001 CFE',
+        'tarifa': 'DIST',
+        'multiplicador': '44000',
+        'no_hilos': '3',
+        'no_medidor': '764DXX',
+        'carga_conectada_kw': 31000,
+        'demanda_contratada_kw': 31000,
+    },
+    'BANCO': {
+        'razon_social': 'INDUSTRIAS UNIDAS SA DE CV',
+        'direccion': (
+            'CARR PANAMERICANA MEXICO QUERE',
+            'JOCOTITLAN C FZA',
+            'C.P.50700',
+            'JOCOTITLAN,MEX.',
+        ),
+        'no_servicio': '—',
+        'cuenta': '—',
+        'rmu': '—',
+        'tarifa': 'DIST',
+        'multiplicador': '—',
+        'no_hilos': '3',
+        'no_medidor': 'BANCO',
+        'carga_conectada_kw': None,
+        'demanda_contratada_kw': None,
+    },
+}
+
+_UNIDADES_ES = (
+    ('millones', 1_000_000),
+    ('mil', 1_000),
+    ('', 1),
+)
+_DECENAS_ES = (
+    'diez', 'once', 'doce', 'trece', 'catorce', 'quince', 'dieciséis', 'diecisiete',
+    'dieciocho', 'diecinueve',
+)
+_UNIDADES_LETRAS = (
+    '', 'uno', 'dos', 'tres', 'cuatro', 'cinco', 'seis', 'siete', 'ocho', 'nueve',
+)
+_DECENAS_LETRAS = (
+    '', '', 'veinte', 'treinta', 'cuarenta', 'cincuenta', 'sesenta', 'setenta',
+    'ochenta', 'noventa',
+)
+_CENTENAS_LETRAS = (
+    '', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos', 'quinientos',
+    'seiscientos', 'setecientos', 'ochocientos', 'novecientos',
+)
+
+def _fmt_fecha_cfe(fecha):
+    return f'{fecha.day:02d} {MESES_CFE[fecha.month - 1]} {fecha.year % 100:02d}'
+
+def _periodo_facturado_cfe(fecha):
+    inicio = fecha.replace(day=1)
+    return f'{_fmt_fecha_cfe(inicio)}-{_fmt_fecha_cfe(fecha)}'
+
+def _fmt_mxn_entero(val):
+    return f'${int(round(_a_num(val))):,}'
+
+def _fmt_mxn_decimal(val):
+    return f'${_a_num(val):,.2f}'
+
+def _numero_menor_1000_a_letras(n):
+    n = int(n)
+    if n == 0:
+        return ''
+    if n == 100:
+        return 'cien'
+    if n < 10:
+        return _UNIDADES_LETRAS[n]
+    if n < 20:
+        return _DECENAS_ES[n - 10]
+    if n < 100:
+        d, u = divmod(n, 10)
+        if u == 0:
+            return _DECENAS_LETRAS[d]
+        if d == 2:
+            return f'veinti{_UNIDADES_LETRAS[u]}'
+        return f'{_DECENAS_LETRAS[d]} y {_UNIDADES_LETRAS[u]}'
+    c, resto = divmod(n, 100)
+    pref = _CENTENAS_LETRAS[c]
+    if resto == 0:
+        return pref
+    return f'{pref} {_numero_menor_1000_a_letras(resto)}'
+
+def _entero_a_letras_es(n):
+    n = int(n)
+    if n == 0:
+        return 'cero'
+    partes = []
+    for nombre, valor in _UNIDADES_ES:
+        if n >= valor:
+            cant = n // valor
+            n %= valor
+            texto = _numero_menor_1000_a_letras(cant)
+            if nombre == 'millones' and cant == 1:
+                texto = 'un millón'
+            elif nombre == 'millones':
+                texto = f'{texto} millones'
+            elif nombre == 'mil' and cant == 1:
+                texto = 'mil'
+            elif nombre == 'mil':
+                texto = f'{texto} mil'
+            partes.append(texto)
+    return ' '.join(partes)
+
+def _monto_a_letras_mxn(val):
+    entero = int(round(_a_num(val)))
+    letras = _entero_a_letras_es(entero).upper()
+    return f'({letras} PESOS M.N.)'
+
+def obtener_demanda_kw_periodo_mes(fecha, prefijo, con_bess=True):
+    """Demanda máxima acumulada del mes por periodo (ACUMULADOS_*.csv)."""
+    fila = _fila_por_fecha(_cargar_acumulados(prefijo), fecha)
+    if fila is None:
+        return None
+    tipo = 'CON_BESS' if con_bess else 'SIN_BESS'
+    resultado = {}
+    for clave in ('base', 'intermedio', 'punta'):
+        col = f'{clave.upper()}_DEM_{tipo}_MAX'
+        kw = pd.to_numeric(fila.get(col, 0), errors='coerce')
+        resultado[clave] = redondear_arriba_kw(0 if pd.isna(kw) else kw)
+    resultado['kw_max'] = max(resultado.values())
+    return resultado
+
+def obtener_kvarh_mes(fecha, prefijo):
+    """kVArh acumulados del mes al día indicado (reportes BESS, sin truncar)."""
+    fila = _fila_por_fecha(_cargar_acumulados(prefijo), fecha)
+    if fila is not None and 'KVARH_ACUM' in fila.index:
+        val = pd.to_numeric(fila.get('KVARH_ACUM', 0), errors='coerce')
+        if not pd.isna(val):
+            return float(val)
+
+    ruta_dia = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
+    if os.path.exists(ruta_dia):
+        df = pd.read_csv(ruta_dia)
+        if 'KVARH' in df.columns:
+            df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
+            df_r = _filtrar_mes_hasta_fecha(df, fecha, 'FECHA_DT')
+            if not df_r.empty:
+                return float(pd.to_numeric(df_r['KVARH'], errors='coerce').fillna(0).sum())
+
+    archivo_map = {'ION': 'ION.csv', 'BANCO': 'Banco1.csv'}
+    archivo = archivo_map.get(prefijo)
+    if not archivo:
+        return None
+    ruta = os.path.join(DIRECTORIO_PROCESADOS, archivo)
+    if not os.path.exists(ruta):
+        return None
+    df = pd.read_csv(ruta)
+    if 'Fecha' not in df.columns:
+        return None
+    df['FECHA_DT'] = pd.to_datetime(df['Fecha'])
+    df_r = _filtrar_mes_hasta_fecha(df, fecha, 'FECHA_DT')
+    if df_r.empty:
+        return None
+    from bess_core import _columnas_kvarh_prefijo, _normalizar_columnas_kvarh
+    cols = [c for c in _columnas_kvarh_prefijo(prefijo) if c in df_r.columns]
+    if not cols:
+        return None
+    df_r = _normalizar_columnas_kvarh(df_r.copy())
+    return float(df_r[cols].sum().sum())
+
+def calcular_factor_potencia_pct(kwh_activo, kvarh_total):
+    """
+    Factor de potencia % = kWh activos / sqrt(kWh² + kVArh²) × 100.
+    kWh activos: suma base + intermedio + punta.
+    kVArh: suma de reactivos del medidor (ION=Q1, BANCO=Q1+Q4).
+    """
+    kwh_activo = _a_num(kwh_activo)
+    kvarh_total = _a_num(kvarh_total)
+    if kwh_activo <= 0:
+        return 0.0
+    return round(kwh_activo / ((kwh_activo ** 2 + kvarh_total ** 2) ** 0.5) * 100, 2)
+
+def calcular_factor_potencia_recibo(res_energia, kvarh_total):
+    """FP del recibo: energía activa (3 periodos) + reactivos acumulados."""
+    if kvarh_total is None:
+        return None
+    return calcular_factor_potencia_pct(
+        _kwh_activo_tres_periodos(res_energia), kvarh_total
+    )
+
+def calcular_cargo_fp(factor_potencia_pct, cargo_fijo, energia, capacidad):
+    """
+    Cargo FP si FP < 97%:
+    (3/5) × ((97 / FP) − 1), redondeado a 3 decimales, × (Cargo Fijo + Energía + Capacidad).
+    FP en porcentaje (ej. 95.98).
+    """
+    if factor_potencia_pct is None or factor_potencia_pct >= 97:
+        return 0.0
+    fp = _a_num(factor_potencia_pct)
+    if fp <= 0:
+        return 0.0
+    coef = (3 / 5) * ((97 / fp) - 1)
+    coef = float(Decimal(str(coef)).quantize(Decimal('0.001'), rounding=ROUND_HALF_UP))
+    base = _a_num(cargo_fijo) + _a_num(energia) + _a_num(capacidad)
+    return redondear_mxn_energia(coef * base)
+
+def _tarifa_mes(tarifas, mes, *nombres):
+    """Obtiene tarifa del mes probando varios nombres de fila (CSV)."""
+    for nombre in nombres:
+        vals = tarifas.get(nombre)
+        if vals is not None:
+            return float(vals.get(mes, 0) or 0)
+    return 0.0
+
+def _kwh_activo_tres_periodos(res_energia):
+    kwh = res_energia.get('kwh_activo')
+    if kwh is not None:
+        return float(kwh)
+    return float(sum(
+        res_energia['por_periodo'][clave]['kwh']
+        for clave, _ in PERIODOS_ENERGIA
+    ))
+
+def _precio_generacion_neto(tarifas, mes, periodo_tarifa, precio_cenace, precio_transmision, precio_scnmem):
+    """Tarifa de generación neta = tarifa del periodo − CENACE − Transmisión − ServiciosAuxiliares."""
+    tarifa = _tarifa_mes(tarifas, mes, periodo_tarifa)
+    return tarifa - precio_cenace - precio_transmision - precio_scnmem
+
+def _celda_generacion_mem(kwh, precio_neto):
+    return _celda_mem(redondear_mxn_energia(kwh * precio_neto), precio_kwh=precio_neto)
+
+def _celda_mem(importe, precio_kwh=0.0, precio_kw=0.0):
+    return {
+        'precio_kwh': precio_kwh,
+        'precio_kw': precio_kw,
+        'importe': importe,
+    }
+
+def construir_datos_recibo_cfe(fecha, prefijo, con_bess, res_energia, res_cfe, tarifas):
+    """Arma el diccionario de datos para el layout tipo recibo CFE."""
+    cliente = DATOS_CLIENTE_RECIBO.get(prefijo, DATOS_CLIENTE_RECIBO['ION'])
+    escenario = 'Con BESS' if con_bess else 'Sin BESS'
+    pp = res_energia['por_periodo']
+    demanda = obtener_demanda_kw_periodo_mes(fecha, prefijo, con_bess=con_bess)
+    kvarh = obtener_kvarh_mes(fecha, prefijo)
+    fp_pct = calcular_factor_potencia_recibo(res_energia, kvarh)
+
+    costo_cap = res_cfe['costo_mxn'] if res_cfe else 0.0
+    precio_cap = res_cfe['precio_cap'] if res_cfe else 0.0
+    capacidad_kw = res_cfe['capacidad_kw'] if res_cfe else 0
+    mes = fecha.month
+    kwh_activo = _kwh_activo_tres_periodos(res_energia)
+
+    tarifa_suministro = _tarifa_mes(tarifas, mes, 'Suministro')
+    tarifa_cargo_fijo = _tarifa_mes(tarifas, mes, 'CargoFijo', 'Cargo Fijo')
+    tarifa_distribucion = _tarifa_mes(tarifas, mes, 'Distribucion', 'Distribución')
+    precio_transmision = _tarifa_mes(tarifas, mes, 'Transmision', 'Transmisión')
+    precio_cenace = _tarifa_mes(tarifas, mes, 'CENACE')
+    precio_scnmem = _tarifa_mes(tarifas, mes, 'ServiciosAuxiliares', 'SCnMEM')
+    importe_transmision = redondear_mxn_energia(kwh_activo * precio_transmision)
+    importe_cenace = redondear_mxn_energia(kwh_activo * precio_cenace)
+    importe_scnmem = redondear_mxn_energia(kwh_activo * precio_scnmem)
+
+    precio_gen_base = _precio_generacion_neto(
+        tarifas, mes, 'Base', precio_cenace, precio_transmision, precio_scnmem
+    )
+    precio_gen_inter = _precio_generacion_neto(
+        tarifas, mes, 'Intermedio', precio_cenace, precio_transmision, precio_scnmem
+    )
+    precio_gen_punta = _precio_generacion_neto(
+        tarifas, mes, 'Punta', precio_cenace, precio_transmision, precio_scnmem
+    )
+
+    mem = {
+        'Suministro': _celda_mem(tarifa_suministro),
+        'Distribución': _celda_mem(tarifa_distribucion),
+        'Transmisión': _celda_mem(importe_transmision, precio_kwh=precio_transmision),
+        'CENACE': _celda_mem(importe_cenace, precio_kwh=precio_cenace),
+        'Generación B': _celda_generacion_mem(pp['base']['kwh'], precio_gen_base),
+        'Generación I': _celda_generacion_mem(pp['intermedio']['kwh'], precio_gen_inter),
+        'Generación P': _celda_generacion_mem(pp['punta']['kwh'], precio_gen_punta),
+        'Capacidad': _celda_mem(costo_cap, precio_kw=precio_cap),
+        'SCnMEM(1)': _celda_mem(importe_scnmem, precio_kwh=precio_scnmem),
+    }
+    total_mem = sum(v['importe'] for v in mem.values())
+
+    importe_energia = res_energia['total_mxn']
+    importe_cargo_fp = calcular_cargo_fp(
+        fp_pct, tarifa_cargo_fijo, importe_energia, costo_cap
+    )
+    subtotal = importe_energia + costo_cap + tarifa_cargo_fijo + importe_cargo_fp
+    iva = redondear_mxn_energia(subtotal * 0.16)
+    total_pagar = redondear_mxn_energia(subtotal + iva)
+
+    fecha_limite = fecha + timedelta(days=18)
+    corte_partir = fecha + timedelta(days=1)
+
+    return {
+        'escenario': escenario,
+        'cliente': cliente,
+        'fecha_corte': fecha,
+        'periodo_facturado': _periodo_facturado_cfe(fecha),
+        'fecha_limite_pago': _fmt_fecha_cfe(fecha_limite),
+        'corte_partir': _fmt_fecha_cfe(corte_partir),
+        'dias_mes': res_energia['dias_mes'],
+        'kwh': {
+            'base': redondear_kwh(pp['base']['kwh']),
+            'intermedio': redondear_kwh(pp['intermedio']['kwh']),
+            'punta': redondear_kwh(pp['punta']['kwh']),
+            'total': redondear_kwh(res_energia['total_kwh']),
+        },
+        'kw': demanda or {'base': 0, 'intermedio': 0, 'punta': 0, 'kw_max': 0},
+        'kvarh': kvarh,
+        'factor_potencia_pct': fp_pct,
+        'mem': mem,
+        'total_mem': total_mem,
+        'desglose': {
+            'cargo_fijo': tarifa_cargo_fijo,
+            'energia': importe_energia,
+            'capacidad': costo_cap,
+            'cargo_fp': importe_cargo_fp,
+            'subtotal': subtotal,
+            'iva': iva,
+            'total': total_pagar,
+        },
+        'capacidad_kw': capacidad_kw,
+        'capacidad_criterio': (
+            'Demanda punta'
+            if res_cfe and res_cfe['criterio_aplicado'] == 'punta'
+            else 'DemandaCalculadaCFE'
+        ) if res_cfe else '—',
+    }
+
+RECIBO_ANCHO_REF_PX = 920
+RECIBO_FACTOR_ANCHO = 0.80
+RECIBO_FACTOR_ALTURA = 1.20
+RECIBO_LOGO_ANCHO_REF = 210
+RECIBO_FACTOR_LOGO = 0.98
+
+def _recibo_logo_ancho_px():
+    return max(1, round(RECIBO_LOGO_ANCHO_REF * RECIBO_FACTOR_ANCHO * RECIBO_FACTOR_LOGO))
+
+def _recibo_px(base, factor):
+    return max(1, round(base * factor))
+
+def _css_recibo_cfe(for_pdf=False):
+    """Estilos del recibo con valores fijos (compatibles con pantalla y PDF)."""
+    v = RECIBO_FACTOR_ALTURA
+    h = RECIBO_FACTOR_ANCHO
+    pv = lambda n: _recibo_px(n, v)
+    ph = lambda n: _recibo_px(n, h)
+    fs = lambda n: max(6, n - 1) if for_pdf else n
+    max_w = round(RECIBO_ANCHO_REF_PX * h)
+    logo_w = _recibo_logo_ancho_px()
+    lh = round(1.25 * v, 2)
+    lh_sm = round(1.3 * v, 2)
+    return f"""
+        .cfe-recibo-wrap {{
+            max-width: {max_w}px;
+            margin: 0 auto 16px;
+        }}
+        .cfe-recibo {{
+            font-family: Arial, Helvetica, sans-serif;
+            color: #000;
+            background: #fff;
+            border: 2px solid #000;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+            font-size: {fs(11)}px;
+            line-height: {lh};
+        }}
+        .cfe-layout-table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+        .cfe-recibo-sim {{
+            background: #f5f5f5;
+            color: #444;
+            text-align: center;
+            font-size: {fs(10)}px;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            padding: {pv(5)}px {ph(8)}px;
+            border-bottom: 3px solid #008250;
+        }}
+        .cfe-recibo-top td {{
+            vertical-align: top;
+            padding: {pv(10)}px {ph(12)}px {pv(8)}px;
+            border-bottom: 1px solid #000;
+        }}
+        .cfe-emisor td {{
+            vertical-align: top;
+            padding: 0;
+        }}
+        .cfe-emisor .cfe-logo-block {{
+            width: {logo_w}px;
+            vertical-align: middle;
+            text-align: center;
+            padding-right: {ph(10)}px;
+        }}
+        .cfe-logo-inner {{
+            text-align: center;
+        }}
+        .cfe-logo-img {{
+            display: inline-block;
+            height: auto;
+            max-width: {logo_w}px;
+            vertical-align: middle;
+        }}
+        .cfe-emisor-nombre, .cfe-receptor-nombre {{
+            font-weight: 700;
+            font-size: {fs(12)}px;
+            margin-bottom: {pv(3)}px;
+            color: #008250;
+        }}
+        .cfe-emisor-dir, .cfe-receptor-dir, .cfe-emisor-rfc {{
+            color: #111;
+            font-size: {fs(10)}px;
+            line-height: {lh_sm};
+        }}
+        .cfe-receptor {{
+            text-align: right;
+            border-left: 1px solid #ccc;
+            padding-left: {ph(10)}px;
+        }}
+        .cfe-receptor-etq {{
+            font-size: {fs(9)}px;
+            font-weight: 700;
+            letter-spacing: 0.05em;
+            color: #555;
+            margin-bottom: {pv(4)}px;
+        }}
+        .cfe-servicio td {{
+            width: 20%;
+            padding: {pv(5)}px {ph(7)}px;
+            border: 1px solid #000;
+            vertical-align: top;
+            min-height: {pv(34)}px;
+        }}
+        .cfe-servicio-item span {{
+            display: block;
+            color: #333;
+            font-size: {fs(8)}px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            margin-bottom: {pv(2)}px;
+        }}
+        .cfe-servicio-item b {{
+            font-size: {fs(11)}px;
+            color: #000;
+            font-weight: 700;
+        }}
+        .cfe-periodo {{
+            padding: {pv(6)}px {ph(12)}px;
+            background: #e8f5ee;
+            border-bottom: 2px solid #008250;
+            font-size: {fs(11)}px;
+        }}
+        .cfe-periodo-etq {{
+            font-weight: 700;
+            letter-spacing: 0.03em;
+        }}
+        .cfe-periodo-dias {{
+            color: #444;
+            font-size: {fs(10)}px;
+            margin-left: 4px;
+        }}
+        .cfe-total-wrap td {{
+            vertical-align: middle;
+            padding: {pv(10)}px {ph(12)}px;
+            border-bottom: 2px solid #000;
+        }}
+        .cfe-total-label {{
+            font-weight: 800;
+            font-size: {fs(14)}px;
+            letter-spacing: 0.04em;
+            color: #000;
+        }}
+        .cfe-total-monto-box {{
+            border: 2px solid #000;
+            padding: {pv(8)}px {ph(14)}px;
+            background: #fff;
+            text-align: center;
+            width: {ph(220)}px;
+        }}
+        .cfe-total-monto {{
+            font-size: {fs(26)}px;
+            font-weight: 800;
+            color: #000;
+            white-space: nowrap;
+            letter-spacing: 0.02em;
+        }}
+        .cfe-total-letras {{
+            margin-top: {pv(4)}px;
+            font-size: {fs(9)}px;
+            color: #333;
+            line-height: {lh};
+            max-width: 95%;
+        }}
+        .cfe-body td {{
+            vertical-align: top;
+            padding: {pv(8)}px {ph(10)}px;
+            border-bottom: 1px solid #000;
+        }}
+        .cfe-consumo-panel {{
+            width: 31%;
+            border-right: 1px solid #000;
+            background: #fff;
+        }}
+        .cfe-mem-panel {{
+            width: 69%;
+            background: #fff;
+        }}
+        .cfe-panel-title {{
+            font-weight: 800;
+            font-size: {fs(10)}px;
+            text-transform: uppercase;
+            color: #008250;
+            margin-bottom: {pv(6)}px;
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid #008250;
+            padding-bottom: {pv(3)}px;
+        }}
+        .cfe-mini-table, .cfe-mem-table, .cfe-desglose-table {{
+            width: 100%;
+            border-collapse: collapse;
+            font-size: {fs(10)}px;
+        }}
+        .cfe-mini-table th, .cfe-mem-table th {{
+            background: #ececec;
+            color: #000;
+            padding: {pv(4)}px {ph(5)}px;
+            text-align: center;
+            font-size: {fs(9)}px;
+            font-weight: 700;
+            border: 1px solid #000;
+        }}
+        .cfe-mini-table td, .cfe-mem-table td, .cfe-desglose-table td {{
+            border: 1px solid #000;
+            padding: {pv(3)}px {ph(5)}px;
+            vertical-align: middle;
+        }}
+        .cfe-mini-table td:first-child, .cfe-desglose-table td:first-child {{
+            font-weight: 600;
+        }}
+        .cfe-mem-table td:first-child {{ font-weight: 600; }}
+        .cfe-mem-row:nth-child(even) td {{ background: #fafafa; }}
+        .cfe-mem-total td {{
+            background: #e8f5ee;
+            font-weight: 800;
+        }}
+        .cfe-mem-nota {{
+            margin-top: {pv(5)}px;
+            font-size: {fs(8)}px;
+            color: #555;
+            line-height: {lh};
+            font-style: italic;
+        }}
+        .cfe-desglose {{
+            padding: {pv(8)}px {ph(12)}px {pv(10)}px;
+            background: #fff;
+        }}
+        .cfe-desglose-table td:last-child {{ text-align: right; width: 36%; }}
+        .cfe-desglose-total td {{
+            background: #e8f5ee;
+            font-weight: 800;
+            border-top: 2px solid #008250;
+        }}
+        .cfe-footnote {{
+            padding: {pv(6)}px {ph(12)}px {pv(8)}px;
+            font-size: {fs(8)}px;
+            color: #555;
+            background: #f5f5f5;
+            border-top: 1px solid #ccc;
+            text-align: center;
+        }}
+        .cfe-recibo .num {{ text-align: right; white-space: nowrap; }}
+"""
+
+def _html_servicio_celda(etiqueta, valor):
+    return f'<td class="cfe-servicio-item"><span>{etiqueta}</span><b>{valor}</b></td>'
+
+def _html_fila_mem(concepto, celda, es_total=False):
+    cls = 'cfe-mem-row cfe-mem-total' if es_total else 'cfe-mem-row'
+    pkwh = '—' if celda['precio_kwh'] == 0 else f"{celda['precio_kwh']:.4f}"
+    pkw = '—' if celda['precio_kw'] == 0 else f"{celda['precio_kw']:,.2f}"
+    imp = f"{celda['importe']:,.2f}"
+    return (
+        f'<tr class="{cls}">'
+        f'<td>{concepto}</td>'
+        f'<td class="num">{pkwh}</td>'
+        f'<td class="num">{pkw}</td>'
+        f'<td class="num">{imp}</td>'
+        f'</tr>'
+    )
+
+def render_html_recibo_cfe(datos):
+    """HTML del recibo con layout similar al aviso CFE."""
+    c = datos['cliente']
+    dir_html = ''.join(f'<div>{linea}</div>' for linea in c['direccion'])
+    carga = (
+        f"{c['carga_conectada_kw']:,}"
+        if c.get('carga_conectada_kw') is not None else '—'
+    )
+    demanda_cta = (
+        f"{c['demanda_contratada_kw']:,}"
+        if c.get('demanda_contratada_kw') is not None else '—'
+    )
+    kwh = datos['kwh']
+    kw = datos['kw']
+    d = datos['desglose']
+    kvarh_txt = f"{int(round(datos['kvarh'])):,}" if datos['kvarh'] is not None else '—'
+    fp_txt = f"{datos['factor_potencia_pct']:.2f}" if datos['factor_potencia_pct'] is not None else '—'
+
+    filas_mem = ''.join(
+        _html_fila_mem(nombre, celda)
+        for nombre, celda in datos['mem'].items()
+    )
+    total_mem = _celda_mem(datos['total_mem'])
+    filas_mem += _html_fila_mem('TOTAL', total_mem, es_total=True)
+    logo_cfe = obtener_logo_cfe_html(_recibo_logo_ancho_px())
+    campos_servicio = [
+        ('NO. DE SERVICIO', c['no_servicio']),
+        ('CUENTA', c['cuenta']),
+        ('FECHA LÍMITE DE PAGO', datos['fecha_limite_pago']),
+        ('CARGA CONECTADA kW', carga),
+        ('DEMANDA CONTRATADA kW', demanda_cta),
+        ('CORTE A PARTIR', datos['corte_partir']),
+        ('TARIFA', c['tarifa']),
+        ('MULTIPLICADOR', c['multiplicador']),
+        ('NO HILOS', c['no_hilos']),
+        ('NO. MEDIDOR', c['no_medidor']),
+    ]
+    fila_serv_1 = ''.join(
+        _html_servicio_celda(etq, val) for etq, val in campos_servicio[:5]
+    )
+    fila_serv_2 = ''.join(
+        _html_servicio_celda(etq, val) for etq, val in campos_servicio[5:]
+    )
+
+    return f"""
+<div class="cfe-recibo-wrap">
+<div class="cfe-recibo">
+  <div class="cfe-recibo-sim">SIMULACIÓN BESS · {datos['escenario']} · No sustituye el recibo oficial CFE</div>
+  <table class="cfe-layout-table cfe-recibo-top">
+    <tr>
+      <td class="cfe-emisor" width="58%">
+        <table class="cfe-layout-table cfe-emisor">
+          <tr>
+            <td class="cfe-logo-block" align="center" valign="middle"><div class="cfe-logo-inner">{logo_cfe}</div></td>
+            <td class="cfe-emisor-texto">
+              <div class="cfe-emisor-nombre">Comisión Federal de Electricidad</div>
+              <div class="cfe-emisor-dir">Av. Paseo de la Reforma 164, Col. Juárez,<br>
+              Alcaldía: Cuauhtémoc, C.P. 06600, Ciudad de México.</div>
+              <div class="cfe-emisor-rfc">RFC: CFE370814QI0</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+      <td class="cfe-receptor" width="42%">
+        <div class="cfe-receptor-etq">DATOS DEL RECEPTOR</div>
+        <div class="cfe-receptor-nombre">{c['razon_social']}</div>
+        <div class="cfe-receptor-dir">{dir_html}</div>
+      </td>
+    </tr>
+  </table>
+  <table class="cfe-layout-table cfe-servicio">
+    <tr>{fila_serv_1}</tr>
+    <tr>{fila_serv_2}</tr>
+  </table>
+  <div class="cfe-periodo">
+    <span class="cfe-periodo-etq">PERIODO FACTURADO:</span>
+    <b>{datos['periodo_facturado']}</b>
+    <span class="cfe-periodo-dias">· {datos['dias_mes']} días acumulados · corte {datos['fecha_corte'].strftime('%d/%m/%Y')}</span>
+  </div>
+  <table class="cfe-layout-table cfe-total-wrap">
+    <tr>
+      <td class="cfe-total-left" width="68%">
+        <div class="cfe-total-label">TOTAL A PAGAR:</div>
+        <div class="cfe-total-letras">{_monto_a_letras_mxn(d['total'])}</div>
+      </td>
+      <td class="cfe-total-monto-box" width="32%" align="center">
+        <div class="cfe-total-monto">{_fmt_mxn_entero(d['total'])}</div>
+      </td>
+    </tr>
+  </table>
+  <table class="cfe-layout-table cfe-body">
+    <tr>
+      <td class="cfe-consumo-panel">
+        <div class="cfe-panel-title">Consumo</div>
+        <table class="cfe-mini-table">
+          <thead><tr><th>Concepto</th><th>Medida</th></tr></thead>
+          <tbody>
+            <tr><td>kWh base</td><td class="num">{kwh['base']:,}</td></tr>
+            <tr><td>kWh intermedia</td><td class="num">{kwh['intermedio']:,}</td></tr>
+            <tr><td>kWh punta</td><td class="num">{kwh['punta']:,}</td></tr>
+            <tr><td>kW base</td><td class="num">{kw['base']:,}</td></tr>
+            <tr><td>kW intermedia</td><td class="num">{kw['intermedio']:,}</td></tr>
+            <tr><td>kW punta</td><td class="num">{kw['punta']:,}</td></tr>
+            <tr><td>KWMax</td><td class="num">{kw['kw_max']:,}</td></tr>
+            <tr><td>kVArh</td><td class="num">{kvarh_txt}</td></tr>
+            <tr><td>Factor de potencia %</td><td class="num">{fp_txt}</td></tr>
+          </tbody>
+        </table>
+      </td>
+      <td class="cfe-mem-panel">
+        <div class="cfe-panel-title">Costos de la energía en el Mercado Eléctrico Mayorista</div>
+        <table class="cfe-mem-table">
+          <thead>
+            <tr>
+              <th>Concepto</th><th>$/kWh</th><th>$/kW</th><th>Importe (MXN)</th>
+            </tr>
+          </thead>
+          <tbody>{filas_mem}</tbody>
+        </table>
+        <div class="cfe-mem-nota">
+          (1) SCnMEM: servicios del Mercado.
+        </div>
+      </td>
+    </tr>
+  </table>
+  <div class="cfe-desglose">
+    <div class="cfe-panel-title">Desglose del importe a pagar</div>
+    <table class="cfe-desglose-table">
+      <tbody>
+        <tr><td>Cargo Fijo</td><td class="num">{_fmt_mxn_decimal(d['cargo_fijo'])}</td></tr>
+        <tr><td>Energía</td><td class="num">{_fmt_mxn_decimal(d['energia'])}</td></tr>
+        <tr><td>Capacidad ({datos['capacidad_kw']:,} kW · {datos['capacidad_criterio']})</td><td class="num">{_fmt_mxn_decimal(d['capacidad'])}</td></tr>
+        <tr><td>Cargo FP</td><td class="num">{_fmt_mxn_decimal(d['cargo_fp'])}</td></tr>
+        <tr><td>Subtotal</td><td class="num">{_fmt_mxn_decimal(d['subtotal'])}</td></tr>
+        <tr><td>IVA 16%</td><td class="num">{_fmt_mxn_decimal(d['iva'])}</td></tr>
+        <tr class="cfe-desglose-total"><td>Facturación del periodo (simulada)</td><td class="num">{_fmt_mxn_decimal(d['total'])}</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="cfe-footnote">
+    Documento informativo generado por el sistema BESS · IUSASOL. No sustituye el aviso recibo oficial de CFE.
+  </div>
+</div>
+</div>
+"""
+
+def _nombre_archivo_recibo(fecha, prefijo, con_bess):
+    escenario = 'ConBESS' if con_bess else 'SinBESS'
+    return f'Recibo_{prefijo}_{escenario}_{fecha.strftime("%Y%m%d")}.pdf'
+
+def generar_recibo_pdf_bytes(datos):
+    """PDF carta vertical: render Chromium del mismo HTML/CSS que la pantalla."""
+    html_doc = render_html_recibo_documento(datos)
+    from playwright.sync_api import sync_playwright
+
+    margin = {'top': '8mm', 'bottom': '8mm', 'left': '8mm', 'right': '8mm'}
+    # Altura útil aprox. en carta con márgenes de 8 mm (96 dpi).
+    altura_util_px = 980
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+            page = browser.new_page(viewport={'width': 920, 'height': 1400})
+            page.set_content(html_doc, wait_until='load')
+            altura_recibo = page.evaluate(
+                '() => document.querySelector(".cfe-recibo").getBoundingClientRect().height'
+            )
+            escala = min(1.0, altura_util_px / altura_recibo)
+            return page.pdf(
+                format='Letter',
+                print_background=True,
+                margin=margin,
+                scale=escala,
+            )
+        finally:
+            browser.close()
+
+
+def render_html_recibo_documento(datos):
+    """Documento HTML completo para exportar a PDF (mismo aspecto que pantalla)."""
+    css = _css_recibo_cfe(for_pdf=True)
+    cuerpo = render_html_recibo_cfe(datos)
+    escenario = html.escape(datos['escenario'])
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Recibo simulado CFE · {escenario}</title>
+<style>
+@page {{ size: letter portrait; margin: 8mm; }}
+html, body {{
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+}}
+body {{ text-align: center; }}
+.cfe-recibo-wrap {{ display: inline-block; text-align: left; }}
+.cfe-recibo {{ page-break-inside: avoid; break-inside: avoid; }}
+{css}
+</style>
+</head>
+<body>
+{cuerpo}
+</body>
+</html>"""
+
+def _render_recibo_escenario(fecha, prefijo, con_bess, tarifas):
+    escenario = 'Con BESS' if con_bess else 'Sin BESS'
+    mes_label = fecha.strftime('%m/%Y')
+
+    res_energia = calcular_costo_energia_mes(fecha, prefijo, con_bess=con_bess, tarifas=tarifas)
+    if res_energia is None:
+        st.warning(f"No hay datos de energía acumulada para {mes_label} ({escenario}).")
+        return
+
+    res_cfe = calcular_criterio_cfe(fecha, prefijo, con_bess=con_bess, tarifas=tarifas)
+    datos = construir_datos_recibo_cfe(
+        fecha, prefijo, con_bess, res_energia, res_cfe, tarifas
+    )
+
+    with st.container(border=False):
+        st.markdown(render_html_recibo_cfe(datos), unsafe_allow_html=True)
+        pdf_bytes = generar_recibo_pdf_bytes(datos)
+        pdf_name = _nombre_archivo_recibo(fecha, prefijo, con_bess)
+        _render_boton_descarga_archivo(
+            pdf_bytes,
+            pdf_name,
+            mime_type='application/pdf',
+            etiqueta='Descargar recibo',
+        )
+
+def tab_recibo(df, prefijo):
+    """Recibo estimado con/sin BESS para el mes al día seleccionado."""
+    if df is None or len(df) == 0:
+        st.warning('No hay datos disponibles')
+        return
+
+    if 'DATETIME' not in df.columns:
+        df = df.copy()
+        df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
+
+    fecha_min = df['DATETIME'].min().date()
+    fecha_max = df['DATETIME'].max().date()
+    fecha_def = datetime.now().date() - timedelta(days=1)
+    fecha_def = max(fecha_min, min(fecha_def, fecha_max))
+
+    fecha_sel = render_selector_fecha_unica(
+        'Recibo',
+        'Fecha de corte para el acumulado mensual del recibo estimado.',
+        'Fecha de corte',
+        fecha_def,
+        fecha_min,
+        fecha_max,
+        key=f'fecha_recibo_{prefijo}',
+    )
+
+    tarifas = cargar_tarifas()
+    estado_bess = estado_datos_sin_bess(prefijo)
+    tab_sin, tab_con = st.tabs(['Sin BESS', 'Con BESS'])
+
+    with tab_sin:
+        if not estado_bess['energia']:
+            st.warning(
+                'No hay columnas sin BESS en ENERGIA_*_POR_DIA.csv. '
+                'Procesa los datos desde el panel de administración.'
+            )
+        else:
+            _render_recibo_escenario(fecha_sel, prefijo, con_bess=False, tarifas=tarifas)
+
+    with tab_con:
+        _render_recibo_escenario(fecha_sel, prefijo, con_bess=True, tarifas=tarifas)
 
 def _aplicar_estilo_grafica_comparativa(fig, titulo, yaxis_title, y_tickprefix=''):
     """Estilo unificado para barras Con BESS (verde) vs Sin BESS (rojo)."""
@@ -1039,7 +1990,7 @@ def aplicar_estilos():
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .section-desc {
             margin: 0 0 6px 0;
-            font-size: 11px;
+            font-size: {fs(11)}px;
             line-height: 1.35;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .stDateInput label {
@@ -1053,7 +2004,7 @@ def aplicar_estilos():
             padding: 6px 6px;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .metric-compact .label {
-            font-size: 10px;
+            font-size: {fs(10)}px;
             margin-bottom: 2px;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .metric-compact .value {
@@ -1124,7 +2075,7 @@ def aplicar_estilos():
             border: 1px solid #e8ecef;
         }
         .metric-compact .label {
-            font-size: 11px;
+            font-size: {fs(11)}px;
             color: #718096;
             font-weight: 500;
             line-height: 1.3;
@@ -1271,6 +2222,8 @@ def aplicar_estilos():
             text-align: center;
             margin-bottom: 8px;
         }
+
+    """ + _css_recibo_cfe() + """
         
         .stButton button {
             border-radius: 8px;
@@ -1641,6 +2594,12 @@ def leer_df_tarifas():
             return _df_tarifas_plantilla()
         df['Tarifa'] = df['Tarifa'].astype(str).str.strip()
         tipos_map = {t.lower(): t for t in TIPOS_TARIFA}
+        tipos_map.update({
+            'distribución': 'Distribucion',
+            'transmisión': 'Transmision',
+            'cargo fijo': 'CargoFijo',
+            'servicios auxiliares': 'ServiciosAuxiliares',
+        })
         df['Tarifa'] = df['Tarifa'].str.lower().map(tipos_map).fillna(df['Tarifa'])
         for mes in range(1, 13):
             col = str(mes)
@@ -1705,9 +2664,8 @@ def cargar_tarifas():
         tarifas = _tarifas_vacias()
         for _, row in df.iterrows():
             tipo = str(row['Tarifa']).strip()
-            if tipo not in tarifas:
-                continue
             for mes in range(1, 13):
+                tarifas.setdefault(tipo, {i: 0 for i in range(1, 13)})
                 tarifas[tipo][mes] = float(row.get(str(mes), 0) or 0)
         return tarifas
     except Exception:
@@ -1972,12 +2930,12 @@ def sidebar_admin():
                     with st.spinner("Verificando archivos..."):
                         try:
                             from bess_core import verificar_datos_fuente
-                            resultado = verificar_datos_fuente()
-                            if resultado:
-                                st.success("✅ Verificación completada exitosamente")
+                            exito, mensaje = verificar_datos_fuente()
+                            if exito:
+                                st.success(f"✅ {mensaje}")
                                 st.session_state['verificado'] = True
                             else:
-                                st.error("❌ Error en la verificación")
+                                st.error(f"❌ {mensaje}")
                         except Exception as e:
                             st.error(f"❌ Error: {e}")
             
@@ -2016,8 +2974,9 @@ def sidebar_admin():
                 with st.spinner("Verificando, filtrando y generando reportes..."):
                     try:
                         from bess_core import verificar_datos_fuente, filtrar_datos, reporte_bess
-                        if not verificar_datos_fuente():
-                            st.error("Error en la verificación")
+                        exito_v, msg_v = verificar_datos_fuente()
+                        if not exito_v:
+                            st.error(msg_v)
                         else:
                             exito_f, msg_f = filtrar_datos()
                             if not exito_f:
@@ -2044,7 +3003,7 @@ def sidebar_admin():
             render_editor_tarifas_sidebar()
         
         st.divider()
-        st.caption("Sistema BESS v5.2")
+        st.caption("Sistema BESS v5.3")
 
 def _inyectar_script_sidebar(expandida):
     """Ajusta la sidebar tras el login (Streamlit fija el estado inicial solo al cargar la app)."""
@@ -2085,7 +3044,7 @@ def sidebar_user():
     with st.sidebar:
         sidebar_branding(es_admin=False)
         st.info("Modo visualización")
-        st.caption("Sistema BESS v5.2")
+        st.caption("Sistema BESS v5.3")
 
 # ========== FUNCIONES DE TABS ==========
 def tab_dashboard(df, prefijo, medidor):
@@ -2351,10 +3310,11 @@ def _pdf_bytes_descarga(fecha_str, prefijo, _mtime_fuente):
     with open(ruta, 'rb') as f:
         return f.read(), os.path.basename(ruta)
 
-def _render_boton_descarga_pdf(pdf_bytes, pdf_name):
+def _render_boton_descarga_archivo(archivo_bytes, nombre_archivo, mime_type, etiqueta, altura=76):
     """Botón de descarga en iframe para evitar estilos de enlace de Streamlit."""
-    pdf_b64 = base64.b64encode(pdf_bytes).decode()
-    nombre_seguro = html.escape(pdf_name, quote=True)
+    archivo_b64 = base64.b64encode(archivo_bytes).decode()
+    nombre_seguro = html.escape(nombre_archivo, quote=True)
+    etiqueta_segura = html.escape(etiqueta)
     components.html(
         f"""
         <!DOCTYPE html>
@@ -2370,7 +3330,7 @@ def _render_boton_descarga_pdf(pdf_bytes, pdf_name):
             }}
             .reporte-dl-box {{
                 max-width: 320px;
-                margin: 0 auto;
+                margin: 12px auto 0;
                 background: linear-gradient(135deg, #1e8449 0%, #27ae60 100%);
                 padding: 10px 14px;
                 border-radius: 10px;
@@ -2403,15 +3363,23 @@ def _render_boton_descarga_pdf(pdf_bytes, pdf_name):
         <body>
         <div class="reporte-dl-box">
             <a class="reporte-dl-btn"
-               href="data:application/pdf;base64,{pdf_b64}"
+               href="data:{mime_type};base64,{archivo_b64}"
                download="{nombre_seguro}">
-                Generar Reporte Diario
+                {etiqueta_segura}
             </a>
         </div>
         </body>
         </html>
         """,
-        height=76,
+        height=altura,
+    )
+
+def _render_boton_descarga_pdf(pdf_bytes, pdf_name):
+    _render_boton_descarga_archivo(
+        pdf_bytes,
+        pdf_name,
+        mime_type='application/pdf',
+        etiqueta='Generar Reporte Diario',
     )
 
 def tab_reporte(df, prefijo):
@@ -3038,7 +4006,7 @@ def main():
     df = pd.read_csv(ruta)
     df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
 
-    tabs = st.tabs(["Operación BESS", "Análisis", "Tendencia", "Reporte"])
+    tabs = st.tabs(["Operación BESS", "Análisis", "Tendencia", "Reporte", "Recibo"])
 
     with tabs[0]:
         tab_dashboard(df, prefijo, medidor)
@@ -3051,6 +4019,9 @@ def main():
 
     with tabs[3]:
         tab_reporte(df, prefijo)
+
+    with tabs[4]:
+        tab_recibo(df, prefijo)
 
 if __name__ == "__main__":
     main()
