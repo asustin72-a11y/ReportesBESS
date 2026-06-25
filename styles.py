@@ -33,22 +33,67 @@ COLORES_BESS = {
 
 # ========== FUNCIONES DE ESTILO ==========
 
-def aplicar_estilo_plotly(fig):
-    """Aplica estilo profesional a una figura de Plotly"""
-    fig.update_layout(
-        font=dict(family='Segoe UI, Arial, sans-serif', color='#2d3748'),
-        title=dict(font=dict(size=18, color='#1a202c'), x=0.5),
-        plot_bgcolor='#ffffff',
-        paper_bgcolor='#f8f9fa',
-        hovermode='x unified',
-        margin=dict(l=60, r=30, t=60, b=50),
-        legend=dict(
-            font=dict(size=10, color='#2d3748'),
+_MARGEN_SUPERIOR_CON_LEYENDA = 118
+_MARGEN_SUPERIOR_SIN_LEYENDA = 62
+_LEYENDA_Y_EXTERNA = 0.945
+
+def _titulo_y_leyenda_externos(titulo, font_size=16, show_legend=True):
+    title_cfg = dict(
+        text=titulo,
+        x=0.5, xref='container', xanchor='center',
+        y=1.0, yref='container', yanchor='top',
+        font=dict(size=font_size, color='#1a202c'),
+        pad=dict(t=8, b=4),
+    )
+    legend_cfg = None
+    margin_t = _MARGEN_SUPERIOR_SIN_LEYENDA
+    if show_legend:
+        legend_cfg = dict(
+            orientation='h',
+            yanchor='top',
+            y=_LEYENDA_Y_EXTERNA,
+            yref='container',
+            x=0.5, xref='container', xanchor='center',
+            font=dict(size=11, color='#4a5568'),
             bgcolor='rgba(255,255,255,0.85)',
             bordercolor='#e2e8f0',
             borderwidth=1,
         )
+        margin_t = _MARGEN_SUPERIOR_CON_LEYENDA
+    return title_cfg, legend_cfg, margin_t
+
+def aplicar_estilo_plotly(fig, titulo=None, show_legend=True):
+    """Aplica estilo profesional a una figura de Plotly."""
+    layout_kwargs = dict(
+        font=dict(family='Segoe UI, Arial, sans-serif', color='#2d3748'),
+        plot_bgcolor='#ffffff',
+        paper_bgcolor='#f8f9fa',
+        hovermode='x unified',
+        margin=dict(l=60, r=30, t=62, b=50),
     )
+    if titulo:
+        title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(
+            titulo, show_legend=show_legend,
+        )
+        layout_kwargs['title'] = title_cfg
+        layout_kwargs['margin']['t'] = margin_t
+        if show_legend and legend_cfg is not None:
+            layout_kwargs['legend'] = legend_cfg
+    else:
+        layout_kwargs['legend'] = dict(
+            font=dict(size=10, color='#2d3748'),
+            bgcolor='rgba(255,255,255,0.85)',
+            bordercolor='#e2e8f0',
+            borderwidth=1,
+            orientation='h',
+            yanchor='top',
+            y=_LEYENDA_Y_EXTERNA,
+            yref='container',
+            x=0.5,
+            xref='container',
+            xanchor='center',
+        )
+    fig.update_layout(**layout_kwargs)
     
     fig.update_xaxes(
         title_font=dict(size=14, color='#2d3748'),
@@ -115,27 +160,10 @@ def graficar_comparacion_iusa_plotly(datos_dia, prefijo, fecha_seleccionada):
     ))
     
     fig.update_layout(
-        title=dict(
-            text=f'Comparación IUSA - {fecha_seleccionada}',
-            x=0.5,
-            xanchor='center',
-            font=dict(size=18, color='#1a202c')
-        ),
         xaxis_title='Hora del día',
         yaxis_title='Potencia (kW)',
         height=500,
         hovermode='x unified',
-        legend=dict(
-            orientation='h',
-            yanchor='top',
-            y=0.98,
-            xanchor='center',
-            x=0.5,
-            font=dict(size=10, color='#2d3748'),
-            bgcolor='rgba(255,255,255,0.85)',
-            bordercolor='#e2e8f0',
-            borderwidth=1,
-        )
     )
     
     fig.update_xaxes(
@@ -150,7 +178,7 @@ def graficar_comparacion_iusa_plotly(datos_dia, prefijo, fecha_seleccionada):
         zerolinewidth=1,
     )
     
-    return aplicar_estilo_plotly(fig)
+    return aplicar_estilo_plotly(fig, titulo=f'Comparación IUSA - {fecha_seleccionada}')
 
 # ========== GRÁFICA: PERFIL DE CARGA ==========
 
@@ -199,27 +227,10 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
     ))
     
     fig.update_layout(
-        title=dict(
-            text=f'⚡ Perfil de Carga - {fecha_seleccionada}',
-            x=0.5,
-            xanchor='center',
-            font=dict(size=18, color='#1a202c')
-        ),
         xaxis_title='Hora del día',
         yaxis_title='Potencia (kW)',
         height=500,
         hovermode='x unified',
-        legend=dict(
-            orientation='h',
-            yanchor='top',
-            y=0.98,
-            xanchor='center',
-            x=0.5,
-            font=dict(size=10, color='#2d3748'),
-            bgcolor='rgba(255,255,255,0.85)',
-            bordercolor='#e2e8f0',
-            borderwidth=1,
-        )
     )
     
     fig.update_xaxes(
@@ -233,7 +244,7 @@ def graficar_perfil_carga_plotly(datos_dia, prefijo, fecha_seleccionada):
         zerolinewidth=1,
     )
     
-    return aplicar_estilo_plotly(fig)
+    return aplicar_estilo_plotly(fig, titulo=f'⚡ Perfil de Carga - {fecha_seleccionada}')
 
 # ========== GRÁFICA: ARBITRAJE ==========
 
@@ -266,12 +277,6 @@ def graficar_arbitraje_periodos_plotly(arbitraje_data, fecha_seleccionada):
     fig.add_hline(y=0, line=dict(color='#4a5568', width=1, dash='dash'))
     
     fig.update_layout(
-        title=dict(
-            text=f'💹 Arbitraje por Periodo - {fecha_seleccionada}',
-            x=0.5,
-            xanchor='center',
-            font=dict(size=18, color='#1a202c')
-        ),
         xaxis_title='Periodo',
         yaxis_title='Arbitraje ($)',
         height=450,
@@ -284,7 +289,9 @@ def graficar_arbitraje_periodos_plotly(arbitraje_data, fecha_seleccionada):
         zerolinewidth=1,
     )
     
-    return aplicar_estilo_plotly(fig)
+    return aplicar_estilo_plotly(
+        fig, titulo=f'💹 Arbitraje por Periodo - {fecha_seleccionada}', show_legend=False,
+    )
 
 # ========== GRÁFICA: CARGA VS DESCARGA ==========
 
@@ -335,12 +342,6 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
     ))
     
     fig.update_layout(
-        title=dict(
-            text=f'⚡ Carga vs Descarga BESS - {fecha_seleccionada}',
-            x=0.5,
-            xanchor='center',
-            font=dict(size=18, color='#1a202c')
-        ),
         xaxis_title='Periodo',
         yaxis_title='Energía (kWh)',
         height=500,
@@ -348,17 +349,6 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         bargap=0.15,
         bargroupgap=0.1,
         hovermode='x unified',
-        legend=dict(
-            orientation='h',
-            yanchor='top',
-            y=0.98,
-            xanchor='center',
-            x=0.5,
-            font=dict(size=10, color='#2d3748'),
-            bgcolor='rgba(255,255,255,0.85)',
-            bordercolor='#e2e8f0',
-            borderwidth=1,
-        )
     )
     
     fig.update_xaxes(
@@ -380,7 +370,7 @@ def graficar_consumo_diario_plotly(df_dia, prefijo, fecha_seleccionada):
         zerolinewidth=1,
     )
     
-    return aplicar_estilo_plotly(fig)
+    return aplicar_estilo_plotly(fig, titulo=f'⚡ Carga vs Descarga BESS - {fecha_seleccionada}')
 
 # ========== GRÁFICA: TENDENCIA MENSUAL ==========
 
@@ -428,27 +418,10 @@ def graficar_tendencia_mensual_plotly(prefijo, directorio_reportes=None):
         ))
     
     fig.update_layout(
-        title=dict(
-            text=f'📈 Tendencia de Consumo Diario - {prefijo}',
-            x=0.5,
-            xanchor='center',
-            font=dict(size=18, color='#1a202c')
-        ),
         xaxis_title='Fecha',
         yaxis_title='Energía (kWh)',
         height=500,
         hovermode='x unified',
-        legend=dict(
-            orientation='h',
-            yanchor='top',
-            y=0.98,
-            xanchor='center',
-            x=0.5,
-            font=dict(size=10, color='#2d3748'),
-            bgcolor='rgba(255,255,255,0.85)',
-            bordercolor='#e2e8f0',
-            borderwidth=1,
-        )
     )
     
     fig.update_xaxes(
@@ -462,7 +435,7 @@ def graficar_tendencia_mensual_plotly(prefijo, directorio_reportes=None):
         zerolinewidth=1,
     )
     
-    return aplicar_estilo_plotly(fig)
+    return aplicar_estilo_plotly(fig, titulo=f'📈 Tendencia de Consumo Diario - {prefijo}')
 
 # ========== GRÁFICA: DISPERSIÓN ==========
 
@@ -509,30 +482,13 @@ def graficar_dispersion_plotly(df_dia):
     ))
     
     fig.update_layout(
-        title=dict(
-            text='🔄 Relación Carga/Descarga por Hora',
-            x=0.5,
-            xanchor='center',
-            font=dict(size=18, color='#1a202c')
-        ),
         xaxis_title='Carga BESS (kW)',
         yaxis_title='Descarga BESS (kW)',
         height=450,
         hovermode='closest',
-        legend=dict(
-            orientation='h',
-            yanchor='top',
-            y=0.98,
-            xanchor='center',
-            x=0.5,
-            font=dict(size=10, color='#2d3748'),
-            bgcolor='rgba(255,255,255,0.85)',
-            bordercolor='#e2e8f0',
-            borderwidth=1,
-        )
     )
     
-    return aplicar_estilo_plotly(fig)
+    return aplicar_estilo_plotly(fig, titulo='🔄 Relación Carga/Descarga por Hora')
 
 # ========== GRÁFICA: SANKEY ==========
 
@@ -588,15 +544,6 @@ def graficar_sankey_plotly(df_dia):
         )
     )])
     
-    fig.update_layout(
-        title=dict(
-            text='🌊 Flujo de Energía BESS',
-            x=0.5,
-            xanchor='center',
-            font=dict(size=18, color='#1a202c')
-        ),
-        height=500,
-        font=dict(size=12),
-    )
+    fig.update_layout(height=500, font=dict(size=12))
     
-    return aplicar_estilo_plotly(fig)
+    return aplicar_estilo_plotly(fig, titulo='🌊 Flujo de Energía BESS', show_legend=False)

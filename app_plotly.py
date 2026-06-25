@@ -59,6 +59,42 @@ COLORES = {
     'descarga': '#e74c3c',
 }
 
+MARGEN_SUPERIOR_CON_LEYENDA = 118
+MARGEN_SUPERIOR_SIN_LEYENDA = 62
+LEYENDA_Y_EXTERNA = 0.945
+
+def _titulo_y_leyenda_externos(titulo, font_size=16, show_legend=True):
+    """Título fuera del área de trazado y leyenda en el margen superior."""
+    title_cfg = dict(
+        text=titulo,
+        x=0.5,
+        xref='container',
+        xanchor='center',
+        y=1.0,
+        yref='container',
+        yanchor='top',
+        font=dict(size=font_size, color='#1a202c'),
+        pad=dict(t=8, b=4),
+    )
+    legend_cfg = None
+    margin_t = MARGEN_SUPERIOR_SIN_LEYENDA
+    if show_legend:
+        legend_cfg = dict(
+            orientation='h',
+            yanchor='top',
+            y=LEYENDA_Y_EXTERNA,
+            yref='container',
+            x=0.5,
+            xref='container',
+            xanchor='center',
+            font=dict(size=11, color='#4a5568'),
+            bgcolor='rgba(255,255,255,0.85)',
+            bordercolor='#e2e8f0',
+            borderwidth=1,
+        )
+        margin_t = MARGEN_SUPERIOR_CON_LEYENDA
+    return title_cfg, legend_cfg, margin_t
+
 def color_periodo(periodo):
     return {'Base': COLORES['base'], 'Intermedio': COLORES['intermedio'], 'Punta': COLORES['punta']}.get(periodo, '#95a5a6')
 
@@ -384,11 +420,14 @@ def graficar_comparacion_capacidad(capacidad_sin, capacidad_con, ahorro):
         textposition='outside',
         cliponaxis=False,
     ))
+    title_cfg, _, margin_t = _titulo_y_leyenda_externos(
+        'Comparación de costo por capacidad (criterio CFE)', font_size=14, show_legend=False,
+    )
     fig.update_layout(
-        title='Comparación de costo por capacidad (criterio CFE)',
+        title=title_cfg,
         xaxis_title='MXN',
         height=220,
-        margin=dict(l=10, r=80, t=45, b=20),
+        margin=dict(l=10, r=80, t=margin_t, b=20),
         showlegend=False,
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
@@ -586,34 +625,17 @@ def construir_tabla_costo_energia(res_con, res_sin):
 
 def _aplicar_estilo_grafica_comparativa(fig, titulo, yaxis_title, y_tickprefix=''):
     """Estilo unificado para barras Con BESS (verde) vs Sin BESS (rojo)."""
+    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(titulo)
     fig.update_layout(
-        title=dict(
-            text=titulo,
-            x=0.5,
-            xref='paper',
-            xanchor='center',
-            y=0.99,
-            yref='paper',
-            yanchor='top',
-            pad=dict(t=0, b=0),
-        ),
+        title=title_cfg,
         barmode='group',
         height=420,
-        margin=dict(l=44, r=44, t=40, b=44),
-        legend=dict(
-            orientation='h',
-            yanchor='top',
-            y=0.86,
-            yref='paper',
-            x=0.5,
-            xref='paper',
-            xanchor='center',
-        ),
+        margin=dict(l=44, r=44, t=margin_t, b=44),
+        legend=legend_cfg,
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         yaxis=dict(
             title=yaxis_title,
-            domain=[0.0, 0.72],
             gridcolor='#eef2f6',
             tickformat=',.0f',
             tickprefix=y_tickprefix,
@@ -1304,9 +1326,11 @@ def aplicar_estilos_login():
         }
         .login-title {
             margin: 0 0 6px 0;
-            font-size: 1.55rem;
+            font-size: clamp(1.05rem, 2.2vw, 1.55rem);
             color: #1a5276;
             font-weight: 700;
+            white-space: nowrap;
+            line-height: 1.2;
         }
         .login-subtitle {
             margin: 0;
@@ -1421,20 +1445,16 @@ def graficar_perfil(df, prefijo, titulo):
             fillcolor='rgba(231,76,60,0.12)'
         ))
 
+    titulo_grafica = f"{titulo}{titulo_suffix}".strip()
+    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(titulo_grafica)
     fig.update_layout(
-        title=dict(
-            text=f"{titulo}{titulo_suffix}".strip(),
-            x=0.5,
-            xanchor='center',
-            font=dict(size=16),
-            pad=dict(t=6, b=18),
-        ),
+        title=title_cfg,
         xaxis_title=x_title,
         yaxis_title='Potencia (kW)',
         height=420,
         hovermode='x unified',
-        legend=dict(orientation='h', yanchor='bottom', y=1.0, xanchor='center', x=0.5),
-        margin=dict(l=52, r=52, t=72, b=40),
+        legend=legend_cfg,
+        margin=dict(l=52, r=52, t=margin_t, b=40),
     )
     fig.update_xaxes(tickformat=x_tickformat, dtick=x_dtick)
     fig.update_yaxes(zeroline=True, zerolinecolor='#95a5a6', zerolinewidth=1)
@@ -1494,29 +1514,16 @@ def graficar_demanda_dia(df, prefijo, titulo=''):
         fillcolor='rgba(39, 174, 96, 0.18)',
     ))
 
+    titulo_grafica = titulo or f'Análisis de Demanda · {prefijo}'
+    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(titulo_grafica)
     fig.update_layout(
-        title=dict(
-            text=titulo or f'Análisis de Demanda · {prefijo}',
-            x=0.5,
-            xanchor='center',
-            font=dict(size=16),
-            pad=dict(t=10, b=24),
-        ),
+        title=title_cfg,
         xaxis_title='Hora',
         yaxis_title='Demanda (kW) · ventana 15 min',
         height=460,
         hovermode='x unified',
-        legend=dict(
-            orientation='h',
-            yanchor='bottom',
-            y=0.98,
-            xanchor='center',
-            x=0.5,
-            bgcolor='rgba(255,255,255,0.9)',
-            bordercolor='#e8ecef',
-            borderwidth=1,
-        ),
-        margin=dict(l=55, r=25, t=72, b=50),
+        legend=legend_cfg,
+        margin=dict(l=55, r=25, t=margin_t, b=50),
     )
     fig.update_xaxes(tickformat='%H:%M', dtick=7200000)
     fig.update_yaxes(zeroline=True, zerolinecolor='#95a5a6', zerolinewidth=1)
@@ -1538,13 +1545,14 @@ def graficar_arbitraje(arbitraje_data, titulo):
     ))
     fig.add_hline(y=0, line=dict(color='#4a5568', width=1, dash='dash'))
     
+    title_cfg, _, margin_t = _titulo_y_leyenda_externos(titulo, show_legend=False)
     fig.update_layout(
-        title=dict(text=titulo, x=0.5, font=dict(size=16)),
+        title=title_cfg,
         xaxis_title='Periodo',
         yaxis_title='Arbitraje ($)',
         height=350,
         showlegend=False,
-        margin=dict(l=50, r=20, t=50, b=40)
+        margin=dict(l=50, r=20, t=margin_t, b=40),
     )
     
     return fig
@@ -1565,7 +1573,7 @@ def login():
     aplicar_estilos_login()
     st.markdown('<div class="login-page-marker"></div>', unsafe_allow_html=True)
 
-    _, col, _ = st.columns([5, 3, 5])
+    _, col, _ = st.columns([3, 4, 3])
     with col:
         logo_html = obtener_logo_html(288)
         logo_block = (
@@ -2036,7 +2044,7 @@ def sidebar_admin():
             render_editor_tarifas_sidebar()
         
         st.divider()
-        st.caption("Sistema BESS v5.0")
+        st.caption("Sistema BESS v5.2")
 
 def _inyectar_script_sidebar(expandida):
     """Ajusta la sidebar tras el login (Streamlit fija el estado inicial solo al cargar la app)."""
@@ -2077,7 +2085,7 @@ def sidebar_user():
     with st.sidebar:
         sidebar_branding(es_admin=False)
         st.info("Modo visualización")
-        st.caption("Sistema BESS v5.0")
+        st.caption("Sistema BESS v5.2")
 
 # ========== FUNCIONES DE TABS ==========
 def tab_dashboard(df, prefijo, medidor):
@@ -2133,9 +2141,10 @@ def tab_dashboard(df, prefijo, medidor):
             </div>
             """, unsafe_allow_html=True)
 
-    section_header("Perfil de carga")
-    fig_perfil = graficar_perfil(df_filtrado, prefijo, "")
-    st.plotly_chart(fig_perfil, use_container_width=True, config={'displayModeBar': False})
+    with st.container(border=True):
+        section_header("Perfil de carga")
+        fig_perfil = graficar_perfil(df_filtrado, prefijo, "")
+        st.plotly_chart(fig_perfil, use_container_width=True, config={'displayModeBar': False})
 
     with st.container(border=True):
         section_header(detalle["titulo_tabla"])
@@ -2219,8 +2228,9 @@ def tab_analisis(df, prefijo):
         if df_dem_valid.empty:
             st.warning(f"No hay lecturas de demanda (15 min) para el {fecha_str}")
         else:
-            fig = graficar_demanda_dia(df_dia, prefijo, f"Demanda · {fecha_str}")
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            with st.container(border=True):
+                fig = graficar_demanda_dia(df_dia, prefijo, f"Demanda · {fecha_str}")
+                st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
         section_header(
             f"Demanda máxima del mes · {mes_label}",
@@ -2265,7 +2275,7 @@ def tab_analisis(df, prefijo):
             )
             df_costo_energia = construir_tabla_costo_energia(res_energia_con, res_energia_sin)
             st.dataframe(df_costo_energia, use_container_width=True, hide_index=True)
-            with st.expander("Gráfica comparativa de costos"):
+            with st.container(border=True):
                 fig_energia = graficar_costo_energia_periodo(res_energia_con, res_energia_sin)
                 st.plotly_chart(fig_energia, use_container_width=True, config={'displayModeBar': False})
 
@@ -2324,8 +2334,9 @@ def tab_analisis(df, prefijo):
             df_cfe = construir_tabla_criterio_cfe(res_cfe_con, res_cfe_sin)
             if df_cfe is not None:
                 st.dataframe(df_cfe, use_container_width=True, hide_index=True)
-            fig_cfe = graficar_criterio_cfe(res_cfe_con, res_cfe_sin)
-            st.plotly_chart(fig_cfe, use_container_width=True, config={'displayModeBar': False})
+            with st.container(border=True):
+                fig_cfe = graficar_criterio_cfe(res_cfe_con, res_cfe_sin)
+                st.plotly_chart(fig_cfe, use_container_width=True, config={'displayModeBar': False})
 
 def _mtime_fuente_reporte(prefijo):
     ruta = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo}.csv')
@@ -2479,13 +2490,14 @@ def tab_reporte(df, prefijo):
             </div>
             """, unsafe_allow_html=True)
 
-    section_header(
-        'Vista previa del PDF',
-        'Gráfica y tabla con el mismo contenido que se exportará al reporte.',
-        compact=True,
-    )
-    fig_perfil = graficar_perfil(df_dia, prefijo, f'Perfil de carga · {fecha_str}')
-    st.plotly_chart(fig_perfil, use_container_width=True, config={'displayModeBar': False})
+    with st.container(border=True):
+        section_header(
+            'Vista previa del PDF',
+            'Gráfica y tabla con el mismo contenido que se exportará al reporte.',
+            compact=True,
+        )
+        fig_perfil = graficar_perfil(df_dia, prefijo, f'Perfil de carga · {fecha_str}')
+        st.plotly_chart(fig_perfil, use_container_width=True, config={'displayModeBar': False})
 
     with st.container(border=True):
         section_header(
@@ -2566,7 +2578,10 @@ def _hex_a_rgba(hex_color, alpha=1.0):
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return f'rgba({r},{g},{b},{alpha})'
 
-def _aplicar_estilo_grafica_tendencia(fig, titulo, yaxis_title='', height=520, y_tickformat=None, y_tickprefix='', yaxis_range=None):
+def _aplicar_estilo_grafica_tendencia(
+    fig, titulo, yaxis_title='', height=520, y_tickformat=None, y_tickprefix='',
+    yaxis_range=None, show_legend=True,
+):
     """Estilo unificado para gráficas de la pestaña Tendencia."""
     yaxis_cfg = dict(
         title=yaxis_title,
@@ -2585,35 +2600,13 @@ def _aplicar_estilo_grafica_tendencia(fig, titulo, yaxis_title='', height=520, y
     if yaxis_range is not None:
         yaxis_cfg['range'] = yaxis_range
 
-    fig.update_layout(
-        title=dict(
-            text=titulo,
-            x=0.5,
-            xref='paper',
-            xanchor='center',
-            y=1.0,
-            yref='paper',
-            yanchor='top',
-            font=dict(size=16, color='#1a202c'),
-            pad=dict(t=8, b=2),
-        ),
+    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(titulo, show_legend=show_legend)
+    layout = dict(
+        title=title_cfg,
         height=height,
-        margin=dict(l=52, r=28, t=92, b=48),
+        margin=dict(l=52, r=28, t=margin_t, b=48),
         hovermode='x unified',
         font=dict(family='Segoe UI, Arial, sans-serif', color='#2d3748', size=12),
-        legend=dict(
-            orientation='h',
-            yanchor='top',
-            y=0.86,
-            yref='paper',
-            x=0.5,
-            xref='paper',
-            xanchor='center',
-            font=dict(size=11, color='#4a5568'),
-            bgcolor='rgba(255,255,255,0.85)',
-            bordercolor='#e2e8f0',
-            borderwidth=1,
-        ),
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
         xaxis=dict(
@@ -2628,6 +2621,9 @@ def _aplicar_estilo_grafica_tendencia(fig, titulo, yaxis_title='', height=520, y
         ),
         yaxis=yaxis_cfg,
     )
+    if show_legend and legend_cfg is not None:
+        layout['legend'] = legend_cfg
+    fig.update_layout(**layout)
     return fig
 
 def graficar_tendencia_consumo_periodo(df, rango_label):
@@ -2737,21 +2733,100 @@ def graficar_tendencia_bess_operacion(df_bess, rango_label):
         fig, f'Carga y descarga BESS · {rango_label}', 'kWh', yaxis_range=[0, 30_000],
     )
 
+LEYENDA_DIA_ARBITRAJE = (
+    ('día laboral', 'Lun–vie', COLORES['success']),
+    ('sábado', 'Sábado', COLORES['secondary']),
+    ('domingo_festivo', 'Domingo / Festivo', COLORES['danger']),
+)
+
+def _tipo_dia_arbitraje(fecha_dt):
+    """Clasifica el día para colorear barras de arbitraje."""
+    from bess_core import es_festivo
+    fecha = fecha_dt.date() if hasattr(fecha_dt, 'date') else fecha_dt
+    if es_festivo(fecha) or fecha.weekday() == 6:
+        return 'domingo_festivo'
+    if fecha.weekday() == 5:
+        return 'sábado'
+    return 'día laboral'
+
+def _ancho_barras_arbitraje(df):
+    """Ancho de barra (ms) y bargap según cantidad de días; evita solapamiento entre días adyacentes."""
+    n = max(len(df), 1)
+    ms_dia = 86_400_000
+    fechas = df['FECHA_DT'].sort_values().reset_index(drop=True)
+    if n == 1:
+        return ms_dia * 0.55, 0.82
+
+    diffs_ms = fechas.diff().dropna().dt.total_seconds() * 1000
+    min_paso_ms = float(diffs_ms.min()) if not diffs_ms.empty else ms_dia
+    if min_paso_ms <= 0:
+        min_paso_ms = ms_dia
+
+    ocupacion = min(0.72, 0.38 + 6.0 / n)
+    ancho_ms = min(ms_dia * 0.72, min_paso_ms * ocupacion)
+    bargap = max(0.04, min(0.45, 0.50 - n * 0.01))
+    return ancho_ms, bargap
+
+def _rango_eje_y_arbitraje(serie, margen=0.15):
+    """Eje Y con ±margen respecto al valor extremo del rango."""
+    vals = pd.to_numeric(serie, errors='coerce').dropna()
+    if vals.empty:
+        return None
+    y_min, y_max = float(vals.min()), float(vals.max())
+    pico = max(abs(y_min), abs(y_max))
+    if pico == 0:
+        return [-1, 1]
+    pad = pico * margen
+    return [y_min - pad, y_max + pad]
+
+def _mapas_leyenda_arbitraje():
+    color_map = {k: c for k, _, c in LEYENDA_DIA_ARBITRAJE}
+    label_map = {k: lbl for k, lbl, _ in LEYENDA_DIA_ARBITRAJE}
+    return color_map, label_map
+
 def graficar_tendencia_arbitraje(df, rango_label):
-    colores = [COLORES['success'] if v >= 0 else COLORES['danger'] for v in df['ARBITRAJE_MXN']]
+    df = df.copy()
+    df['FECHA_DT'] = pd.to_datetime(df['FECHA_DT']).dt.normalize()
+    df = df.sort_values('FECHA_DT').reset_index(drop=True)
+    df['TIPO_DIA'] = [_tipo_dia_arbitraje(f) for f in df['FECHA_DT']]
+    color_map, label_map = _mapas_leyenda_arbitraje()
+    colores = [color_map[t] for t in df['TIPO_DIA']]
+    etiquetas = [label_map[t] for t in df['TIPO_DIA']]
+    ancho_ms, bargap = _ancho_barras_arbitraje(df)
+    yaxis_range = _rango_eje_y_arbitraje(df['ARBITRAJE_MXN'])
     fig = go.Figure()
     fig.add_trace(go.Bar(
-        x=df['FECHA_DT'], y=df['ARBITRAJE_MXN'], name='Arbitraje',
+        x=df['FECHA_DT'],
+        y=df['ARBITRAJE_MXN'],
+        width=ancho_ms,
         marker=dict(
             color=colores,
             line=dict(width=0.5, color='rgba(255,255,255,0.6)'),
             cornerradius=4,
         ),
-        hovertemplate='<b>Arbitraje</b><br>%{x|%d/%m/%Y}<br>$%{y:,.2f}<extra></extra>',
+        customdata=etiquetas,
+        hovertemplate=(
+            '<b>Arbitraje</b><br>%{x|%d/%m/%Y}<br>'
+            '%{customdata}<br>$%{y:,.2f}<extra></extra>'
+        ),
+        showlegend=False,
     ))
-    fig.update_layout(bargap=0.25)
+    for _, leyenda_nombre, color in LEYENDA_DIA_ARBITRAJE:
+        fig.add_trace(go.Bar(
+            x=[None],
+            y=[None],
+            name=leyenda_nombre,
+            marker=dict(color=color),
+            showlegend=True,
+        ))
+    fig.update_layout(bargap=bargap, showlegend=True)
     return _aplicar_estilo_grafica_tendencia(
-        fig, f'Arbitraje diario · {rango_label}', 'MXN', y_tickformat='$,.0f',
+        fig,
+        f'Arbitraje diario · {rango_label}',
+        'MXN',
+        y_tickformat='$,.0f',
+        height=624,
+        yaxis_range=yaxis_range,
     )
 
 def tab_tendencia(df, prefijo):
@@ -2826,25 +2901,30 @@ def tab_tendencia(df, prefijo):
     tab_con, tab_cmp, tab_ops = st.tabs(['Consumo por periodo', 'Consumo con BESS', 'Operación BESS'])
 
     with tab_con:
-        section_header(
-            'Consumo diario por periodo tarifario',
-            'Barras apiladas Base, Intermedio y Punta.',
-        )
-        st.plotly_chart(
-            graficar_tendencia_consumo_periodo(df_med, rango_label),
-            use_container_width=True, config={'displayModeBar': False},
-        )
-
-    with tab_cmp:
-        section_header(
-            'Comparativa con y sin BESS',
-            'Líneas: consumo diario. Barras (eje derecho): diferencia en kWh.',
-        )
-        if estado_bess['energia'] and 'TOTAL_SIN' in df_med.columns:
+        with st.container(border=True):
+            section_header(
+                'Consumo diario por periodo tarifario',
+                'Barras apiladas Base, Intermedio y Punta.',
+            )
             st.plotly_chart(
-                graficar_tendencia_con_sin_bess(df_med, rango_label),
+                graficar_tendencia_consumo_periodo(df_med, rango_label),
                 use_container_width=True, config={'displayModeBar': False},
             )
+
+    with tab_cmp:
+        with st.container(border=True):
+            section_header(
+                'Comparativa con y sin BESS',
+                'Líneas: consumo diario. Barras (eje derecho): diferencia en kWh.',
+            )
+            if estado_bess['energia'] and 'TOTAL_SIN' in df_med.columns:
+                st.plotly_chart(
+                    graficar_tendencia_con_sin_bess(df_med, rango_label),
+                    use_container_width=True, config={'displayModeBar': False},
+                )
+            else:
+                st.info('No hay columnas sin BESS en el archivo diario. Procesa los datos para habilitar esta vista.')
+        if estado_bess['energia'] and 'TOTAL_SIN' in df_med.columns:
             res_con = calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, True, tarifas)
             res_sin = calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, False, tarifas)
             if res_con and res_sin:
@@ -2874,25 +2954,25 @@ def tab_tendencia(df, prefijo):
                         <div class="sub">MXN</div>
                     </div>
                     """, unsafe_allow_html=True)
-        else:
-            st.info('No hay columnas sin BESS en el archivo diario. Procesa los datos para habilitar esta vista.')
 
     with tab_ops:
         section_header(
             'Operación del BESS',
-            'Barras diarias de carga y descarga, y arbitraje calculado con la misma regla del dashboard.',
+            'Barras diarias de carga y descarga. Arbitraje diario: verde = lun–vie, azul = sáb, rojo = dom/festivo.',
         )
         if df_bess is not None:
-            st.plotly_chart(
-                graficar_tendencia_bess_operacion(df_bess, rango_label),
-                use_container_width=True, config={'displayModeBar': False},
-            )
+            with st.container(border=True):
+                st.plotly_chart(
+                    graficar_tendencia_bess_operacion(df_bess, rango_label),
+                    use_container_width=True, config={'displayModeBar': False},
+                )
         else:
             st.warning('No hay datos en ENERGIA_BESS_POR_DIA.csv para este rango.')
-        st.plotly_chart(
-            graficar_tendencia_arbitraje(df_arb, rango_label),
-            use_container_width=True, config={'displayModeBar': False},
-        )
+        with st.container(border=True):
+            st.plotly_chart(
+                graficar_tendencia_arbitraje(df_arb, rango_label),
+                use_container_width=True, config={'displayModeBar': False},
+            )
         ef = (descarga_tot / carga_tot * 100) if carga_tot > 0 else 0
         c1, c2, c3 = st.columns(3)
         with c1:
