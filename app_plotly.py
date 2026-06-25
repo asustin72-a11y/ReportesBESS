@@ -38,6 +38,8 @@ DIRECTORIO_PROCESADOS = os.path.join(DIRECTORIO_BASE, 'ArchivosProcesados')
 DIRECTORIO_REPORTES = os.path.join(DIRECTORIO_BASE, 'ArchivosReporte')
 DIRECTORIO_REPORTES_DIARIOS = os.path.join(DIRECTORIO_BASE, 'ReportesDiarios')
 DIRECTORIO_TARIFAS = os.path.join(DIRECTORIO_BASE, 'Tarifas')
+ARCHIVO_TARIFAS = 'Tarifas_2026.csv'
+TIPOS_TARIFA = ['Base', 'Intermedio', 'Punta', 'Capacidad']
 
 for dir_path in [DIRECTORIO_BASE, DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS,
                  DIRECTORIO_REPORTES, DIRECTORIO_REPORTES_DIARIOS, DIRECTORIO_TARIFAS]:
@@ -1605,26 +1607,142 @@ def logout():
 
 # ========== FUNCIONES DE PROCESAMIENTO ==========
 def _tarifas_vacias():
-    return {t: {i: 0 for i in range(1, 13)} for t in ['Base', 'Intermedio', 'Punta', 'Capacidad']}
+    return {t: {i: 0 for i in range(1, 13)} for t in TIPOS_TARIFA}
+
+def ruta_archivo_tarifas():
+    return os.path.join(DIRECTORIO_TARIFAS, ARCHIVO_TARIFAS)
+
+def _df_tarifas_plantilla():
+    filas = []
+    for tipo in TIPOS_TARIFA:
+        fila = {'Tarifa': tipo}
+        for mes in range(1, 13):
+            fila[str(mes)] = 0.0
+        filas.append(fila)
+    return pd.DataFrame(filas)
+
+def leer_df_tarifas():
+    """Lee Tarifas_2026.csv como DataFrame editable (4 filas × 12 meses)."""
+    ruta = ruta_archivo_tarifas()
+    if not os.path.exists(ruta):
+        return _df_tarifas_plantilla()
+    try:
+        df = pd.read_csv(ruta, encoding='utf-8-sig')
+        df.columns = [str(c).strip() for c in df.columns]
+        if 'Tarifa' not in df.columns:
+            return _df_tarifas_plantilla()
+        df['Tarifa'] = df['Tarifa'].astype(str).str.strip()
+        tipos_map = {t.lower(): t for t in TIPOS_TARIFA}
+        df['Tarifa'] = df['Tarifa'].str.lower().map(tipos_map).fillna(df['Tarifa'])
+        for mes in range(1, 13):
+            col = str(mes)
+            if col not in df.columns:
+                df[col] = 0.0
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
+        df = df[df['Tarifa'].isin(TIPOS_TARIFA)].copy()
+        presentes = set(df['Tarifa'])
+        for tipo in TIPOS_TARIFA:
+            if tipo not in presentes:
+                fila = {'Tarifa': tipo}
+                for mes in range(1, 13):
+                    fila[str(mes)] = 0.0
+                df = pd.concat([df, pd.DataFrame([fila])], ignore_index=True)
+        df = df.set_index('Tarifa').reindex(TIPOS_TARIFA).reset_index()
+        return df[['Tarifa'] + [str(m) for m in range(1, 13)]]
+    except Exception:
+        return _df_tarifas_plantilla()
+
+def validar_df_tarifas(df):
+    columnas_mes = [str(m) for m in range(1, 13)]
+    if df is None or df.empty:
+        return 'No hay datos de tarifas.'
+    if 'Tarifa' not in df.columns:
+        return 'Falta la columna Tarifa.'
+    faltantes = [c for c in columnas_mes if c not in df.columns]
+    if faltantes:
+        return f'Faltan columnas de mes: {", ".join(faltantes)}.'
+    tipos = [str(t).strip() for t in df['Tarifa'].tolist()]
+    if tipos != TIPOS_TARIFA:
+        return f'Se requieren exactamente las filas: {", ".join(TIPOS_TARIFA)}.'
+    for col in columnas_mes:
+        valores = pd.to_numeric(df[col], errors='coerce')
+        if valores.isna().any():
+            return f'Valores no numéricos en el mes {col}.'
+        if (valores < 0).any():
+            return f'Las tarifas del mes {col} no pueden ser negativas.'
+    return None
+
+def guardar_df_tarifas(df):
+    error = validar_df_tarifas(df)
+    if error:
+        return False, error
+    ruta = ruta_archivo_tarifas()
+    df_guardar = df.copy()
+    df_guardar['Tarifa'] = df_guardar['Tarifa'].astype(str).str.strip()
+    columnas = ['Tarifa'] + [str(m) for m in range(1, 13)]
+    for mes in range(1, 13):
+        col = str(mes)
+        df_guardar[col] = pd.to_numeric(df_guardar[col], errors='coerce').fillna(0.0).round(4)
+    df_guardar = df_guardar[columnas]
+    if os.path.exists(ruta):
+        marca = datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup = ruta.replace('.csv', f'_backup_{marca}.csv')
+        shutil.copy2(ruta, backup)
+    df_guardar.to_csv(ruta, index=False, encoding='utf-8-sig')
+    return True, ARCHIVO_TARIFAS
 
 def cargar_tarifas():
-    ruta = os.path.join(DIRECTORIO_TARIFAS, 'Tarifas_2026.csv')
-    if not os.path.exists(ruta):
-        return _tarifas_vacias()
     try:
-        df = pd.read_csv(ruta)
+        df = leer_df_tarifas()
         tarifas = _tarifas_vacias()
-        tipos = {'base': 'Base', 'intermedio': 'Intermedio', 'punta': 'Punta', 'capacidad': 'Capacidad'}
         for _, row in df.iterrows():
-            tipo_key = str(row['Tarifa']).strip().lower()
-            if tipo_key not in tipos:
+            tipo = str(row['Tarifa']).strip()
+            if tipo not in tarifas:
                 continue
-            tipo = tipos[tipo_key]
             for mes in range(1, 13):
                 tarifas[tipo][mes] = float(row.get(str(mes), 0) or 0)
         return tarifas
-    except:
+    except Exception:
         return _tarifas_vacias()
+
+def _column_config_tarifas():
+    config = {
+        'Tarifa': st.column_config.TextColumn('Tarifa', disabled=True, width='small'),
+    }
+    for mes in range(1, 13):
+        config[str(mes)] = st.column_config.NumberColumn(
+            f'M{mes}',
+            min_value=0.0,
+            format='%.4f',
+            width='small',
+        )
+    return config
+
+def render_editor_tarifas_sidebar():
+    st.caption(f'Archivo: `{ARCHIVO_TARIFAS}` · valores en MXN')
+    df_base = leer_df_tarifas()
+    df_editado = st.data_editor(
+        df_base,
+        column_config=_column_config_tarifas(),
+        hide_index=True,
+        num_rows='fixed',
+        use_container_width=True,
+        key='editor_tarifas_csv',
+    )
+    col_guardar, col_recargar = st.columns(2)
+    with col_guardar:
+        if st.button('Guardar tarifas', use_container_width=True, type='primary', key='btn_guardar_tarifas'):
+            ok, msg = guardar_df_tarifas(df_editado)
+            if ok:
+                st.success(f'Tarifas guardadas en {msg}')
+                st.session_state.pop('editor_tarifas_csv', None)
+                st.rerun()
+            else:
+                st.error(msg)
+    with col_recargar:
+        if st.button('Descartar cambios', use_container_width=True, key='btn_recargar_tarifas'):
+            st.session_state.pop('editor_tarifas_csv', None)
+            st.rerun()
 
 FACTOR_CFE_CAPACIDAD = 0.74
 
@@ -1905,15 +2023,17 @@ def sidebar_admin():
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-        with st.expander("Tarifas del mes", expanded=False):
+        with st.expander("Tarifas", expanded=False):
             tarifas = cargar_tarifas()
             mes = datetime.now().month
             nombres_mes = (
                 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
                 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
             )
-            st.caption(f"{nombres_mes[mes - 1]} {datetime.now().year}")
+            st.markdown(f"**Mes actual:** {nombres_mes[mes - 1]} {datetime.now().year}")
             st.markdown(html_tarifas_sidebar(tarifas, mes), unsafe_allow_html=True)
+            st.divider()
+            render_editor_tarifas_sidebar()
         
         st.divider()
         st.caption("Sistema BESS v5.0")
@@ -2517,18 +2637,26 @@ def graficar_tendencia_consumo_periodo(df, rango_label):
         ('INTERMEDIO_REC', 'Intermedio', COLORES['intermedio']),
         ('PUNTA_REC', 'Punta', COLORES['punta']),
     ]
-    for i, (col, lbl, color) in enumerate(cols):
+    for col, lbl, color in cols:
         y = pd.to_numeric(df[col], errors='coerce').fillna(0)
-        fig.add_trace(go.Scatter(
-            x=df['FECHA_DT'], y=y, name=lbl, stackgroup='one',
-            mode='lines',
-            line=dict(width=0.8, color=color),
-            fillcolor=_hex_a_rgba(color, 0.65),
-            fill='tozeroy' if i == 0 else 'tonexty',
+        fig.add_trace(go.Bar(
+            x=df['FECHA_DT'],
+            y=y,
+            name=lbl,
+            marker=dict(
+                color=color,
+                line=dict(width=0.5, color='white'),
+            ),
             hovertemplate=f'<b>{lbl}</b><br>%{{x|%d/%m/%Y}}<br>%{{y:,.0f}} kWh<extra></extra>',
         ))
+    fig.update_layout(barmode='stack', bargap=0.15)
+    total_diario = sum(
+        pd.to_numeric(df[c[0]], errors='coerce').fillna(0) for c in cols
+    )
+    y_max = float(total_diario.max()) if len(total_diario) else 0
+    yaxis_range = [0, y_max * 1.08] if y_max > 0 else None
     return _aplicar_estilo_grafica_tendencia(
-        fig, f'Consumo diario por periodo · {rango_label}', 'kWh', yaxis_range=[0, 300_000],
+        fig, f'Consumo diario por periodo · {rango_label}', 'kWh', yaxis_range=yaxis_range,
     )
 
 def graficar_tendencia_con_sin_bess(df, rango_label):
@@ -2700,7 +2828,7 @@ def tab_tendencia(df, prefijo):
     with tab_con:
         section_header(
             'Consumo diario por periodo tarifario',
-            'Áreas apiladas Base, Intermedio y Punta.',
+            'Barras apiladas Base, Intermedio y Punta.',
         )
         st.plotly_chart(
             graficar_tendencia_consumo_periodo(df_med, rango_label),

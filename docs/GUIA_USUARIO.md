@@ -1,6 +1,6 @@
 # Guía de usuario — Sistema BESS
 
-**Versión:** 5.1  
+**Versión:** 5.2  
 **Aplicación:** Monitoreo, análisis y reportes de sistemas de almacenamiento de energía (BESS) para medidores **ION** y **BANCO**.
 
 > **PDF con capturas:** `docs/GUIA_USUARIO.pdf`  
@@ -26,14 +26,9 @@ Al abrir la aplicación se muestra la pantalla de acceso centrada, con el **logo
 ![Pantalla de inicio de sesión](capturas/01-login.png)
 *Figura 1 — Pantalla de inicio de sesión*
 
-### 2.2 Roles
+### 2.2 Uso de la aplicación
 
-| Rol | Permisos |
-|-----|----------|
-| **Usuario (visualizador)** | Consulta todas las pestañas, gráficas, tablas y descarga reportes PDF. La barra lateral aparece colapsada por defecto. |
-| **Administrador** | Todo lo anterior, más carga de archivos fuente, procesamiento de datos, regeneración de reportes CSV y consulta de tarifas en el panel lateral. |
-
-Use **Cerrar sesión** (esquina superior derecha) al terminar.
+Tras autenticarse podrá consultar todas las pestañas, gráficas, tablas y descargar reportes PDF. Use **Cerrar sesión** (esquina superior derecha) al terminar. Las credenciales las proporciona el administrador del sistema.
 
 ---
 
@@ -44,7 +39,7 @@ Use **Cerrar sesión** (esquina superior derecha) al terminar.
 Tras iniciar sesión, la parte superior muestra:
 
 - **Logo IUSASOL** y título **BESS · Sistema de Energía**
-- **Rol y nombre** del usuario (Visualizador o Administrador)
+- **Nombre** del usuario
 - Botón **Cerrar sesión** (esquina superior derecha)
 - Selector **Medidor**: **ION** o **BANCO**
 
@@ -344,33 +339,15 @@ Un valor **positivo** indica ahorro; **negativo** indica que el costo con BESS f
 | `ACUMULADOS_{ION\|BANCO}.csv` | Acumulados mensuales: energía, demandas máximas. |
 | `Tarifas/Tarifas_2026.csv` | Tarifas mensuales Base, Intermedio, Punta y Capacidad. |
 
-El administrador regenera estos archivos desde el panel lateral (**Verificar → Filtrar → Generar reportes**).
-
 ---
 
-## 11. Panel del administrador (solo rol admin)
-
-![Panel administrador](capturas/08-admin-sidebar.png)
-*Figura 10 — Panel lateral del administrador*
-
-| Opción | Función |
-|--------|---------|
-| **Cargar archivos** | Sube CSV fuente (ION, BESS, Banco1) a la carpeta de archivos fuente. |
-| **Verificar** | Valida que los archivos fuente estén completos y sean consistentes. |
-| **Filtrar** | Procesa y filtra datos crudos. |
-| **Generar reportes** | Genera/actualiza CSV de reporte para ION y BANCO. |
-| **Procesar todo** | Ejecuta verificación, filtrado y generación en secuencia. |
-| **Tarifas del mes** | Muestra tarifas vigentes del mes actual. |
-
----
-
-## 12. Interpretación rápida — preguntas frecuentes
+## 11. Interpretación rápida — preguntas frecuentes
 
 **¿Por qué el consumo «mensual» en un reporte de un solo día?**  
 En vista de un día, la fila de consumo refleja lo acumulado del **mes natural** hasta esa fecha, no solo las horas de ese día.
 
 **¿Por qué no veo comparación sin BESS?**  
-Los CSV deben incluir columnas `*_SIN_BESS`. El administrador debe reprocesar los datos.
+Los CSV deben incluir columnas `*_SIN_BESS`. Contacte al administrador del sistema.
 
 **¿La eficiencia puede superar 100 %?**  
 En condiciones reales no debería; valores altos o > 100 % sugieren revisar datos o periodos con poca carga.
@@ -380,9 +357,9 @@ Para **un solo día** seleccionado en Operación BESS, coinciden con el reporte 
 
 ---
 
-## 13. Soporte
+## 12. Soporte
 
-Para problemas de acceso, datos faltantes o discrepancias en cifras, contacte al **administrador del sistema**, quien puede volver a procesar archivos fuente y validar tarifas del mes.
+Para problemas de acceso, datos faltantes o discrepancias en cifras, contacte al **administrador del sistema**.
 
 ---
 
