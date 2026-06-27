@@ -2,7 +2,7 @@
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
 
-**Versión actual:** 5.3 — recibo simulado CFE, descarga PDF (Playwright) y cargo FP con redondeo a 3 decimales.
+**Versión actual:** 5.4 — UI modular, sync ION (Modbus) + BESS/BANCO (API), descarga PNG de gráficas y recibo CFE con tarifas MEM completas.
 
 ## Ejecución local
 
@@ -28,6 +28,18 @@ streamlit run streamlit_app.py
 | user    | user123    | User  |
 
 Cambia estas contraseñas antes de compartir la app en producción.
+
+### Descarga de perfil ION (ejecutable)
+
+Herramienta standalone para descargar el perfil de carga de un medidor ION por Modbus (sin Python en el equipo destino):
+
+- **Ejecutable:** `dist/descargar_ion.exe` (generar con `scripts/build_descargar_ion.ps1`)
+- **Documentación:** [docs/DESCARGAR_ION.md](docs/DESCARGAR_ION.md) · PDF: [docs/DESCARGAR_ION.pdf](docs/DESCARGAR_ION.pdf)
+
+```powershell
+cd C:\MisDescargas
+C:\BESS\dist\descargar_ion.exe 172.16.111.209 2026-05-01
+```
 
 ### Datos
 

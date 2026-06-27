@@ -2991,7 +2991,50 @@ def sidebar_admin():
                         st.write(f"📄 {a}")
                 else:
                     st.info("No hay archivos fuente")
-        
+
+        with st.expander("Sincronizar perfiles", expanded=False):
+            if st.button("Sincronizar ahora", use_container_width=True, key="sync_perfiles"):
+                with st.spinner("Sincronizando..."):
+                    try:
+                        from bess.data.sync_resumen import html_resumen_sidebar
+
+                        root = os.path.dirname(os.path.abspath(__file__))
+                        script = os.path.join(root, "scripts", "sincronizar_perfiles.py")
+                        proc = subprocess.run(
+                            [sys.executable, script, "--quiet"],
+                            cwd=root,
+                            capture_output=True,
+                            text=True,
+                            encoding='utf-8',
+                            errors='replace',
+                            timeout=600,
+                        )
+                        salida = (proc.stdout or "").strip()
+                        ion_off = "Medidor ION no disponible." in salida or "ION: no disponible" in salida
+                        if proc.returncode == 0:
+                            if ion_off:
+                                st.warning("Medidor ION no disponible. BESS/BANCO y export OK.")
+                            else:
+                                st.success("Sync completada. Siguiente: **Procesar todo**.")
+                            st.session_state["verificado"] = False
+                            lineas = [ln.strip() for ln in salida.splitlines() if ln.strip()]
+                            if lineas:
+                                st.markdown(html_resumen_sidebar(lineas), unsafe_allow_html=True)
+                        else:
+                            st.error("La sincronizacion fallo.")
+                            if salida:
+                                st.markdown(
+                                    html_resumen_sidebar(salida.splitlines()[:6]),
+                                    unsafe_allow_html=True,
+                                )
+                            err = (proc.stderr or "").strip()
+                            if err:
+                                st.caption(err[:500])
+                    except subprocess.TimeoutExpired:
+                        st.error("Tiempo agotado (>10 min). Ejecute el script en consola.")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
         with st.expander("Procesar datos", expanded=False):
             col1, col2 = st.columns(2)
             
@@ -3073,7 +3116,7 @@ def sidebar_admin():
             render_editor_tarifas_sidebar()
         
         st.divider()
-        st.caption("Sistema BESS v5.3.2")
+        st.caption("Sistema BESS v5.4.0")
 
 def _inyectar_script_sidebar(expandida):
     """Ajusta la sidebar tras el login (Streamlit fija el estado inicial solo al cargar la app)."""
@@ -3114,7 +3157,7 @@ def sidebar_user():
     with st.sidebar:
         sidebar_branding(es_admin=False)
         st.info("Modo visualización")
-        st.caption("Sistema BESS v5.3.2")
+        st.caption("Sistema BESS v5.4.0")
 
 # ========== FUNCIONES DE TABS ==========
 def tab_dashboard(df, prefijo, medidor):

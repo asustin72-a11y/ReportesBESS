@@ -16,6 +16,8 @@ def _configurar_salida_consola():
 
 _configurar_salida_consola()
 
-from app_plotly import main
+# UI modular (bess/ui): gráficas con descarga PNG, sync, recibo, etc.
+# app_plotly.py queda como respaldo legacy; no usar como entry point.
+from bess.ui.app import main
 
 main()

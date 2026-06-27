@@ -1,0 +1,480 @@
+"""Estilos CSS globales de la app Streamlit."""
+
+import streamlit as st
+
+
+def aplicar_estilos():
+    st.markdown("""
+    <style>
+        [data-testid="stAppViewContainer"]:not(:has(.login-page-marker)) > .main .block-container,
+        [data-testid="stAppViewContainer"]:not(:has(.login-page-marker)) [data-testid="stMainBlockContainer"],
+        [data-testid="stAppViewContainer"]:not(:has(.login-page-marker)) section[data-testid="stMain"] > div {
+            max-width: unset !important;
+            width: 100% !important;
+        }
+        [data-testid="stAppViewContainer"]:not(:has(.login-page-marker)) > .main {
+            flex: 1 1 0% !important;
+        }
+        .main-container { padding: 0 10px; }
+        .section-container {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            border: 1px solid #f0f0f0;
+        }
+        .section-title {
+            font-size: 17px;
+            font-weight: 600;
+            color: #1a5276;
+            margin: 0 0 6px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e8ecef;
+        }
+        .section-title-sm {
+            font-size: 14px;
+            font-weight: 600;
+            color: #1a5276;
+            margin: 0 0 8px 0;
+            padding-bottom: 6px;
+            border-bottom: 1px solid #e8ecef;
+        }
+        .section-desc {
+            font-size: 12px;
+            color: #718096;
+            margin: 0 0 14px 0;
+            line-height: 1.45;
+        }
+        .tabla-bloque {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 4px;
+            margin: 10px 0 16px 0;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stDataFrame"] {
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            overflow: hidden;
+            background: #f8fafc;
+            margin: 8px 0 14px 0;
+        }
+        .app-header {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            background: transparent;
+            border-radius: 0;
+            padding: 0;
+            border: none;
+            margin-bottom: 0;
+        }
+        .contexto-medidor {
+            font-size: 13px;
+            color: #4a5568;
+            margin: 0 0 10px 0;
+        }
+        .panel-controles {
+            background: #f8fafc;
+            border-radius: 10px;
+            padding: 14px 16px;
+            border: 1px solid #e8ecef;
+            margin-bottom: 16px;
+        }
+        .app-header-title {
+            margin: 0;
+            font-size: 1.55rem;
+            color: #1a5276;
+            font-weight: 700;
+        }
+        .app-header-sub {
+            margin: 4px 0 0;
+            color: #718096;
+            font-size: 0.88rem;
+        }
+        .app-header-badge {
+            color: #1a5276;
+            font-weight: 600;
+        }
+        
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.stDateInput) {
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 12px 16px;
+            border-color: #e8ecef !important;
+            margin-bottom: 28px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) {
+            padding: 8px 12px !important;
+            margin-bottom: 12px !important;
+            border-radius: 10px !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .section-title-sm {
+            margin: 0 0 2px 0;
+            padding-bottom: 4px;
+            font-size: 13px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .section-desc {
+            margin: 0 0 6px 0;
+            font-size: 11px;
+            line-height: 1.35;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .stDateInput label {
+            font-size: 12px !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .stDateInput > div {
+            min-height: 0 !important;
+            padding: 0 8px !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .metric-compact {
+            padding: 6px 6px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .metric-compact .label {
+            font-size: 10px;
+            margin-bottom: 2px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) .metric-compact .value {
+            font-size: 13px;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.panel-fecha-unica-anchor) [data-testid="column"] {
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:not(:has(.stDateInput)):not(:has(form)) {
+            background: #ffffff;
+            border-radius: 12px;
+            padding: 18px 20px;
+            border-color: #e2e8f0 !important;
+            border-width: 1px !important;
+            margin-bottom: 18px;
+            box-shadow: 0 1px 6px rgba(26, 82, 118, 0.05);
+        }
+        div[data-testid="stTabs"] {
+            margin-top: 4px;
+        }
+        div[data-testid="stTabs"] button {
+            font-size: 16px !important;
+        }
+        div[data-testid="stTabs"] button p {
+            font-size: 16px !important;
+        }
+        div[data-testid="stTabs"] div[data-testid="stVerticalBlockBorderWrapper"] {
+            box-shadow: none;
+            border: none;
+            padding: 0;
+            margin-bottom: 12px;
+            background: transparent;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.stDateInput) .stDateInput > div {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #d5d8dc;
+            padding: 2px 10px;
+        }
+        .fecha-resumen {
+            background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f7 100%);
+            border-radius: 8px;
+            padding: 10px 16px;
+            border-left: 4px solid #1a5276;
+            font-size: 13px;
+            margin: 8px 0 12px 0;
+        }
+        
+        .metric-card {
+            background: white;
+            border-radius: 10px;
+            padding: 16px;
+            text-align: center;
+            border: 1px solid #e8ecef;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+        }
+        .metric-card .icon { display: none; }
+        .metric-card .label { font-size: 13px; color: #718096; font-weight: 500; }
+        .metric-card .value { font-size: 24px; font-weight: 700; color: #1a202c; }
+        .metric-card .sub { font-size: 12px; color: #a0aec0; }
+
+        .metric-compact {
+            background: #fafbfc;
+            border-radius: 8px;
+            padding: 10px 8px;
+            text-align: center;
+            border: 1px solid #e8ecef;
+        }
+        .metric-compact .label {
+            font-size: 11px;
+            color: #718096;
+            font-weight: 500;
+            line-height: 1.3;
+            margin-bottom: 4px;
+        }
+        .metric-compact .value {
+            font-size: 15px;
+            font-weight: 600;
+            color: #1a202c;
+            line-height: 1.25;
+        }
+
+        .sidebar-tarifas-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .sidebar-tarifa-item {
+            background: #f8fafc;
+            border-radius: 6px;
+            padding: 6px 10px;
+            border: 1px solid #e8ecef;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+        .sidebar-tarifa-item .label {
+            font-size: 12px;
+            color: #718096;
+            font-weight: 500;
+            line-height: 1.2;
+            flex-shrink: 0;
+        }
+        .sidebar-tarifa-item .value {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1a202c;
+            line-height: 1.25;
+            text-align: right;
+        }
+
+        .sync-resumen {
+            font-size: 0.78rem;
+            line-height: 1.55;
+            color: rgba(255, 255, 255, 0.88);
+            background: rgba(0, 0, 0, 0.18);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            padding: 8px 10px;
+            margin-top: 8px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        }
+        .sync-resumen div {
+            margin: 1px 0;
+        }
+        
+        .arbitraje-card {
+            border-radius: 10px;
+            padding: 14px;
+            text-align: center;
+            border-left: 4px solid #27ae60;
+            background: #f0fff4;
+        }
+        .arbitraje-card.negativo {
+            border-left-color: #e74c3c;
+            background: #fff5f5;
+        }
+        .arbitraje-card .periodo { font-size: 13px; font-weight: 600; color: #4a5568; }
+        .arbitraje-card .valor { font-size: 20px; font-weight: 700; }
+        .arbitraje-card .valor.positivo { color: #27ae60; }
+        .arbitraje-card .valor.negativo { color: #e74c3c; }
+
+        .capacidad-comparacion {
+            display: flex;
+            align-items: stretch;
+            gap: 12px;
+            margin: 8px 0 12px 0;
+        }
+        @media (max-width: 960px) {
+            .capacidad-comparacion {
+                flex-direction: column;
+            }
+            .cap-centro {
+                order: -1;
+            }
+        }
+        .cap-bloque {
+            flex: 1;
+            border-radius: 10px;
+            padding: 16px 14px;
+            text-align: center;
+            border: 1px solid #e8ecef;
+        }
+        .cap-bloque.cap-sin {
+            background: #fff5f5;
+            border-left: 4px solid #e74c3c;
+        }
+        .cap-bloque.cap-con {
+            background: #f0fff4;
+            border-left: 4px solid #27ae60;
+        }
+        .cap-etiqueta {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #718096;
+            margin-bottom: 6px;
+        }
+        .cap-demanda {
+            font-size: 13px;
+            color: #4a5568;
+            margin-bottom: 4px;
+        }
+        .cap-costo {
+            font-size: 22px;
+            font-weight: 700;
+            color: #1a202c;
+        }
+        .cap-centro {
+            flex: 1.1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 12px;
+            padding: 14px 10px;
+            background: linear-gradient(135deg, #e8f8ef 0%, #d4efdf 100%);
+            border: 2px solid #27ae60;
+            text-align: center;
+        }
+        .cap-centro.negativo {
+            background: linear-gradient(135deg, #fdecea 0%, #fadbd8 100%);
+            border-color: #e74c3c;
+        }
+        .cap-ahorro-valor {
+            font-size: 28px;
+            font-weight: 800;
+            color: #1e8449;
+            line-height: 1.1;
+        }
+        .cap-centro.negativo .cap-ahorro-valor { color: #c0392b; }
+        .cap-ahorro-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-top: 4px;
+        }
+        .cap-ahorro-sub {
+            font-size: 12px;
+            color: #718096;
+            margin-top: 6px;
+        }
+        .cap-tarifa {
+            font-size: 12px;
+            color: #718096;
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        
+        .stButton button {
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        .btn-primary button {
+            background: #1a5276;
+            color: white;
+        }
+        .btn-primary button:hover {
+            background: #154360;
+        }
+        .js-plotly-plot .modebar-group {
+            opacity: 1 !important;
+        }
+        .js-plotly-plot .modebar {
+            opacity: 1 !important;
+        }
+        .js-plotly-plot .modebar-btn {
+            opacity: 1 !important;
+        }
+        [data-testid="stDownloadButton"] button {
+            font-weight: 600;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+def aplicar_estilos_login():
+    st.markdown("""
+    <style>
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="stSidebar"] {
+            display: none;
+        }
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) > .main .block-container,
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="stMainBlockContainer"],
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) section[data-testid="stMain"] > div {
+            padding-top: 2.5rem;
+            max-width: 100% !important;
+            width: 100% !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+            padding-left: 1rem;
+            padding-right: 1rem;
+            box-sizing: border-box;
+        }
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="column"] {
+            min-width: 0 !important;
+        }
+        .login-page-marker {
+            display: none;
+        }
+        .login-brand {
+            text-align: center;
+            margin-bottom: 1.25rem;
+        }
+        .login-logo-wrap {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 14px;
+        }
+        .login-logo-wrap img {
+            display: block;
+            max-width: min(288px, 100%);
+            height: auto;
+        }
+        .login-title {
+            margin: 0 0 6px 0;
+            font-size: clamp(1.05rem, 2.2vw, 1.55rem);
+            color: #1a5276;
+            font-weight: 700;
+            white-space: nowrap;
+            line-height: 1.2;
+        }
+        .login-subtitle {
+            margin: 0;
+            color: #718096;
+            font-size: 0.88rem;
+            line-height: 1.45;
+        }
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 6px rgba(26, 82, 118, 0.05);
+            border: 1px solid #e2e8f0 !important;
+            border-top: 3px solid #1a5276 !important;
+            padding: 20px 18px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) .stTextInput > div > div {
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) label p {
+            white-space: normal;
+            word-break: normal;
+        }
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"] {
+            background: #1a5276;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            white-space: nowrap;
+            width: 100%;
+        }
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) button[kind="primaryFormSubmit"]:hover {
+            background: #154360;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+# ========== GRÁFICAS ==========
