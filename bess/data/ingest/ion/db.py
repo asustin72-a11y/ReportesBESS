@@ -12,7 +12,10 @@ from zoneinfo import ZoneInfo
 from bess.config.paths import RUTA_BD_PERFILES
 
 RUTA_BD_DEFAULT = RUTA_BD_PERFILES
-MEDIDOR_ION = 'ION'
+MEDIDOR_ION = "ION"
+MEDIDOR_ION_IUSA2 = "ION_IUSA2"
+MEDIDOR_BESS_IUSA2 = "BESS_IUSA2"
+MEDIDOR_GRANJA_IUSA2 = "GRANJA_IUSA2"
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS medidores (
@@ -64,11 +67,42 @@ CREATE INDEX IF NOT EXISTS idx_perfil_medidor_fecha
     ON perfil_carga (medidor_id, fecha);
 """
 
-MEDIDORES_INICIALES = (
-    ('ION', 'Medidor ION 8650 planta', 'ION8650', '172.16.111.209', 1, 5),
-    ('BESS', 'Medidor BESS', 'BESS', None, None, 5),
-    ('BANCO', 'Medidor BANCO', 'BANCO', None, None, 5),
+# id, nombre, tipo, ip, dr_modulo, intervalo_min, activo
+MEDIDORES_CATALOGO = (
+    ("ION", "Facturación · Subestación IUSA 1", "ION8650", "172.16.111.209", 1, 5, 1),
+    ("BESS", "BESS · Subestación IUSA 1", "BESS", None, None, 5, 1),
+    (
+        "ION_IUSA2",
+        "Facturación · Subestación IUSA 2",
+        "ION8650",
+        "172.16.205.203",
+        1,
+        5,
+        1,
+    ),
+    (
+        "BESS_IUSA2",
+        "BESS · Subestación IUSA 2 (CS3190)",
+        "BESS",
+        None,
+        None,
+        5,
+        1,
+    ),
+    (
+        "GRANJA_IUSA2",
+        "Granja · Subestación IUSA 2 (20 MEGA)",
+        "GRANJA",
+        None,
+        None,
+        5,
+        1,
+    ),
+    ("BANCO", "Banco 1 · Subestación IUSA 1", "BANCO", None, None, 5, 1),
 )
+
+# Compatibilidad con scripts que esperan tuplas de 6 campos.
+MEDIDORES_INICIALES = tuple(fila[:6] for fila in MEDIDORES_CATALOGO)
 
 
 @dataclass
@@ -85,17 +119,28 @@ def conectar_bd(ruta: Path = RUTA_BD_DEFAULT) -> sqlite3.Connection:
     return conn
 
 
+def _registrar_catalogo_medidores(conn: sqlite3.Connection) -> None:
+    conn.executemany(
+        """
+        INSERT INTO medidores
+            (id, nombre, tipo, ip, dr_modulo, intervalo_min, activo)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            nombre = excluded.nombre,
+            tipo = excluded.tipo,
+            ip = excluded.ip,
+            dr_modulo = excluded.dr_modulo,
+            intervalo_min = excluded.intervalo_min,
+            activo = excluded.activo
+        """,
+        MEDIDORES_CATALOGO,
+    )
+
+
 def init_db(ruta: Path = RUTA_BD_DEFAULT) -> Path:
     with conectar_bd(ruta) as conn:
         conn.executescript(SCHEMA_SQL)
-        conn.executemany(
-            """
-            INSERT OR IGNORE INTO medidores
-                (id, nombre, tipo, ip, dr_modulo, intervalo_min)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            MEDIDORES_INICIALES,
-        )
+        _registrar_catalogo_medidores(conn)
         conn.commit()
     return ruta
 
@@ -128,16 +173,104 @@ def _parse_fecha_bd(texto: str, zona: ZoneInfo | None) -> datetime:
     return dt
 
 
+_CAMPOS_ENERGIA = (
+    'kwh_rec',
+    'kwh_ent',
+    'kvarh_q1',
+    'kvarh_q2',
+    'kvarh_q3',
+    'kvarh_q4',
+)
+
+
+def _registro_sin_energia(registro: dict[str, Any]) -> bool:
+    return all(float(registro.get(campo) or 0) == 0 for campo in _CAMPOS_ENERGIA)
+
+
+def _fila_sin_energia(fila: sqlite3.Row) -> bool:
+    return all(float(fila[campo] or 0) == 0 for campo in _CAMPOS_ENERGIA)
+
+
+def _filtrar_sin_degradar_a_ceros(
+    conn: sqlite3.Connection,
+    medidor_id: str,
+    registros: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """No reemplazar lecturas con energía por un lote API/import todo en cero."""
+    if not registros:
+        return []
+    fechas = [r['fecha'] for r in registros]
+    existentes = {
+        row['fecha']: row
+        for row in conn.execute(
+            f"""
+            SELECT fecha, kwh_rec, kwh_ent, kvarh_q1, kvarh_q2, kvarh_q3, kvarh_q4
+            FROM perfil_carga
+            WHERE medidor_id = ? AND fecha IN ({','.join('?' * len(fechas))})
+            """,
+            [medidor_id, *fechas],
+        )
+    }
+    filtrados: list[dict[str, Any]] = []
+    for registro in registros:
+        previo = existentes.get(registro['fecha'])
+        if previo and not _fila_sin_energia(previo) and _registro_sin_energia(registro):
+            continue
+        filtrados.append(registro)
+    return filtrados
+
+
+def insertar_registros_si_ausentes(
+    conn: sqlite3.Connection,
+    medidor_id: str,
+    registros: list[dict[str, Any]],
+    fuente: str = 'iusasol',
+) -> int:
+    """Inserta filas nuevas sin actualizar timestamps ya presentes."""
+    if not registros:
+        return 0
+    insertados = 0
+    for registro in registros:
+        cursor = conn.execute(
+            """
+            INSERT OR IGNORE INTO perfil_carga (
+                medidor_id, fecha, kwh_rec, kwh_ent,
+                kvarh_q1, kvarh_q2, kvarh_q3, kvarh_q4, fuente
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                medidor_id,
+                registro['fecha'],
+                registro['kwh_rec'],
+                registro['kwh_ent'],
+                registro['kvarh_q1'],
+                registro['kvarh_q2'],
+                registro['kvarh_q3'],
+                registro['kvarh_q4'],
+                fuente,
+            ),
+        )
+        insertados += cursor.rowcount
+    return insertados
+
+
 def upsert_registros(
     conn: sqlite3.Connection,
     medidor_id: str,
     registros: list[dict[str, Any]],
     fuente: str = 'modbus',
     respetar_fuente: str | None = None,
+    *,
+    no_degradar_a_ceros: bool = False,
 ) -> ResultadoUpsert:
     resultado = ResultadoUpsert()
     if not registros:
         return resultado
+
+    if no_degradar_a_ceros:
+        registros = _filtrar_sin_degradar_a_ceros(conn, medidor_id, registros)
+        if not registros:
+            return resultado
 
     if respetar_fuente and fuente != respetar_fuente:
         fechas = [r['fecha'] for r in registros]

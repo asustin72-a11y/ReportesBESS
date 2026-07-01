@@ -9,9 +9,11 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from bess.config.constants import VERSION
+from bess.config.subestaciones import SUBESTACIONES, archivos_fuente_requeridos
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS, DIRECTORIO_REPORTES
 from bess.tariffs.loader import cargar_tarifas
 from bess.ui.components import html_tarifas_sidebar, obtener_logo_html
+from bess.ui.navigation import html_guia_usuario_sidebar
 
 def _inyectar_script_sidebar(expandida):
     """Ajusta la sidebar tras el login (Streamlit fija el estado inicial solo al cargar la app)."""
@@ -65,13 +67,30 @@ def sidebar_branding(es_admin):
     """, unsafe_allow_html=True)
 
 
+def html_flujo_trabajo_sidebar() -> str:
+    """Cuadro de pasos del pipeline (sync → reportes → reporteador)."""
+    return """
+        <div class="sidebar-flujo">
+            <p class="sidebar-flujo-titulo">Flujo de trabajo</p>
+            <div class="sidebar-paso"><span>1</span> Sincronizar perfiles (ION Modbus + BESS API)</div>
+            <div class="sidebar-paso"><span>2</span> Verificar y filtrar datos</div>
+            <div class="sidebar-paso"><span>3</span> Generar reportes CSV</div>
+            <div class="sidebar-paso"><span>4</span> Consultar en el reporteador</div>
+        </div>
+    """
+
+
 def sidebar_admin():
     with st.sidebar:
         sidebar_branding(es_admin=True)
 
-        with st.expander("Cargar archivos", expanded=False):
+        with st.expander("Ayuda", expanded=False):
+            st.markdown(html_flujo_trabajo_sidebar(), unsafe_allow_html=True)
+
+        with st.expander("📂 Cargar archivos", expanded=False):
+            lista_fuente = ", ".join(archivos_fuente_requeridos())
             archivos = st.file_uploader(
-                "Archivos CSV (ION, BESS, Banco1)",
+                f"Archivos CSV ({lista_fuente})",
                 type=['csv'],
                 accept_multiple_files=True,
                 key="upload",
@@ -97,7 +116,7 @@ def sidebar_admin():
                 else:
                     st.info("No hay archivos fuente")
 
-        with st.expander("Sincronizar perfiles", expanded=False):
+        with st.expander("🔄 Sincronizar perfiles", expanded=False):
             if st.button("Sincronizar ahora", use_container_width=True, key="sync_perfiles"):
                 with st.spinner("Sincronizando..."):
                     try:
@@ -122,7 +141,10 @@ def sidebar_admin():
                         ion_off = "Medidor ION no disponible." in salida or "ION: no disponible" in salida
                         if proc.returncode == 0:
                             if ion_off:
-                                st.warning("Medidor ION no disponible. BESS/BANCO y export OK.")
+                                st.warning(
+                                    "Medidor ION (IUSA 1) no disponible. "
+                                    "Sync API BESS y exportación completados."
+                                )
                             else:
                                 st.success("Sync completada. Siguiente: **Procesar todo**.")
                             st.session_state["verificado"] = False
@@ -144,7 +166,7 @@ def sidebar_admin():
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-        with st.expander("Procesar datos", expanded=False):
+        with st.expander("⚙️ Procesar datos", expanded=False):
             col1, col2 = st.columns(2)
 
             with col1:
@@ -176,7 +198,11 @@ def sidebar_admin():
                             st.error(f"❌ Error: {e}")
 
             if st.button("Generar reportes", use_container_width=True, type="primary"):
-                filtrados = ['BESS_Filtrado.csv', 'ION_Filtrado.csv', 'Banco1_Filtrado.csv']
+                filtrados = []
+                for sub in SUBESTACIONES:
+                    for med in sub.medidores_consumo:
+                        filtrados.append(med.consumo_filtrado)
+                    filtrados.append(sub.bess_filtrado)
                 faltan = [
                     f for f in filtrados
                     if not os.path.exists(os.path.join(DIRECTORIO_PROCESADOS, f))
@@ -189,29 +215,43 @@ def sidebar_admin():
                 else:
                     with st.spinner("Generando reportes..."):
                         try:
-                            from bess_core import reporte_bess
-                            exito, msg_ion, msg_banco = reporte_bess()
-                            if exito:
+                            from bess_core import ejecutar_reporte_bess
+                            exito, mensajes = ejecutar_reporte_bess()
+                            if "_error" in mensajes:
+                                st.error(f"❌ {mensajes['_error']}")
+                                if mensajes.get("_traceback"):
+                                    with st.expander("Detalle del error"):
+                                        st.code(mensajes["_traceback"])
+                            elif exito:
                                 st.success("✅ Reportes generados exitosamente")
-                                st.success(f"   ION: {msg_ion}")
-                                st.success(f"   BANCO1: {msg_banco}")
+                                for sub in SUBESTACIONES:
+                                    for med in sub.medidores_consumo:
+                                        msg = mensajes.get(med.prefijo, "")
+                                        if msg:
+                                            st.success(f"   {sub.nombre} · {med.etiqueta}: {msg}")
                                 st.session_state['reportes_generados'] = True
                             else:
                                 st.warning("⚠️ Procesamiento parcial")
-                                st.warning(f"   ION: {msg_ion}")
-                                st.warning(f"   BANCO1: {msg_banco}")
+                                for sub in SUBESTACIONES:
+                                    for med in sub.medidores_consumo:
+                                        msg = mensajes.get(med.prefijo, "")
+                                        if msg:
+                                            st.warning(f"   {sub.nombre} · {med.etiqueta}: {msg}")
                         except OSError as e:
                             st.error(
                                 f"❌ Error al escribir archivos de reporte: {e}. "
                                 "Cierre Excel u otros programas con CSV abiertos en ArchivosReporte."
                             )
                         except Exception as e:
+                            import traceback
                             st.error(f"❌ Error: {e}")
+                            with st.expander("Detalle del error"):
+                                st.code(traceback.format_exc())
 
             if st.button("Procesar todo", use_container_width=True):
                 with st.spinner("Verificando, filtrando y generando reportes..."):
                     try:
-                        from bess_core import verificar_datos_fuente, filtrar_datos, reporte_bess
+                        from bess_core import verificar_datos_fuente, filtrar_datos, ejecutar_reporte_bess
                         exito_v, msg_v = verificar_datos_fuente()
                         if not exito_v:
                             st.error(msg_v)
@@ -220,15 +260,36 @@ def sidebar_admin():
                             if not exito_f:
                                 st.error(msg_f)
                             else:
-                                exito_r, msg_ion, msg_banco = reporte_bess()
-                                if exito_r:
-                                    st.success("Proceso completo: ION y BANCO actualizados")
+                                exito_r, mensajes = ejecutar_reporte_bess()
+                                if "_error" in mensajes:
+                                    st.error(f"❌ {mensajes['_error']}")
+                                    if mensajes.get("_traceback"):
+                                        with st.expander("Detalle del error"):
+                                            st.code(mensajes["_traceback"])
+                                elif exito_r:
+                                    partes = []
+                                    for sub in SUBESTACIONES:
+                                        for med in sub.medidores_consumo:
+                                            msg = mensajes.get(med.prefijo, "")
+                                            if msg:
+                                                partes.append(f"{med.etiqueta}: {msg}")
+                                    st.success(
+                                        "Proceso completo — " + "; ".join(partes)
+                                        if partes
+                                        else "Proceso completo"
+                                    )
                                 else:
-                                    st.warning(f"Parcial — ION: {msg_ion} · BANCO: {msg_banco}")
+                                    partes = [
+                                        f"{med.etiqueta}: {mensajes.get(med.prefijo, '')}"
+                                        for sub in SUBESTACIONES
+                                        for med in sub.medidores_consumo
+                                        if mensajes.get(med.prefijo)
+                                    ]
+                                    st.warning("Parcial — " + " · ".join(partes))
                     except Exception as e:
                         st.error(f"Error: {e}")
 
-        with st.expander("Tarifas", expanded=False):
+        with st.expander("💲 Tarifas", expanded=False):
             tarifas = cargar_tarifas()
             mes = datetime.now().month
             nombres_mes = (
@@ -237,9 +298,6 @@ def sidebar_admin():
             )
             st.markdown(f"**Mes actual:** {nombres_mes[mes - 1]} {datetime.now().year}")
             st.markdown(html_tarifas_sidebar(tarifas, mes), unsafe_allow_html=True)
-            st.divider()
-            from bess.ui.pages import render_editor_tarifas_sidebar
-            render_editor_tarifas_sidebar()
 
         st.divider()
         _pie_sidebar()
@@ -252,5 +310,5 @@ def _ajustar_sidebar_por_rol(es_admin):
 def sidebar_user():
     with st.sidebar:
         sidebar_branding(es_admin=False)
-        st.info("Modo visualización")
+        st.markdown(html_guia_usuario_sidebar(), unsafe_allow_html=True)
         _pie_sidebar()

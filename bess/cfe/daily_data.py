@@ -6,7 +6,7 @@ import os
 
 import pandas as pd
 
-from bess.config.paths import DIRECTORIO_REPORTES
+from bess.config.paths import DIRECTORIO_REPORTES, ruta_energia_bess_por_dia
 from bess.core.numbers import a_num
 
 
@@ -25,12 +25,9 @@ def energia_diaria_tiene_sin_bess(prefijo: str) -> bool:
     return "BASE_REC_SIN_BESS" in pd.read_csv(ruta, nrows=0).columns
 
 
-def obtener_bess_energia_dia(fecha_str: str) -> dict[str, float]:
-    """Carga y descarga BESS del día desde ENERGIA_BESS_POR_DIA.csv."""
-    fila = fila_por_fecha_csv(
-        os.path.join(DIRECTORIO_REPORTES, "ENERGIA_BESS_POR_DIA.csv"),
-        fecha_str,
-    )
+def obtener_bess_energia_dia(fecha_str: str, prefijo: str = "ION") -> dict[str, float]:
+    """Carga y descarga BESS del día según subestación (prefijo de facturación)."""
+    fila = fila_por_fecha_csv(str(ruta_energia_bess_por_dia(prefijo)), fecha_str)
     if fila is None:
         return {
             "carga_base": 0.0,

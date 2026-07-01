@@ -2,11 +2,93 @@
 
 from __future__ import annotations
 
+import os
+
 import pandas as pd
 import plotly.graph_objects as go
 
+from bess.core.dates import serie_fecha_operativa
+
 from bess.charts.layout import _titulo_y_leyenda_externos
+from bess.config.paths import DIRECTORIO_REPORTES
+from bess.config.subestaciones import etiqueta_medidor_consumo, subestacion_por_prefijo
 from bess.config.theme import COLORES
+from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
+
+def _kwh_neto_perfil(df: pd.DataFrame, prefijo: str) -> pd.Series | None:
+    """kWh netos del ION para el perfil (KWH_NETO o REC−ENT con piso en 0)."""
+    if 'KWH_NETO' in df.columns:
+        return pd.to_numeric(df['KWH_NETO'], errors='coerce').fillna(0)
+    col_rec = f'KWH_REC_{prefijo}'
+    col_ent = f'KWH_ENT_{prefijo}'
+    if col_rec not in df.columns or col_ent not in df.columns:
+        return None
+    tmp = df.rename(columns={col_rec: 'KWH_REC', col_ent: 'KWH_ENT'})
+    return kwh_neto_consumo(tmp, prefijo)
+
+
+def _preparar_df_perfil(df: pd.DataFrame, prefijo: str) -> tuple[pd.DataFrame, bool]:
+    """Añade KW_REC_ION = KWH_NETO × 12 (potencia neta del medidor, solo IUSA 2)."""
+    df = df.copy()
+    if not usa_consumo_neto(prefijo):
+        return df, False
+    kwh_neto = _kwh_neto_perfil(df, prefijo)
+    if kwh_neto is None:
+        return df, False
+    df['KW_REC_ION'] = kwh_neto * 12
+    return df, True
+
+
+def _unir_granja_perfil(df: pd.DataFrame, prefijo: str) -> pd.DataFrame:
+    """Une generación granja (kWh) y calcula KW_GRANJA = KWH_REC × 12."""
+    sub = subestacion_por_prefijo(prefijo)
+    if not sub or not sub.granja_bd:
+        return df
+    ruta = os.path.join(DIRECTORIO_REPORTES, f"COMBINADO_POR_MINUTO_{sub.granja_bd}.csv")
+    if not os.path.exists(ruta):
+        return df
+    df_granja = pd.read_csv(ruta, encoding="utf-8-sig")
+    if "FECHA_HORA" not in df_granja.columns or "KWH_REC" not in df_granja.columns:
+        return df
+    df_granja = df_granja[["FECHA_HORA", "KWH_REC"]].rename(columns={"KWH_REC": "KWH_GRANJA"})
+    out = df.merge(df_granja, on="FECHA_HORA", how="left")
+    out["KWH_GRANJA"] = pd.to_numeric(out["KWH_GRANJA"], errors="coerce").fillna(0)
+    out["KW_GRANJA"] = out["KWH_GRANJA"] * 12
+    return out
+
+
+def _max_columna(df_plot: pd.DataFrame, columna: str) -> float:
+    if columna not in df_plot.columns:
+        return 0.0
+    return float(pd.to_numeric(df_plot[columna], errors='coerce').fillna(0).max())
+
+
+def _rango_y_perfil(
+    df_plot: pd.DataFrame,
+    col_con: str,
+    perfil_rec_ent: bool,
+) -> list[float] | None:
+    """Reserva espacio bajo el eje cero para que la descarga BESS sea visible."""
+    pos_cols: list[str] = ['BESS_REC_kW']
+    if 'KW_GRANJA' in df_plot.columns:
+        pos_cols = ['KW_GRANJA', *pos_cols]
+    if perfil_rec_ent:
+        pos_cols = ['KW_REC_ION', *pos_cols]
+    elif col_con in df_plot.columns:
+        pos_cols = [col_con, *pos_cols]
+
+    y_max = max(_max_columna(df_plot, c) for c in pos_cols)
+    ent_max = _max_columna(df_plot, 'BESS_ENT_kW')
+    if ent_max <= 0:
+        return None
+
+    y_min = -ent_max * 1.12
+    referencia = y_max if y_max > 0 else ent_max
+    y_min = min(y_min, -referencia * 0.18)
+
+    pad_sup = referencia * 0.06 if referencia > 0 else ent_max * 0.06
+    pad_inf = abs(y_min) * 0.06
+    return [y_min - pad_inf, y_max + pad_sup]
 
 
 def graficar_perfil(df, prefijo, titulo):
@@ -15,6 +97,11 @@ def graficar_perfil(df, prefijo, titulo):
     if 'DATETIME' not in df.columns:
         df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
 
+    df, perfil_rec_ent = _preparar_df_perfil(df, prefijo)
+    df = _unir_granja_perfil(df, prefijo)
+    tiene_granja = 'KW_GRANJA' in df.columns
+    etiqueta_ion = etiqueta_medidor_consumo(prefijo)
+
     col_con = f'IUSA_CON_BESS_{prefijo}_kW'
     if col_con not in df.columns:
         for col in df.columns:
@@ -22,11 +109,17 @@ def graficar_perfil(df, prefijo, titulo):
                 col_con = col
                 break
 
-    multidia = df['DATETIME'].dt.date.nunique() > 1
+    multidia = serie_fecha_operativa(df['DATETIME']).nunique() > 1
 
     if multidia:
-        agg_cols = [c for c in [col_con, 'BESS_REC_kW', 'BESS_ENT_kW'] if c in df.columns]
-        df['FECHA_DIA'] = df['DATETIME'].dt.date
+        agg_cols = [c for c in ['BESS_REC_kW', 'BESS_ENT_kW'] if c in df.columns]
+        if tiene_granja:
+            agg_cols = ['KW_GRANJA'] + agg_cols
+        if perfil_rec_ent:
+            agg_cols = ['KW_REC_ION'] + agg_cols
+        elif col_con in df.columns:
+            agg_cols = [col_con] + agg_cols
+        df['FECHA_DIA'] = serie_fecha_operativa(df['DATETIME'])
         df_plot = df.groupby('FECHA_DIA', as_index=False)[agg_cols].max()
         df_plot['FECHA_DIA'] = pd.to_datetime(df_plot['FECHA_DIA'])
         x_vals = df_plot['FECHA_DIA']
@@ -47,7 +140,18 @@ def graficar_perfil(df, prefijo, titulo):
     fig = go.Figure()
     trace_mode = 'lines+markers' if multidia else 'lines'
 
-    if col_con in df_plot.columns:
+    if perfil_rec_ent:
+        fig.add_trace(go.Scatter(
+            x=x_vals,
+            y=df_plot['KW_REC_ION'],
+            name=f'kW recibidos ({etiqueta_ion})',
+            mode=trace_mode,
+            line=dict(color=COLORES['primary'], width=2.5),
+            marker=dict(size=marker_size, color=COLORES['primary']),
+            fill='tozeroy',
+            fillcolor='rgba(26,82,118,0.12)',
+        ))
+    elif col_con in df_plot.columns:
         fig.add_trace(go.Scatter(
             x=x_vals,
             y=df_plot[col_con],
@@ -57,6 +161,18 @@ def graficar_perfil(df, prefijo, titulo):
             marker=dict(size=marker_size, color=COLORES['primary']),
             fill='tozeroy',
             fillcolor='rgba(26,82,118,0.12)'
+        ))
+
+    if tiene_granja and 'KW_GRANJA' in df_plot.columns:
+        fig.add_trace(go.Scatter(
+            x=x_vals,
+            y=df_plot['KW_GRANJA'],
+            name='kW generación (Granja)',
+            mode=trace_mode,
+            line=dict(color=COLORES['warning'], width=2),
+            marker=dict(size=marker_size, color=COLORES['warning']),
+            fill='tozeroy',
+            fillcolor='rgba(243,156,18,0.12)',
         ))
 
     if 'BESS_REC_kW' in df_plot.columns:
@@ -72,30 +188,47 @@ def graficar_perfil(df, prefijo, titulo):
         ))
 
     if 'BESS_ENT_kW' in df_plot.columns:
+        bess_ent = pd.to_numeric(df_plot['BESS_ENT_kW'], errors='coerce').fillna(0)
+        descarga_kw = -bess_ent
         fig.add_trace(go.Scatter(
             x=x_vals,
-            y=-df_plot['BESS_ENT_kW'],
+            y=descarga_kw,
             name='Descarga BESS',
             mode=trace_mode,
-            line=dict(color=COLORES['danger'], width=2),
-            marker=dict(size=marker_size, color=COLORES['danger']),
+            line=dict(color=COLORES['descarga'], width=2.5),
+            marker=dict(size=marker_size, color=COLORES['descarga']),
             fill='tozeroy',
-            fillcolor='rgba(231,76,60,0.12)'
+            fillcolor='rgba(231,76,60,0.22)',
+            hovertemplate=(
+                '<b>Descarga BESS</b><br>'
+                '%{x}<br>'
+                '%{customdata:,.1f} kW<extra></extra>'
+            ),
+            customdata=bess_ent,
         ))
 
     titulo_grafica = f"{titulo}{titulo_suffix}".strip()
     title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(titulo_grafica)
+    y_range = _rango_y_perfil(df_plot, col_con, perfil_rec_ent)
+    yaxis_cfg = dict(
+        title='Potencia (kW)',
+        zeroline=True,
+        zerolinecolor='#95a5a6',
+        zerolinewidth=1.5,
+    )
+    if y_range is not None:
+        yaxis_cfg['range'] = y_range
+
     fig.update_layout(
         title=title_cfg,
         xaxis_title=x_title,
-        yaxis_title='Potencia (kW)',
+        yaxis=yaxis_cfg,
         height=420,
         hovermode='x unified',
         legend=legend_cfg,
         margin=dict(l=52, r=52, t=margin_t, b=40),
     )
     fig.update_xaxes(tickformat=x_tickformat, dtick=x_dtick)
-    fig.update_yaxes(zeroline=True, zerolinecolor='#95a5a6', zerolinewidth=1)
 
     return fig
 

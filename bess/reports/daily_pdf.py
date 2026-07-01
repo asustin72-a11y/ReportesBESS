@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import io
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
+
+from bess.core.dates import rango_datetimes_operativo
 
 import pandas as pd
 
+from bess.config.constants import slug_medidor
 from bess.config.paths import DIRECTORIO_REPORTES, DIRECTORIO_REPORTES_DIARIOS
 from bess.core.console import log
 from bess.core.numbers import a_num as _a_num, kwh_para_calculo, redondear_arriba_kw
@@ -174,19 +177,40 @@ def _pdf_grafica_perfil(df_dia, prefijo, fecha_dt, archivos_temp):
     from reportlab.platypus import Image
     from reportlab.lib.units import inch
 
+    from bess.charts.profile import _preparar_df_perfil, _unir_granja_perfil
+    from bess.config.subestaciones import etiqueta_medidor_consumo
+
+    df_dia, perfil_rec_ent = _preparar_df_perfil(df_dia, prefijo)
+    df_dia = _unir_granja_perfil(df_dia, prefijo)
+    tiene_granja = 'KW_GRANJA' in df_dia.columns
     horas = df_dia['DATETIME'].values
-    iusa_con = df_dia[f'IUSA_CON_BESS_{prefijo}_kW'].values
     bess_rec = df_dia['BESS_REC_kW'].values
     bess_ent = -df_dia['BESS_ENT_kW'].values
 
     fig, ax = plt.subplots(figsize=(11, 3.62), facecolor='white', dpi=120)
     ax.set_facecolor('white')
 
-    ax.fill_between(horas, 0, iusa_con, alpha=0.12, color=_PDF['iusa'])
+    if perfil_rec_ent:
+        ion_rec = df_dia['KW_REC_ION'].values
+        etiqueta_ion = etiqueta_medidor_consumo(prefijo)
+        ax.fill_between(horas, 0, ion_rec, alpha=0.12, color=_PDF['iusa'])
+        ax.plot(horas, ion_rec, color=_PDF['iusa'], linewidth=1.8, label=f'kW recibidos ({etiqueta_ion})')
+        ncol = 3
+    else:
+        iusa_con = df_dia[f'IUSA_CON_BESS_{prefijo}_kW'].values
+        ax.fill_between(horas, 0, iusa_con, alpha=0.12, color=_PDF['iusa'])
+        ax.plot(horas, iusa_con, color=_PDF['iusa'], linewidth=1.8, label='Demanda con BESS')
+        ncol = 3
+
+    if tiene_granja:
+        granja_kw = df_dia['KW_GRANJA'].values
+        ax.fill_between(horas, 0, granja_kw, alpha=0.12, color=_PDF['intermedio'])
+        ax.plot(horas, granja_kw, color=_PDF['intermedio'], linewidth=1.5, label='kW generación (Granja)')
+        ncol += 1
+
     ax.fill_between(horas, 0, bess_rec, alpha=0.15, color=_PDF['carga'])
     ax.fill_between(horas, bess_ent, 0, alpha=0.15, color=_PDF['descarga'])
 
-    ax.plot(horas, iusa_con, color=_PDF['iusa'], linewidth=1.8, label='Demanda con BESS')
     ax.plot(horas, bess_rec, color=_PDF['carga'], linewidth=1.5, label='Carga BESS')
     ax.plot(horas, bess_ent, color=_PDF['descarga'], linewidth=1.5, label='Descarga BESS')
 
@@ -198,7 +222,7 @@ def _pdf_grafica_perfil(df_dia, prefijo, fecha_dt, archivos_temp):
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(
         handles, labels,
-        loc='lower center', bbox_to_anchor=(0.5, 1.0), ncol=3,
+        loc='lower center', bbox_to_anchor=(0.5, 1.0), ncol=ncol,
         fontsize=7, frameon=True, facecolor='white',
         edgecolor=_PDF['border'], framealpha=0.95,
         borderpad=0.35, labelspacing=0.35, handlelength=1.4,
@@ -318,7 +342,7 @@ def generar_reporte_pdf(fecha_str, medidor):
         from reportlab.platypus import SimpleDocTemplate, Spacer
         from reportlab.lib.units import inch
 
-        prefijo = 'ION' if medidor == 'ION' else 'BANCO'
+        prefijo = medidor
 
         ruta_combinado = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo}.csv')
         ruta_acumulados = os.path.join(DIRECTORIO_REPORTES, f'ACUMULADOS_{prefijo}.csv')
@@ -330,17 +354,18 @@ def generar_reporte_pdf(fecha_str, medidor):
         df_combinado['DATETIME'] = pd.to_datetime(df_combinado['FECHA_HORA'], format='%d/%m/%Y %H:%M')
 
         fecha_dt = datetime.strptime(fecha_str, '%d/%m/%Y')
-        inicio = fecha_dt.replace(hour=0, minute=0, second=0)
-        fin = (fecha_dt + timedelta(days=1)).replace(hour=0, minute=0, second=0)
+        inicio, fin = rango_datetimes_operativo(fecha_dt.date(), fecha_dt.date())
 
-        mask = (df_combinado['DATETIME'] >= inicio) & (df_combinado['DATETIME'] < fin)
+        mask = (df_combinado['DATETIME'] >= inicio) & (df_combinado['DATETIME'] <= fin)
         df_dia = df_combinado[mask].copy()
         df_dia = df_dia.sort_values('DATETIME').reset_index(drop=True)
 
         if len(df_dia) == 0:
             return False, f"No hay datos para la fecha {fecha_str}"
 
-        nombre_archivo = f'Reporte_{medidor}_{fecha_dt.strftime("%Y%m%d")}.pdf'
+        nombre_archivo = (
+            f'Reporte_{slug_medidor(medidor)}_{fecha_dt.strftime("%Y%m%d")}.pdf'
+        )
         ruta_pdf = os.path.join(DIRECTORIO_REPORTES_DIARIOS, nombre_archivo)
         os.makedirs(DIRECTORIO_REPORTES_DIARIOS, exist_ok=True)
 
@@ -389,7 +414,7 @@ def generar_reporte_pdf(fecha_str, medidor):
             consumo_base = consumo_intermedio = consumo_punta = 0
             demanda_base = demanda_intermedio = demanda_punta = 0
 
-        bess_dia = obtener_bess_energia_dia(fecha_str)
+        bess_dia = obtener_bess_energia_dia(fecha_str, prefijo)
         c_b, c_i, c_p, c_t = _celdas_kwh_tabla(consumo_base, consumo_intermedio, consumo_punta)
         g_b, g_i, g_p, g_t = _celdas_kwh_tabla(
             bess_dia['carga_base'], bess_dia['carga_intermedio'], bess_dia['carga_punta']

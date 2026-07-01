@@ -10,10 +10,22 @@ from pathlib import Path
 
 from bess.data.ingest.ion import db
 
-MEDIDOR_BESS = 'BESS'
-MEDIDOR_BANCO = 'BANCO'
+MEDIDOR_BESS = "BESS"
+MEDIDOR_BANCO = "BANCO"
 LOTE = 500
 PRIMER_INTERVALO = (0, 5)
+
+MEDIDORES_IMPORTABLES = (
+    db.MEDIDOR_ION,
+    db.MEDIDOR_ION_IUSA2,
+    MEDIDOR_BESS,
+    db.MEDIDOR_BESS_IUSA2,
+    MEDIDOR_BANCO,
+)
+
+
+def _es_ion_facturacion(medidor_id: str) -> bool:
+    return medidor_id in (db.MEDIDOR_ION, db.MEDIDOR_ION_IUSA2)
 
 
 def _parse_fecha(texto: str) -> datetime:
@@ -51,6 +63,7 @@ def _fila_a_registro(encabezados: list[str], valores: list[str], medidor_id: str
 
     kwh_rec = _leer_valor(fila, 'kwh_rec')
     kwh_ent = _leer_valor(fila, 'kwh_ent')
+    # Solo IUSA 1: CSV legacy con REC/ENT invertidos. ION_IUSA2 conserva columnas del medidor.
     if medidor_id == db.MEDIDOR_ION:
         kwh_rec, kwh_ent = _normalizar_kwh_ion(kwh_rec, kwh_ent)
 
@@ -141,7 +154,7 @@ def importar_csv(
             print('BD ya contiene todos los timestamps del CSV.')
             return 0
 
-    if sin_filtro_dia:
+    if sin_filtro_dia or medidor_id in (db.MEDIDOR_ION_IUSA2, MEDIDOR_BANCO):
         validos = [
             {
                 'fecha': reg['fecha'],
@@ -155,9 +168,14 @@ def importar_csv(
             for reg in sorted(todos, key=lambda r: r['fecha_dt'])
         ]
         omitidos = 0
+        if medidor_id == db.MEDIDOR_ION_IUSA2:
+            print('ION_IUSA2: perfil a BD sin filtrar (tal cual del medidor)')
+        elif medidor_id == MEDIDOR_BANCO:
+            print('BANCO: perfil a BD sin filtrar (conserva slots 00:00)')
     else:
         validos, omitidos = filtrar_primer_registro_dia(todos)
-    print(f'Omitidos (1er registro del dia != 00:05): {omitidos}')
+    if medidor_id not in (db.MEDIDOR_ION_IUSA2, MEDIDOR_BANCO):
+        print(f'Omitidos (1er registro del dia != 00:05): {omitidos}')
     print(f'Registros a guardar: {len(validos)}')
 
     if not validos:
@@ -195,9 +213,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Importar CSV de perfil a SQLite')
     parser.add_argument('csv', type=Path, help='Ruta al CSV')
     parser.add_argument(
-        '--medidor',
+        "--medidor",
         required=True,
-        choices=[db.MEDIDOR_ION, MEDIDOR_BESS, MEDIDOR_BANCO],
+        choices=list(MEDIDORES_IMPORTABLES),
     )
     parser.add_argument('--bd', type=Path, default=db.RUTA_BD_DEFAULT)
     parser.add_argument(

@@ -1,6 +1,6 @@
 # Guía de usuario — Sistema BESS
 
-**Versión:** 5.2  
+**Versión:** 5.5  
 **Aplicación:** Monitoreo, análisis y reportes de sistemas de almacenamiento de energía (BESS) para medidores **ION** y **BANCO**.
 
 > **PDF con capturas:** `docs/GUIA_USUARIO.pdf`  

@@ -1,0 +1,210 @@
+{
+  "granja": "IUSASOL I Central Fotovoltaica (20 MW)",
+  "farm_idcode": "pfpHV9NfkkNkOL4N8V-LofKt05p8Pdor5Jb6ahANv_oV65nsNCtoV_24psl5ps5U",
+  "desde": "2026-06-24",
+  "hasta": "2026-06-29",
+  "periodicity": "D",
+  "descargado_en": "2026-06-29T17:09:04.672068-06:00",
+  "medidores": [
+    {
+      "nickname": "MEGA #1",
+      "serial": "00000000CYM769 VL2E 17NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wBPR6drDYSZYHVtagsITIJo",
+      "archivo": "MEGA_01.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #2",
+      "serial": "00000000CS0008 VL2E 17NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wAN08WXOg3Z7GsYFMa8Cp9A",
+      "archivo": "MEGA_02.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #3",
+      "serial": "00000000CS0003 VL2E 17NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wC8u3mxFZuiSWmGR0raVIfW",
+      "archivo": "MEGA_03.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #4",
+      "serial": "00000000000009SI0402R048",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wDSEh-tVUje2ZT5qZpdRWAS",
+      "archivo": "MEGA_04.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #5",
+      "serial": "00000000CYM775 VL2E 17NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wDGVVCcLFjvvOFLSK2P3ntT",
+      "archivo": "MEGA_05.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #6",
+      "serial": "00000000CS0002 VL2E 17NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wCSotOU8bShvqFPhM1MPM_6",
+      "archivo": "MEGA_06.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #7",
+      "serial": "00000000CS0007 VL2E 17NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wCDbiDi-g0-VUUkso7CEjsk",
+      "archivo": "MEGA_07.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #8",
+      "serial": "00000000CS0005 VL2E 17NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wA8Pi-2UKdJHeKTw312m2pY",
+      "archivo": "MEGA_08.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #9",
+      "serial": "00000000CS0004 VL2E 17NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wBBLZe3RGu4T62Uu0xRP7MP",
+      "archivo": "MEGA_09.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #10",
+      "serial": "00000000CS0000 VL2E 17NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wDfOPr0choVFRQpdPBFeku-",
+      "archivo": "MEGA_10.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #11",
+      "serial": "00000000CS0490 VL2E 19NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wAFGIqnmHchsnM-ngOGasag",
+      "archivo": "MEGA_11.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #12",
+      "serial": "00000000CS0489 VL2E 19NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wAw6zgKwOsCo7ZbFcLfHugU",
+      "archivo": "MEGA_12.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #13",
+      "serial": "00000000CS0492 VL2E 19NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wB-EcLnAP8FnQgGGRWuKxWE",
+      "archivo": "MEGA_13.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #14",
+      "serial": "00000000CS0491 VL2E 19NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wBi1eD3sFkJFsKXtomcwnuV",
+      "archivo": "MEGA_14.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #15",
+      "serial": "00000000CS0475 VL2E 19NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wDFkHi1YY6253ltm3P0vHvm",
+      "archivo": "MEGA_15.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #16",
+      "serial": "00000000CS0473 VL2E 19NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wAHRAH9fFNmFageQSc7HE3u",
+      "archivo": "MEGA_16.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #17",
+      "serial": "00000000CS0474 VL2E 19NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wBT2xqKEMm3bECGMlGcdCj-",
+      "archivo": "MEGA_17.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #18",
+      "serial": "00000000CS0476 VL2E 19NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wCQh-2U8BDiWyuCPJH5Pctn",
+      "archivo": "MEGA_18.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #19",
+      "serial": "00000000CS0496 VL2E 19NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wBe6Fp_8qwDbQKfBfma1xk9",
+      "archivo": "MEGA_19.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    },
+    {
+      "nickname": "MEGA #20",
+      "serial": "00000000CS0495 VL2E 19NB",
+      "idcode": "Xkj8tVISl40yc-wq_wdEkta4vVlxW8RN1pzJe5U37wDqDQsii5OlszhhEEAtCuFN",
+      "archivo": "MEGA_20.csv",
+      "registros": 1734,
+      "dias_con_datos": 6,
+      "dias_vacios": 0,
+      "errores": []
+    }
+  ]
+}

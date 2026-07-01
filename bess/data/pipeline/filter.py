@@ -4,116 +4,175 @@ from __future__ import annotations
 
 import os
 
-import pandas as pd
-
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
-from bess.core.console import crear_barra, log
+from bess.config.subestaciones import SUBESTACIONES
+from bess.core.consumo import orientar_kwh_consumo
+from bess.core.console import log
 from bess.data.ingest.readers import leer_archivo_perfil
 from bess.data.pipeline.clean import generar_archivo_limpio
 
 print = log
 
+
+def _leer_perfil(ruta_origen: str, archivo_origen: str):
+    if not os.path.exists(ruta_origen):
+        return None, f"No se puede continuar sin el archivo {archivo_origen}"
+    df = leer_archivo_perfil(ruta_origen, archivo_origen)
+    if df is None:
+        return None, f"Error al leer {archivo_origen}"
+    return df, None
+
+
 def filtrar_datos():
     """
-    Función principal de filtrado de datos.
-    Lee los archivos procesados, encuentra fechas comunes entre los 3 archivos
-    y genera archivos filtrados con solo los registros coincidentes.
+    Filtra por fechas comunes dentro de cada subestación (consumo + BESS).
     """
     print("=" * 70)
-    print("📊 PREPROCESADOR DE DATOS - FILTRADO POR FECHAS COMUNES")
+    print("📊 PREPROCESADOR DE DATOS - FILTRADO POR SUBESTACIÓN")
     print("=" * 70)
     print(f"📁 Carpeta de trabajo: {DIRECTORIO_PROCESADOS}")
     print("=" * 70)
-    
+
     if not os.path.exists(DIRECTORIO_PROCESADOS):
         print(f"❌ Error: No existe la carpeta {DIRECTORIO_PROCESADOS}")
         return False, f"No existe la carpeta {DIRECTORIO_PROCESADOS}"
-    
-    archivos = {
-        'BESS.csv': 'BESS_Filtrado.csv',
-        'ION.csv': 'ION_Filtrado.csv',
-        'Banco1.csv': 'Banco1_Filtrado.csv'
-    }
-    
-    dfs = {}
-    
-    # Leer archivos
-    for archivo_origen, archivo_destino in archivos.items():
-        ruta_origen = os.path.join(DIRECTORIO_PROCESADOS, archivo_origen)
-        ruta_destino = os.path.join(DIRECTORIO_PROCESADOS, archivo_destino)
-        
-        if not os.path.exists(ruta_origen):
-            return False, f"No se puede continuar sin el archivo {archivo_origen}"
-        
-        intercambiar = (archivo_origen == 'Banco1.csv')
-        df = leer_archivo_perfil(ruta_origen, archivo_origen,intercambiar)
-        if df is None:
-            return False, f"Error al leer {archivo_origen}"
-        
-        dfs[archivo_origen] = df
-    
-    # Encontrar fechas comunes entre los 3 archivos
-    print("\n" + "="*70)
-    print("🔍 ENCONTRANDO FECHAS COMUNES ENTRE LOS 3 ARCHIVOS")
-    print("="*70)
-    
-    fechas_bess = set(dfs['BESS.csv']['Fecha'])
-    fechas_ion = set(dfs['ION.csv']['Fecha'])
-    fechas_banco = set(dfs['Banco1.csv']['Fecha'])
-    
-    print(f"📊 Registros BESS: {len(fechas_bess)}")
-    print(f"📊 Registros ION: {len(fechas_ion)}")
-    print(f"📊 Registros Banco1: {len(fechas_banco)}")
-    
-    fechas_comunes = fechas_bess.intersection(fechas_ion).intersection(fechas_banco)
-    
-    print(f"\n📊 Fechas comunes entre los 3 archivos: {len(fechas_comunes)}")
-    
-    if len(fechas_comunes) == 0:
-        return False, "No se encontraron fechas coincidentes entre los 3 archivos"
-    
-    # Mostrar rango de fechas de cada archivo
-    print("\n📅 Rangos de fechas:")
-    for nombre, df in dfs.items():
-        print(f"   {nombre}: {df['Fecha'].min()} a {df['Fecha'].max()} ({len(df)} registros)")
-    
-    # Filtrar y guardar solo las fechas comunes
-    print("\n" + "="*70)
-    print("📊 GENERANDO ARCHIVOS FILTRADOS")
-    print("="*70)
-    
-    for archivo_origen, archivo_destino in archivos.items():
-        df_filtrado = dfs[archivo_origen][dfs[archivo_origen]['Fecha'].isin(fechas_comunes)].copy()
-        df_filtrado = df_filtrado.sort_values('Fecha').reset_index(drop=True)
-        ruta_destino = os.path.join(DIRECTORIO_PROCESADOS, archivo_destino)
-        generar_archivo_limpio(df_filtrado, ruta_destino)
-    
-    # Limpiar archivos fuente después de procesar
+
+    total_fechas = 0
+    subestaciones_ok = 0
+    subs_omitidas: list[str] = []
+
+    for sub in SUBESTACIONES:
+        print("\n" + "=" * 70)
+        print(f"🔍 {sub.nombre}")
+        print("=" * 70)
+
+        ruta_bess = os.path.join(DIRECTORIO_PROCESADOS, sub.bess_csv)
+        if not os.path.exists(ruta_bess):
+            print(f"⚠️ Omitido: falta {sub.bess_csv} verificado en ArchivosProcesados")
+            subs_omitidas.append(sub.nombre)
+            continue
+
+        df_bess, err = _leer_perfil(ruta_bess, sub.bess_csv)
+        if err:
+            return False, f"{sub.nombre}: {err}"
+
+        fechas_bess = set(df_bess["Fecha"])
+        fechas_bess_filtradas: set | None = None
+
+        for med in sub.medidores_consumo:
+            ruta_consumo = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_csv)
+            if not os.path.exists(ruta_consumo):
+                return False, (
+                    f"{sub.nombre} ({med.etiqueta}): falta {med.consumo_csv} verificado. "
+                    "Ejecute Verificar antes de Filtrar."
+                )
+            df_consumo, err = _leer_perfil(ruta_consumo, med.consumo_csv)
+            if err:
+                return False, f"{sub.nombre} ({med.etiqueta}): {err}"
+
+            fechas_consumo = set(df_consumo["Fecha"])
+            fechas_comunes = fechas_consumo.intersection(fechas_bess)
+
+            print(f"📊 Registros {med.etiqueta} ({med.consumo_csv}): {len(fechas_consumo)}")
+            print(f"📊 Fechas comunes {med.etiqueta} ∩ BESS: {len(fechas_comunes)}")
+
+            if len(fechas_comunes) == 0:
+                return False, (
+                    f"{sub.nombre} ({med.etiqueta}): no hay fechas coincidentes entre "
+                    f"{med.consumo_csv} y {sub.bess_csv}"
+                )
+
+            df_filtrado = df_consumo[df_consumo["Fecha"].isin(fechas_comunes)].copy()
+            df_filtrado = df_filtrado.sort_values("Fecha").reset_index(drop=True)
+            if med.intercambiar_consumo:
+                antes = df_filtrado[["KWH_REC", "KWH_ENT"]].copy()
+                df_filtrado = orientar_kwh_consumo(df_filtrado, forzar=True)
+                if not df_filtrado[["KWH_REC", "KWH_ENT"]].equals(antes):
+                    print(
+                        f"🔄 {med.consumo_filtrado}: Intercambiando KWH_REC ↔ KWH_ENT "
+                        f"(solo en archivo filtrado)"
+                    )
+            ruta_destino = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_filtrado)
+            generar_archivo_limpio(df_filtrado, ruta_destino)
+
+            if fechas_bess_filtradas is None:
+                fechas_bess_filtradas = fechas_comunes
+            else:
+                fechas_bess_filtradas &= fechas_comunes
+
+        print(f"📊 Registros BESS ({sub.bess_csv}): {len(fechas_bess)}")
+        if fechas_bess_filtradas:
+            df_bess_out = df_bess[df_bess["Fecha"].isin(fechas_bess_filtradas)].copy()
+            df_bess_out = df_bess_out.sort_values("Fecha").reset_index(drop=True)
+            generar_archivo_limpio(
+                df_bess_out,
+                os.path.join(DIRECTORIO_PROCESADOS, sub.bess_filtrado),
+            )
+            total_fechas += len(fechas_bess_filtradas)
+            subestaciones_ok += 1
+
+        if sub.granja_csv and sub.granja_filtrado and fechas_bess_filtradas:
+            ruta_granja = os.path.join(DIRECTORIO_PROCESADOS, sub.granja_csv)
+            if os.path.exists(ruta_granja):
+                df_granja, err = _leer_perfil(ruta_granja, sub.granja_csv)
+                if err:
+                    return False, f"{sub.nombre} (granja): {err}"
+                df_granja_out = df_granja[df_granja["Fecha"].isin(fechas_bess_filtradas)].copy()
+                df_granja_out = df_granja_out.sort_values("Fecha").reset_index(drop=True)
+                generar_archivo_limpio(
+                    df_granja_out,
+                    os.path.join(DIRECTORIO_PROCESADOS, sub.granja_filtrado),
+                )
+                print(
+                    f"📊 Granja ({sub.granja_csv}): {len(df_granja)} registros "
+                    f"→ {sub.granja_filtrado}: {len(df_granja_out)}"
+                )
+            else:
+                print(
+                    f"⚠️ Granja omitida: falta {sub.granja_csv} en ArchivosProcesados. "
+                    f"Verifique {sub.granja_csv} en ArchivosFuente y ejecute Verificar."
+                )
+
+    if subestaciones_ok == 0:
+        return False, (
+            "Ninguna subestación pudo filtrarse. "
+            "Ejecute Verificar antes de Filtrar."
+        )
+
     print("\n" + "=" * 70)
     print("🗑️ LIMPIANDO ARCHIVOS FUENTE")
     print("=" * 70)
     archivos_eliminados, errores = limpiar_archivos_fuente()
-    
+
     if archivos_eliminados:
         print(f"✅ {len(archivos_eliminados)} archivos fuente eliminados:")
         for archivo in archivos_eliminados:
             print(f"   - {archivo}")
     else:
         print("ℹ️ No había archivos fuente para eliminar")
-    
+
     if errores:
         for error in errores:
             print(f"⚠️ {error}")
-    
+
     print("\n" + "=" * 70)
     print("✅ PREPROCESAMIENTO COMPLETADO EXITOSAMENTE")
     print("=" * 70)
-    print(f"📊 Archivos filtrados generados con {len(fechas_comunes)} registros coincidentes")
-    
-    mensaje_eliminacion = f" - {len(archivos_eliminados)} archivos fuente eliminados"
-    return True, f"Procesados {len(fechas_comunes)} registros comunes entre los 3 archivos{mensaje_eliminacion}"
 
-# ========== FUNCIONES DE GENERACIÓN DE REPORTES ==========
+    mensaje_eliminacion = (
+        f" - {len(archivos_eliminados)} archivos fuente eliminados"
+        if archivos_eliminados
+        else ""
+    )
+    mensaje_omitidas = (
+        f" · omitidas: {', '.join(subs_omitidas)}"
+        if subs_omitidas
+        else ""
+    )
+    return True, (
+        f"Procesadas {subestaciones_ok} subestaciones "
+        f"({total_fechas} fechas comunes en total){mensaje_eliminacion}{mensaje_omitidas}"
+    )
 
 
 def limpiar_archivos_fuente():
@@ -123,12 +182,12 @@ def limpiar_archivos_fuente():
     """
     archivos_eliminados = []
     errores = []
-    
+
     if not os.path.exists(DIRECTORIO_FUENTE):
         return [], ["El directorio de archivos fuente no existe"]
-    
+
     for archivo in os.listdir(DIRECTORIO_FUENTE):
-        if archivo.lower().endswith('.csv'):
+        if archivo.lower().endswith(".csv"):
             ruta_archivo = os.path.join(DIRECTORIO_FUENTE, archivo)
             try:
                 os.remove(ruta_archivo)
@@ -136,5 +195,5 @@ def limpiar_archivos_fuente():
                 print(f"🗑️ Archivo fuente eliminado: {archivo}")
             except Exception as e:
                 errores.append(f"Error al eliminar {archivo}: {str(e)}")
-    
+
     return archivos_eliminados, errores

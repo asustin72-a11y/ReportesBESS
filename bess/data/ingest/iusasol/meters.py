@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-# Patrones de serial en ISOL/Meters (CS3878=BESS, CS1996=Banco1).
+# Patrones de serial en ISOL/Meters (CS3878=BESS IUSA1, CS3190=BESS IUSA2).
 ALIAS_SERIAL: dict[str, tuple[str, ...]] = {
-    'BESS': ('CS3878', 'BESS'),
-    'banco1': ('CS1996', 'BANCO1', 'BANCO'),
-    'banco': ('CS1996', 'BANCO1', 'BANCO'),
-    'banco2': ('BANCO2',),
+    "BESS": ("CS3878", "BESS"),
+    "banco1": ("CS1996", "BANCO1", "BANCO"),
+    "banco": ("CS1996", "BANCO1", "BANCO"),
+    "banco2": ("BANCO2",),
+    "bess_iusa2": ("CS3190", "BESS_IUSA2", "BESSIUSA2"),
 }
 
 # Referencia histórica (puede estar desactualizada; preferir resolver_id_medidor).

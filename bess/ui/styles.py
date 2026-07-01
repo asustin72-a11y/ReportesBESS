@@ -389,6 +389,211 @@ def aplicar_estilos():
         [data-testid="stDownloadButton"] button {
             font-weight: 600;
         }
+
+        /* —— Navegación y ayuda flotante —— */
+        .bess-nav-bar {
+            margin-bottom: 4px;
+        }
+        #bess-nav-tooltip-root {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 0;
+            height: 0;
+            overflow: visible;
+            z-index: 999990;
+            pointer-events: none;
+        }
+        .bess-floating-tip {
+            display: none !important;
+            position: fixed;
+            top: -9999px;
+            left: -9999px;
+            width: min(268px, calc(100vw - 24px));
+            background: #ffffff;
+            border: 2px solid #2e86c1;
+            border-radius: 12px;
+            padding: 12px 14px 10px;
+            box-shadow: 0 8px 24px rgba(26, 82, 118, 0.22);
+            pointer-events: none;
+            z-index: 999991;
+        }
+        .bess-floating-tip.visible {
+            display: block !important;
+        }
+        .nav-hub-icon {
+            font-size: 1.35rem;
+            line-height: 1;
+            margin-bottom: 6px;
+        }
+        .nav-hub-title {
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #1a5276;
+            margin-bottom: 4px;
+            line-height: 1.25;
+        }
+        .nav-hub-resumen {
+            font-size: 0.72rem;
+            color: #64748b;
+            margin: 0 0 6px;
+            line-height: 1.35;
+        }
+        .nav-hub-caps {
+            margin: 0;
+            padding-left: 14px;
+            font-size: 0.68rem;
+            color: #475569;
+            line-height: 1.45;
+        }
+        .nav-hub-caps li { margin: 1px 0; }
+
+        .nav-pills-label {
+            margin: 0 0 4px;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #64748b;
+        }
+
+        div[data-testid="column"]:has(.bess-nav-col-marker) {
+            position: relative !important;
+            overflow: visible !important;
+        }
+        div[data-testid="column"]:has(.bess-nav-col-marker) [data-testid="stButton"] button {
+            border-radius: 999px !important;
+            font-size: 0.88rem !important;
+            font-weight: 600 !important;
+            min-height: 2.64rem !important;
+            padding: 0.53rem 0.75rem !important;
+            background: #f3f4f6 !important;
+            border-color: #e2e5e9 !important;
+            color: #31333f !important;
+        }
+        div[data-testid="column"]:has(.bess-nav-col-marker) [data-testid="stButton"] button:hover {
+            background: #e8eaed !important;
+            border-color: #2e86c1 !important;
+            color: #31333f !important;
+        }
+        div[data-testid="column"]:has(.bess-nav-active) [data-testid="stButton"] button {
+            background: #1a5276 !important;
+            border-color: #1a5276 !important;
+            color: #ffffff !important;
+        }
+        div[data-testid="column"]:has(.bess-nav-active) [data-testid="stButton"] button:hover {
+            background: #154360 !important;
+            border-color: #154360 !important;
+            color: #ffffff !important;
+        }
+
+        .panel-medidor {
+            background: linear-gradient(135deg, #f0f7fb 0%, #e8f4fc 100%);
+            border: 1px solid #c5dff0;
+            border-radius: 10px;
+            padding: 10px 14px;
+            margin-top: 8px;
+        }
+        .panel-medidor-label {
+            margin: 0 0 4px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            color: #1a5276;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        div[data-testid="stTabs"] button[data-baseweb="tab"] {
+            font-weight: 600 !important;
+        }
+        div[data-testid="stTabs"] button[aria-selected="true"] {
+            color: #1a5276 !important;
+            border-bottom-color: #1a5276 !important;
+        }
+
+        /* Sidebar — guía y flujo admin */
+        .sidebar-guia {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+        }
+        .sidebar-guia-titulo {
+            margin: 0 0 8px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: rgba(255, 255, 255, 0.85);
+        }
+        .sidebar-modulo {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .sidebar-modulo:last-child { border-bottom: none; }
+        .sidebar-modulo-icon { font-size: 1rem; line-height: 1.2; }
+        .sidebar-modulo strong {
+            display: block;
+            font-size: 0.8rem;
+            color: #ffffff;
+            margin-bottom: 2px;
+        }
+        .sidebar-modulo p {
+            margin: 0;
+            font-size: 0.7rem;
+            color: rgba(255, 255, 255, 0.72);
+            line-height: 1.35;
+        }
+
+        .sidebar-flujo {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 14px;
+        }
+        .sidebar-flujo-titulo {
+            margin: 0 0 8px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: #1a202c;
+        }
+        .sidebar-paso {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.78rem;
+            color: #1a202c;
+            padding: 4px 0;
+        }
+        .sidebar-paso span {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #2e86c1;
+            color: #fff;
+            font-size: 0.68rem;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+        section[data-testid="stSidebar"] [data-testid="stExpander"] summary {
+            font-weight: 600 !important;
+            font-size: 0.9rem !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stExpander"] {
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 8px;
+            margin-bottom: 8px;
+        }
     </style>
     """, unsafe_allow_html=True)
 

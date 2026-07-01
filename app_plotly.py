@@ -861,13 +861,16 @@ def obtener_kvarh_mes(fecha, prefijo):
             if not df_r.empty:
                 return float(pd.to_numeric(df_r['KVARH'], errors='coerce').fillna(0).sum())
 
-    archivo_map = {'ION': 'ION.csv', 'BANCO': 'Banco1.csv'}
-    archivo = archivo_map.get(prefijo)
-    if not archivo:
+    from bess.config.subestaciones import medidor_consumo_por_prefijo
+
+    med = medidor_consumo_por_prefijo(prefijo)
+    if not med:
         return None
-    ruta = os.path.join(DIRECTORIO_PROCESADOS, archivo)
+    ruta = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_filtrado)
     if not os.path.exists(ruta):
-        return None
+        ruta = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_csv)
+        if not os.path.exists(ruta):
+            return None
     df = pd.read_csv(ruta)
     if 'Fecha' not in df.columns:
         return None
@@ -3069,24 +3072,37 @@ def sidebar_admin():
             if st.button("Generar reportes", use_container_width=True, type="primary"):
                 with st.spinner("Generando reportes..."):
                     try:
-                        from bess_core import reporte_bess
-                        exito, msg_ion, msg_banco = reporte_bess()
-                        if exito:
+                        from bess_core import ejecutar_reporte_bess
+                        from bess.config.subestaciones import SUBESTACIONES
+                        exito, mensajes = ejecutar_reporte_bess()
+                        if "_error" in mensajes:
+                            st.error(f"❌ {mensajes['_error']}")
+                            if mensajes.get("_traceback"):
+                                with st.expander("Detalle del error"):
+                                    st.code(mensajes["_traceback"])
+                        elif exito:
                             st.success("✅ Reportes generados exitosamente")
-                            st.success(f"   ION: {msg_ion}")
-                            st.success(f"   BANCO1: {msg_banco}")
+                            for sub in SUBESTACIONES:
+                                for med in sub.medidores_consumo:
+                                    msg = mensajes.get(med.prefijo, "")
+                                    if msg:
+                                        st.success(f"   {sub.nombre} · {med.etiqueta}: {msg}")
                             st.session_state['reportes_generados'] = True
                         else:
-                            st.warning(f"⚠️ Procesamiento parcial")
-                            st.warning(f"   ION: {msg_ion}")
-                            st.warning(f"   BANCO1: {msg_banco}")
+                            st.warning("⚠️ Procesamiento parcial")
+                            for sub in SUBESTACIONES:
+                                for med in sub.medidores_consumo:
+                                    msg = mensajes.get(med.prefijo, "")
+                                    if msg:
+                                        st.warning(f"   {sub.nombre} · {med.etiqueta}: {msg}")
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
         
             if st.button("Procesar todo", use_container_width=True):
                 with st.spinner("Verificando, filtrando y generando reportes..."):
                     try:
-                        from bess_core import verificar_datos_fuente, filtrar_datos, reporte_bess
+                        from bess_core import verificar_datos_fuente, filtrar_datos, ejecutar_reporte_bess
+                        from bess.config.subestaciones import SUBESTACIONES
                         exito_v, msg_v = verificar_datos_fuente()
                         if not exito_v:
                             st.error(msg_v)
@@ -3095,11 +3111,24 @@ def sidebar_admin():
                             if not exito_f:
                                 st.error(msg_f)
                             else:
-                                exito_r, msg_ion, msg_banco = reporte_bess()
-                                if exito_r:
-                                    st.success("Proceso completo: ION y BANCO actualizados")
+                                exito_r, mensajes = ejecutar_reporte_bess()
+                                if "_error" in mensajes:
+                                    st.error(f"❌ {mensajes['_error']}")
+                                elif exito_r:
+                                    st.success("Proceso completo")
+                                    for sub in SUBESTACIONES:
+                                        for med in sub.medidores_consumo:
+                                            msg = mensajes.get(med.prefijo, "")
+                                            if msg:
+                                                st.success(f"   {sub.nombre} · {med.etiqueta}: {msg}")
                                 else:
-                                    st.warning(f"Parcial — ION: {msg_ion} · BANCO: {msg_banco}")
+                                    partes = [
+                                        f"{med.etiqueta}: {mensajes.get(med.prefijo, '')}"
+                                        for sub in SUBESTACIONES
+                                        for med in sub.medidores_consumo
+                                        if mensajes.get(med.prefijo)
+                                    ]
+                                    st.warning("Parcial — " + " · ".join(partes))
                     except Exception as e:
                         st.error(f"Error: {e}")
 
@@ -3116,7 +3145,7 @@ def sidebar_admin():
             render_editor_tarifas_sidebar()
         
         st.divider()
-        st.caption("Sistema BESS v5.4.0")
+        st.caption("Sistema BESS v5.5.0")
 
 def _inyectar_script_sidebar(expandida):
     """Ajusta la sidebar tras el login (Streamlit fija el estado inicial solo al cargar la app)."""
@@ -3157,7 +3186,7 @@ def sidebar_user():
     with st.sidebar:
         sidebar_branding(es_admin=False)
         st.info("Modo visualización")
-        st.caption("Sistema BESS v5.4.0")
+        st.caption("Sistema BESS v5.5.0")
 
 # ========== FUNCIONES DE TABS ==========
 def tab_dashboard(df, prefijo, medidor):

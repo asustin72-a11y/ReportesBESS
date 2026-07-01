@@ -1,0 +1,5 @@
+Tipo,Descripcion,Neteo,Invertir,Reactivos
+1,Neteo,1,0,1,1
+2,Consumo,0,1,0
+3,BESS,0,0,0
+4,Generacion,0,0,0

@@ -4,6 +4,9 @@ __pycache__/
 .Python
 _compare_out.txt
 
+# IDE local
+.cursor/
+
 # Datos crudos y PDFs generados (se crean en runtime)
 data/ArchivosFuente/*
 !data/ArchivosFuente/.gitkeep
@@ -12,6 +15,14 @@ data/ReportesDiarios/
 # Secretos locales
 .streamlit/secrets.toml
 .env
+
+# Respaldos portables (pueden incluir secretos)
+backups/*.zip
+
+# SQLite y depuración local (regenerables)
+data/bess_perfiles.db
+data/tmp_*
+*_backup*.csv
 
 # Builds Windows
 build/

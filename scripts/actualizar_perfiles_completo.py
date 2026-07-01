@@ -76,9 +76,13 @@ def main(argv: list[str] | None = None) -> int:
     print(msg)
     if not ok:
         return 1
-    ok, msg_ion, msg_banco = reporte_bess()
-    print(f"ION: {msg_ion}")
-    print(f"BANCO: {msg_banco}")
+    ok, mensajes = reporte_bess()
+    if "_error" in mensajes:
+        print(mensajes["_error"])
+        return 1
+    for prefijo, msg in mensajes.items():
+        if not prefijo.startswith("_"):
+            print(f"{prefijo}: {msg}")
     if not ok:
         return 1
 

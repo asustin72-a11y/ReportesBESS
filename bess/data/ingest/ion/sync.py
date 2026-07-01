@@ -77,13 +77,14 @@ def sincronizar(
     ip: str = MEDIDOR_IP_DEFAULT,
     puerto: int = PUERTO_DEFAULT,
     *,
+    medidor_id: str = db.MEDIDOR_ION,
     quiet: bool = False,
 ) -> tuple[int, dict]:
     stats = {'leidos': 0, 'insertados': 0, 'actualizados': 0, 'ultima': None, 'mensaje': ''}
     db.init_db(ruta_bd)
 
     with db.conectar_bd(ruta_bd) as conn:
-        ultima = None if reiniciar else db.get_ultima_fecha(conn, db.MEDIDOR_ION, zona)
+        ultima = None if reiniciar else db.get_ultima_fecha(conn, medidor_id, zona)
         rango = calcular_rango_sync(ultima, 5, zona, desde_forzado, hasta_forzado)
         if rango is None:
             if not quiet:
@@ -99,7 +100,7 @@ def sincronizar(
 
         log_id = db.iniciar_sync_log(
             conn,
-            db.MEDIDOR_ION,
+            medidor_id,
             formatear_fecha(desde),
             formatear_fecha(hasta),
         )
@@ -152,8 +153,13 @@ def sincronizar(
 
             if len(lote) >= LOTE_GUARDADO:
                 with db.conectar_bd(ruta_bd) as conn:
+                    upsert_kwargs = (
+                        {'respetar_fuente': 'csv'}
+                        if medidor_id == db.MEDIDOR_ION
+                        else {}
+                    )
                     res = db.upsert_registros(
-                        conn, db.MEDIDOR_ION, lote, respetar_fuente='csv'
+                        conn, medidor_id, lote, fuente='modbus', **upsert_kwargs
                     )
                     insertados += res.insertados
                     actualizados += res.actualizados
@@ -165,8 +171,13 @@ def sincronizar(
 
         if lote:
             with db.conectar_bd(ruta_bd) as conn:
+                upsert_kwargs = (
+                    {'respetar_fuente': 'csv'}
+                    if medidor_id == db.MEDIDOR_ION
+                    else {}
+                )
                 res = db.upsert_registros(
-                    conn, db.MEDIDOR_ION, lote, respetar_fuente='csv'
+                    conn, medidor_id, lote, fuente='modbus', **upsert_kwargs
                 )
                 insertados += res.insertados
                 actualizados += res.actualizados
@@ -174,7 +185,7 @@ def sincronizar(
 
         with db.conectar_bd(ruta_bd) as conn:
             if ultima_guardada:
-                db.actualizar_sync_state(conn, db.MEDIDOR_ION, ultima_guardada)
+                db.actualizar_sync_state(conn, medidor_id, ultima_guardada)
             db.cerrar_sync_log(conn, log_id, 'ok', leidos, insertados, actualizados)
             conn.commit()
 

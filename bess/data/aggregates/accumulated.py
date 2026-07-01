@@ -7,8 +7,6 @@ import os
 import pandas as pd
 
 from bess.config.paths import DIRECTORIO_REPORTES
-from bess.core.kvarh import columnas_kvarh as _columnas_kvarh
-from bess.data.ingest.readers import leer_y_agrupar_por_hora
 
 from bess.core.console import log
 print = log

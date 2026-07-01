@@ -52,7 +52,7 @@ def main() -> int:
         destacados = []
         for item in items:
             serial = str(item.get('serial', '')).upper()
-            if any(p in serial for p in ('CS3878', 'CS1996', 'BESS', 'BANCO')):
+            if any(p in serial for p in ('CS3878', 'CS3190', 'CS1996', 'BESS', 'BANCO')):
                 destacados.append(item)
         salida = {
             'company': client.company,

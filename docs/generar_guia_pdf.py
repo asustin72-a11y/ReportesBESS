@@ -29,12 +29,14 @@ from reportlab.platypus import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from bess import __version__ as VERSION
+
 DOCS = ROOT / "docs"
 CAPTURAS = DOCS / "capturas"
 PDF_OUT = DOCS / "GUIA_USUARIO.pdf"
 LOGO = ROOT / "data" / "Logo IUSASOL.png"
 APP_URL = os.environ.get("BESS_APP_URL", "http://localhost:8501")
-VERSION = "5.3"
 
 PAGE_W = letter[0]
 MARGIN = 0.75 * inch

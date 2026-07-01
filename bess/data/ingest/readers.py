@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from bess.core.dates import validar_y_convertir_fecha
+from bess.core.consumo import enriquecer_consumo_neto, usa_consumo_neto
 from bess.core.kvarh import (
     columnas_kvarh as _columnas_kvarh,
     normalizar_columnas_kvarh as _normalizar_columnas_kvarh,
@@ -16,7 +17,41 @@ from bess.core.kvarh import (
 from bess.core.console import log
 print = log
 
-def leer_archivo_perfil(ruta, nombre_archivo,intercambiar_columnas=False):
+
+def _asegurar_columnas_kwh(df: pd.DataFrame) -> pd.DataFrame:
+    """Garantiza columnas KWH_REC y KWH_ENT numéricas (nombres alternativos o posición)."""
+    out = df.copy()
+    if "KWH_REC" in out.columns and "KWH_ENT" in out.columns:
+        out["KWH_REC"] = pd.to_numeric(out["KWH_REC"], errors="coerce").fillna(0)
+        out["KWH_ENT"] = pd.to_numeric(out["KWH_ENT"], errors="coerce").fillna(0)
+        return out
+
+    rec_col = ent_col = None
+    for col in out.columns:
+        nombre = str(col).lower().replace(" ", "")
+        if rec_col is None and nombre in ("kwh_rec", "kwhr", "kw_rec"):
+            rec_col = col
+        if ent_col is None and nombre in ("kwh_ent", "kwhe", "kw_ent"):
+            ent_col = col
+    if rec_col is None and len(out.columns) > 1:
+        rec_col = out.columns[1]
+    if ent_col is None and len(out.columns) > 2:
+        ent_col = out.columns[2]
+
+    out["KWH_REC"] = (
+        pd.to_numeric(out[rec_col], errors="coerce").fillna(0)
+        if rec_col is not None
+        else 0.0
+    )
+    out["KWH_ENT"] = (
+        pd.to_numeric(out[ent_col], errors="coerce").fillna(0)
+        if ent_col is not None
+        else 0.0
+    )
+    return out
+
+
+def leer_archivo_perfil(ruta, nombre_archivo):
     """Lee un archivo de perfil completo"""
     try:
         df = pd.read_csv(ruta, encoding='utf-8-sig')
@@ -57,21 +92,14 @@ def leer_archivo_perfil(ruta, nombre_archivo,intercambiar_columnas=False):
         print(f"⚠️ {nombre_archivo}: Se eliminaron {registros_invalidos} registros con fecha inválida")
         df = df.dropna(subset=['Fecha'])
     
-    df['KWH_REC'] = pd.to_numeric(df['KWH_REC'], errors='coerce').fillna(0)
-    df['KWH_ENT'] = pd.to_numeric(df['KWH_ENT'], errors='coerce').fillna(0)
+    df = _asegurar_columnas_kwh(df)
     df = _normalizar_columnas_kvarh(df)
-    
-    if intercambiar_columnas:
-        print(f"🔄 {nombre_archivo}: Intercambiando KWH_REC ↔ KWH_ENT")
-        temp_rec = df['KWH_REC'].copy()
-        df['KWH_REC'] = df['KWH_ENT']
-        df['KWH_ENT'] = temp_rec
-    
+
     print(f"✅ {nombre_archivo}: {len(df)} registros válidos")
     return df
 
 
-def leer_sin_agrupar(ruta_archivo):
+def leer_sin_agrupar(ruta_archivo, prefijo_consumo: str | None = None):
     """Lee el archivo original SIN agrupar (incluye kVArh si existen)."""
     df = pd.read_csv(ruta_archivo, encoding='utf-8-sig')
     columna_fecha = df.columns[0]
@@ -80,23 +108,19 @@ def leer_sin_agrupar(ruta_archivo):
         df['DATETIME'] = pd.to_datetime(df[columna_fecha], errors='coerce')
     df = df.dropna(subset=['DATETIME']).reset_index(drop=True)
 
-    if 'KWH_REC' in df.columns and 'KWH_ENT' in df.columns:
-        df['KWH_REC'] = pd.to_numeric(df['KWH_REC'], errors='coerce').fillna(0)
-        df['KWH_ENT'] = pd.to_numeric(df['KWH_ENT'], errors='coerce').fillna(0)
-    else:
-        col_kwh_rec = df.columns[1]
-        col_kwh_ent = df.columns[2]
-        df['KWH_REC'] = pd.to_numeric(df[col_kwh_rec], errors='coerce').fillna(0)
-        df['KWH_ENT'] = pd.to_numeric(df[col_kwh_ent], errors='coerce').fillna(0)
+    df = _asegurar_columnas_kwh(df)
 
     df = _normalizar_columnas_kvarh(df)
     df['FECHA_HORA'] = df['DATETIME'].dt.strftime('%d/%m/%Y %H:%M')
 
     columnas = ['FECHA_HORA', 'KWH_REC', 'KWH_ENT'] + _columnas_kvarh(df)
-    return df[columnas]
+    df = df[columnas]
+    if prefijo_consumo:
+        df = enriquecer_consumo_neto(df, prefijo_consumo)
+    return df
 
 
-def leer_y_agrupar_por_hora(ruta_archivo, nombre_archivo):
+def leer_y_agrupar_por_hora(ruta_archivo, nombre_archivo, prefijo_consumo: str | None = None):
     """Lee y agrupa datos por hora (incluye kVArh si existen)."""
     df = pd.read_csv(ruta_archivo, encoding='utf-8-sig')
     columna_fecha = df.columns[0]
@@ -105,14 +129,7 @@ def leer_y_agrupar_por_hora(ruta_archivo, nombre_archivo):
         df['DATETIME'] = pd.to_datetime(df[columna_fecha], errors='coerce')
     df = df.dropna(subset=['DATETIME']).reset_index(drop=True)
 
-    if 'KWH_REC' in df.columns and 'KWH_ENT' in df.columns:
-        df['KWH_REC'] = pd.to_numeric(df['KWH_REC'], errors='coerce').fillna(0)
-        df['KWH_ENT'] = pd.to_numeric(df['KWH_ENT'], errors='coerce').fillna(0)
-    else:
-        col_kwh_rec = df.columns[1]
-        col_kwh_ent = df.columns[2]
-        df['KWH_REC'] = pd.to_numeric(df[col_kwh_rec], errors='coerce').fillna(0)
-        df['KWH_ENT'] = pd.to_numeric(df[col_kwh_ent], errors='coerce').fillna(0)
+    df = _asegurar_columnas_kwh(df)
 
     df = _normalizar_columnas_kvarh(df)
     df = df.sort_values('DATETIME').reset_index(drop=True)
@@ -125,7 +142,15 @@ def leer_y_agrupar_por_hora(ruta_archivo, nombre_archivo):
 
     df['GRUPO'] = np.arange(len(df)) // 12
 
+    sumar_neto_por_intervalo = (
+        prefijo_consumo is not None and usa_consumo_neto(prefijo_consumo)
+    )
+    if sumar_neto_por_intervalo:
+        df = enriquecer_consumo_neto(df, prefijo_consumo)
+
     agg = {'DATETIME': 'first', 'KWH_REC': 'sum', 'KWH_ENT': 'sum'}
+    if sumar_neto_por_intervalo:
+        agg['KWH_NETO'] = 'sum'
     for col in _columnas_kvarh(df):
         agg[col] = 'sum'
 
@@ -136,7 +161,13 @@ def leer_y_agrupar_por_hora(ruta_archivo, nombre_archivo):
     df_agrupado['FECHA'] = df_agrupado['DATETIME'].dt.strftime('%d/%m/%Y')
     df_agrupado['FECHA_HORA'] = df_agrupado['DATETIME'].dt.strftime('%d/%m/%Y %H:%M')
 
-    columnas = ['FECHA', 'HORA', 'FECHA_HORA', 'KWH_REC', 'KWH_ENT'] + _columnas_kvarh(df_agrupado)
-    return df_agrupado[columnas]
+    columnas = ['FECHA', 'HORA', 'FECHA_HORA', 'KWH_REC', 'KWH_ENT']
+    if 'KWH_NETO' in df_agrupado.columns:
+        columnas.append('KWH_NETO')
+    columnas.extend(_columnas_kvarh(df_agrupado))
+    df_agrupado = df_agrupado[columnas]
+    if prefijo_consumo and not sumar_neto_por_intervalo:
+        df_agrupado = enriquecer_consumo_neto(df_agrupado, prefijo_consumo)
+    return df_agrupado
 
 # ========== FUNCIONES DE PROCESAMIENTO ==========

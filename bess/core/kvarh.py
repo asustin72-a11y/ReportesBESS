@@ -18,8 +18,8 @@ def normalizar_columnas_kvarh(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def columnas_kvarh_prefijo(prefijo: str) -> tuple[str, ...]:
-    """Cuadrantes de kVArh según medidor: ION=Q1; BANCO=Q1+Q4."""
-    if prefijo == "ION":
+    """Cuadrantes de kVArh: ION/IUSA2=Q1; BANCO legado=Q1+Q4."""
+    if prefijo in ("ION", "IUSA2"):
         return ("KVARH_Q1",)
     if prefijo == "BANCO":
         return ("KVARH_Q1", "KVARH_Q4")

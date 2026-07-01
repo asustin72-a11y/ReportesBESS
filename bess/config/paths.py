@@ -31,4 +31,15 @@ def ensure_data_dirs() -> None:
         os.makedirs(path, exist_ok=True)
 
 
+def nombre_energia_bess_por_dia(prefijo: str) -> str:
+    """IUSA 1 (ION/BANCO) usa archivo general; demás subestaciones, por prefijo."""
+    if prefijo.upper() in ("ION", "BANCO"):
+        return "ENERGIA_BESS_POR_DIA.csv"
+    return f"ENERGIA_BESS_POR_DIA_{prefijo}.csv"
+
+
+def ruta_energia_bess_por_dia(prefijo: str) -> Path:
+    return DIRECTORIO_REPORTES / nombre_energia_bess_por_dia(prefijo)
+
+
 ensure_data_dirs()

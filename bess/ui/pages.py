@@ -25,6 +25,12 @@ warnings.filterwarnings('ignore')
 
 # ========== CONSTANTES (bess.config) ==========
 from bess.config.constants import ARCHIVO_TARIFAS, TIPOS_TARIFA, VERSION
+from bess.config.subestaciones import (
+    SUBESTACIONES,
+    etiqueta_medidor_consumo,
+    medidores_facturacion_subestacion,
+    subestacion_por_id,
+)
 from bess.config.paths import (
     DIRECTORIO_BASE,
     DIRECTORIO_FUENTE,
@@ -32,13 +38,15 @@ from bess.config.paths import (
     DIRECTORIO_REPORTES,
     DIRECTORIO_REPORTES_DIARIOS,
     DIRECTORIO_TARIFAS,
+    nombre_energia_bess_por_dia,
+    ruta_energia_bess_por_dia,
 )
 from bess.config.theme import COLORES, PERIODO_BG
 # Imports de módulos extraídos (Fases 7 y 9)
 from bess.cfe.capacity import calcular_criterio_cfe, construir_tabla_criterio_cfe
+from bess.cfe.arbitrage import calcular_arbitraje_rango
 from bess.cfe.daily_data import energia_diaria_tiene_sin_bess
 from bess.cfe.energy_month import (
-    calcular_arbitraje_desde_costos,
     calcular_costo_energia_mes,
     calcular_costo_energia_rango,
     construir_tabla_costo_energia,
@@ -73,6 +81,7 @@ from bess.ui.chart_view import render_grafica_plotly
 from bess.ui.receipt_tab import tab_recibo as _tab_recibo_core
 from bess.ui.sidebar import _ajustar_sidebar_por_rol, sidebar_admin, sidebar_user
 from bess.ui.styles import aplicar_estilos
+from bess.ui.navigation import render_navegacion_principal
 from bess.charts import (
     color_periodo,
     graficar_arbitraje,
@@ -96,6 +105,7 @@ from bess.core.numbers import (
     redondear_mxn_energia,
     sumar_energia,
 )
+from bess.core.dates import etiqueta_rango_operativo, mascara_rango_operativo, serie_fecha_operativa
 
 def estado_datos_sin_bess(prefijo):
     """Estado consolidado de columnas sin BESS."""
@@ -150,14 +160,15 @@ def render_selector_rango(df, prefijo, key_suffix, medidor=None):
         df = df.copy()
         df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
 
-    fecha_min = df['DATETIME'].min().date()
-    fecha_max = df['DATETIME'].max().date()
+    fecha_min = serie_fecha_operativa(df['DATETIME']).min()
+    fecha_max = serie_fecha_operativa(df['DATETIME']).max()
     fecha_def = datetime.now().date() - timedelta(days=1)
     fecha_def = max(fecha_min, min(fecha_def, fecha_max))
 
     if medidor:
         st.markdown(
-            f'<p class="contexto-medidor">Medidor activo: <b>{medidor}</b></p>',
+            f'<p class="contexto-medidor">Medidor activo: '
+            f'<b>{etiqueta_medidor_consumo(medidor)}</b></p>',
             unsafe_allow_html=True,
         )
     col1, col2, col3 = st.columns([2, 2, 1])
@@ -181,16 +192,15 @@ def render_selector_rango(df, prefijo, key_suffix, medidor=None):
         dias = (fecha_fin - fecha_inicio).days + 1
         st.metric("Días", dias)
 
-    fecha_inicio_dt = datetime.combine(fecha_inicio, datetime.min.time())
-    fecha_fin_dt = datetime.combine(fecha_fin, datetime.max.time())
-    mask = (df['DATETIME'] >= fecha_inicio_dt) & (df['DATETIME'] <= fecha_fin_dt)
+    mask = mascara_rango_operativo(df, fecha_inicio, fecha_fin)
     df_filtrado = df[mask].copy()
 
+    rango_label = etiqueta_rango_operativo(fecha_inicio, fecha_fin)
     st.markdown(f"""
     <div class="fecha-resumen">
         <b>{len(df_filtrado):,}</b> registros ·
         <b>{len(df_filtrado['FECHA_HORA'].unique()):,}</b> horas ·
-        del <b>{fecha_inicio.strftime('%d/%m/%Y')}</b> al <b>{fecha_fin.strftime('%d/%m/%Y')}</b>
+        {rango_label}
     </div>
     """, unsafe_allow_html=True)
 
@@ -413,15 +423,11 @@ def _celdas_kwh_tabla(base, intermedio, punta):
 def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
     """Calcula filas de la tabla de energía según el rango seleccionado."""
     rango_un_dia = fecha_inicio == fecha_fin
-    rango_label = (
-        fecha_inicio.strftime('%d/%m/%Y')
-        if rango_un_dia
-        else f"{fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}"
-    )
+    rango_label = etiqueta_rango_operativo(fecha_inicio, fecha_fin)
 
     ruta_acumulados = os.path.join(DIRECTORIO_REPORTES, f'ACUMULADOS_{prefijo}.csv')
     ruta_med_dia = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
-    ruta_bess_dia = os.path.join(DIRECTORIO_REPORTES, 'ENERGIA_BESS_POR_DIA.csv')
+    ruta_bess_dia = str(ruta_energia_bess_por_dia(prefijo))
 
     df_acum = pd.read_csv(ruta_acumulados) if os.path.exists(ruta_acumulados) else None
     fila_acum_fin = _fila_por_fecha(df_acum, fecha_fin)
@@ -476,40 +482,23 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
     descarga_punta = sumar_energia(sums_bess['PUNTA_ENT'])
 
     tarifas = cargar_tarifas()
-    mes_num = fecha_fin.month
-    precio_base = tarifas['Base'].get(mes_num, 0)
-    precio_intermedio = tarifas['Intermedio'].get(mes_num, 0)
-    precio_punta = tarifas['Punta'].get(mes_num, 0)
 
-    if energia_diaria_tiene_sin_bess(prefijo):
-        res_con = calcular_costo_energia_rango(
-            fecha_inicio, fecha_fin, prefijo, con_bess=True, tarifas=tarifas
-        )
-        res_sin = calcular_costo_energia_rango(
-            fecha_inicio, fecha_fin, prefijo, con_bess=False, tarifas=tarifas
-        )
-        if res_con is not None and res_sin is not None:
-            arb = calcular_arbitraje_desde_costos(res_sin, res_con)
-            arbitraje_base = arb['base']
-            arbitraje_intermedio = arb['intermedio']
-            arbitraje_punta = arb['punta']
-            arbitraje_total = arb['total']
-        else:
-            arbitraje_base, arbitraje_intermedio, arbitraje_punta, arbitraje_total = (
-                _calcular_arbitraje_bess_periodo(
-                    carga_base, carga_intermedio, carga_punta,
-                    descarga_base, descarga_intermedio, descarga_punta,
-                    precio_base, precio_intermedio, precio_punta,
-                )
-            )
-    else:
-        arbitraje_base, arbitraje_intermedio, arbitraje_punta, arbitraje_total = (
-            _calcular_arbitraje_bess_periodo(
-                carga_base, carga_intermedio, carga_punta,
-                descarga_base, descarga_intermedio, descarga_punta,
-                precio_base, precio_intermedio, precio_punta,
-            )
-        )
+    arb = calcular_arbitraje_rango(
+        fecha_inicio,
+        fecha_fin,
+        prefijo,
+        carga_base=carga_base,
+        carga_intermedio=carga_intermedio,
+        carga_punta=carga_punta,
+        descarga_base=descarga_base,
+        descarga_intermedio=descarga_intermedio,
+        descarga_punta=descarga_punta,
+        tarifas=tarifas,
+    )
+    arbitraje_base = arb['base']
+    arbitraje_intermedio = arb['intermedio']
+    arbitraje_punta = arb['punta']
+    arbitraje_total = arb['total']
 
     c_b, c_i, c_p, c_t = _celdas_kwh_tabla(consumo_base, consumo_intermedio, consumo_punta)
     g_b, g_i, g_p, g_t = _celdas_kwh_tabla(carga_base, carga_intermedio, carga_punta)
@@ -675,7 +664,7 @@ def tab_dashboard(df, prefijo, medidor):
         st.warning("No hay datos en el rango seleccionado")
         return
 
-    rango_label = f"{fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}"
+    rango_label = etiqueta_rango_operativo(fecha_inicio, fecha_fin)
     detalle = calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo)
 
     carga = sumar_energia(df_filtrado['KWH_REC_BESS'])
@@ -726,6 +715,13 @@ def tab_dashboard(df, prefijo, medidor):
             f'perfil_{prefijo}_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.png',
             download_key=f'perfil_{prefijo}_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}',
         )
+        if descarga == 0 and carga > 0:
+            st.caption(
+                'En el periodo seleccionado hay carga BESS pero no descarga registrada '
+                '(valores en cero en KWH_ENT_BESS). Prueba otro día o rango.'
+            )
+        elif descarga == 0 and carga == 0:
+            st.caption('No hay actividad BESS (carga ni descarga) en el periodo seleccionado.')
 
     with st.container(border=True):
         section_header(detalle["titulo_tabla"])
@@ -766,14 +762,14 @@ def tab_analisis(df, prefijo):
     col_con = f'IUSA_CON_BESS_{prefijo}_kW_DEM_15min'
     col_sin = f'IUSA_SIN_BESS_{prefijo}_kW_DEM_15min'
 
-    fecha_min = df['DATETIME'].min().date()
-    fecha_max = df['DATETIME'].max().date()
+    fecha_min = serie_fecha_operativa(df['DATETIME']).min()
+    fecha_max = serie_fecha_operativa(df['DATETIME']).max()
     fecha_def = datetime.now().date() - timedelta(days=1)
     fecha_def = max(fecha_min, min(fecha_def, fecha_max))
 
     fecha_sel = render_selector_fecha_unica(
         'Análisis',
-        'Fecha de corte para demanda del día y acumulados mensuales.',
+        'Fecha operativa (00:05–00:00) para demanda del día y acumulados mensuales.',
         'Fecha de corte',
         fecha_def,
         fecha_min,
@@ -786,7 +782,7 @@ def tab_analisis(df, prefijo):
 
     fecha_str = fecha_sel.strftime('%d/%m/%Y')
     mes_label = fecha_sel.strftime('%m/%Y')
-    df_dia = df[df['DATETIME'].dt.date == fecha_sel].copy()
+    df_dia = df[mascara_rango_operativo(df, fecha_sel, fecha_sel)].copy()
     if df_dia.empty:
         st.warning(f"No hay datos para la fecha {fecha_str}")
         return
@@ -806,7 +802,11 @@ def tab_analisis(df, prefijo):
     )
     precio_cap = tarifas.get('Capacidad', {}).get(mes_num, 0)
 
-    tab_dem, tab_ene, tab_cfe = st.tabs(["Demanda", "Energía y costos", "Capacidad CFE"])
+    tab_dem, tab_ene, tab_cfe = st.tabs([
+        "📈 Demanda",
+        "💰 Energía y costos",
+        "🏭 Capacidad CFE",
+    ])
 
     with tab_dem:
         df_dem = df_dia.copy()
@@ -975,14 +975,14 @@ def tab_reporte(df, prefijo):
     if 'DATETIME' not in df.columns:
         df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
 
-    fecha_min = df['DATETIME'].min().date()
-    fecha_max = df['DATETIME'].max().date()
+    fecha_min = serie_fecha_operativa(df['DATETIME']).min()
+    fecha_max = serie_fecha_operativa(df['DATETIME']).max()
     fecha_por_defecto = datetime.now().date() - timedelta(days=1)
     fecha_por_defecto = max(fecha_min, min(fecha_por_defecto, fecha_max))
 
     fecha_seleccionada = render_selector_fecha_unica(
         'Reporte diario',
-        'PDF con perfil de carga, consumo acumulado del mes y arbitraje del día.',
+        'PDF con perfil de carga, consumo acumulado del mes y arbitraje del día (00:05–00:00).',
         'Fecha del reporte',
         fecha_por_defecto,
         fecha_min,
@@ -991,7 +991,7 @@ def tab_reporte(df, prefijo):
     )
 
     fecha_str = fecha_seleccionada.strftime('%d/%m/%Y')
-    df_dia = df[df['DATETIME'].dt.date == fecha_seleccionada].copy()
+    df_dia = df[mascara_rango_operativo(df, fecha_seleccionada, fecha_seleccionada)].copy()
     if df_dia.empty:
         st.warning(f"No hay datos para la fecha {fecha_str}")
         return
@@ -1108,8 +1108,8 @@ def _cargar_energia_diaria_rango(prefijo, fecha_inicio, fecha_fin):
         )
     return df
 
-def _cargar_bess_diaria_rango(fecha_inicio, fecha_fin):
-    ruta = os.path.join(DIRECTORIO_REPORTES, 'ENERGIA_BESS_POR_DIA.csv')
+def _cargar_bess_diaria_rango(fecha_inicio, fecha_fin, prefijo):
+    ruta = str(ruta_energia_bess_por_dia(prefijo))
     if not os.path.exists(ruta):
         return None
     df = pd.read_csv(ruta)
@@ -1139,7 +1139,7 @@ def tab_tendencia(df, prefijo):
         st.warning("La fecha final debe ser posterior o igual a la inicial")
         return
 
-    rango_label = f"{fecha_inicio.strftime('%d/%m/%Y')} al {fecha_fin.strftime('%d/%m/%Y')}"
+    rango_label = etiqueta_rango_operativo(fecha_inicio, fecha_fin)
     dias = (fecha_fin - fecha_inicio).days + 1
 
     section_header(f'Tendencia · {rango_label}')
@@ -1149,7 +1149,7 @@ def tab_tendencia(df, prefijo):
         st.warning(f"No hay datos de energía para el periodo {rango_label}")
         return
 
-    df_bess = _cargar_bess_diaria_rango(fecha_inicio, fecha_fin)
+    df_bess = _cargar_bess_diaria_rango(fecha_inicio, fecha_fin, prefijo)
     estado_bess = estado_datos_sin_bess(prefijo)
     mostrar_aviso_sin_bess(estado_bess)
 
@@ -1198,7 +1198,11 @@ def tab_tendencia(df, prefijo):
             with col4:
                 metric_compact('Arbitraje acum.', f'${arbitraje_acum:,.2f}')
 
-    tab_con, tab_cmp, tab_ops = st.tabs(['Consumo por periodo', 'Consumo con BESS', 'Operación BESS'])
+    tab_con, tab_cmp, tab_ops = st.tabs([
+        '📊 Consumo por periodo',
+        '⚖️ Consumo con BESS',
+        '🔋 Operación BESS',
+    ])
 
     with tab_con:
         with st.container(border=True):
@@ -1270,7 +1274,9 @@ def tab_tendencia(df, prefijo):
                     download_key=f'dl_tend_ops_{prefijo}_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}',
                 )
         else:
-            st.warning('No hay datos en ENERGIA_BESS_POR_DIA.csv para este rango.')
+            st.warning(
+                f'No hay datos en {nombre_energia_bess_por_dia(prefijo)} para este rango.'
+            )
         with st.container(border=True):
             render_grafica_plotly(
                 graficar_tendencia_arbitraje(df_arb, rango_label),
@@ -1305,12 +1311,42 @@ def tab_tendencia(df, prefijo):
             """, unsafe_allow_html=True)
 
 # ========== MAIN ==========
+@st.fragment
+def _bloque_reporteador(df, prefijo, medidor):
+    """Navegación + contenido (rerun parcial, sin parpadeo de login)."""
+    with st.container(border=True):
+        seccion = render_navegacion_principal()
+
+    if seccion == "operacion":
+        tab_dashboard(df, prefijo, medidor)
+    elif seccion == "analisis":
+        tab_analisis(df, prefijo)
+    elif seccion == "tendencia":
+        tab_tendencia(df, prefijo)
+    elif seccion == "reporte":
+        tab_reporte(df, prefijo)
+    elif seccion == "recibo":
+        tab_recibo(df, prefijo)
+
+
+def _al_cambiar_subestacion():
+    sub_id = st.session_state.get("subestacion_principal")
+    opciones = medidores_facturacion_subestacion(sub_id)
+    actual = st.session_state.get("medidor_principal")
+    if opciones and actual not in opciones:
+        st.session_state["medidor_principal"] = opciones[0]
+
+
 def main():
     init_session()
 
     if not st.session_state.get('autenticado', False):
-        login()
-        return
+        login_placeholder = st.empty()
+        with login_placeholder.container():
+            login()
+        if not st.session_state.get('autenticado', False):
+            return
+        login_placeholder.empty()
 
     aplicar_estilos()
     es_admin = st.session_state.get('rol') == 'admin'
@@ -1321,43 +1357,70 @@ def main():
         sidebar_user()
     _ajustar_sidebar_por_rol(es_admin)
     
-    ruta_ion = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_ION.csv')
-    ruta_banco = os.path.join(DIRECTORIO_REPORTES, 'COMBINADO_POR_MINUTO_BANCO.csv')
-    
-    if not os.path.exists(ruta_ion) and not os.path.exists(ruta_banco):
+    rutas_disponibles = [
+        os.path.join(DIRECTORIO_REPORTES, f"COMBINADO_POR_MINUTO_{med.prefijo}.csv")
+        for sub in SUBESTACIONES
+        for med in sub.medidores_consumo
+    ]
+    if not any(os.path.exists(r) for r in rutas_disponibles):
         st.warning("No hay datos procesados. Contacta al administrador.")
         return
 
+    if "subestacion_principal" not in st.session_state:
+        st.session_state["subestacion_principal"] = SUBESTACIONES[0].id
+    if "medidor_principal" not in st.session_state:
+        st.session_state["medidor_principal"] = SUBESTACIONES[0].prefijo
+
     with st.container(border=True):
         render_barra_superior(es_admin)
-        medidor = st.selectbox("Medidor", ["ION", "BANCO"], key="medidor_principal")
+        st.markdown(
+            '<div class="panel-medidor">'
+            '<p class="panel-medidor-label">Subestación</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        opciones_sub = [s.id for s in SUBESTACIONES]
+        st.selectbox(
+            "Subestación",
+            opciones_sub,
+            key="subestacion_principal",
+            label_visibility="collapsed",
+            format_func=lambda sid: (
+                subestacion_por_id(sid).nombre if subestacion_por_id(sid) else sid
+            ),
+            on_change=_al_cambiar_subestacion,
+        )
+        st.markdown(
+            '<div class="panel-medidor">'
+            '<p class="panel-medidor-label">Medidor de Facturación</p>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        sub_actual = subestacion_por_id(st.session_state.get("subestacion_principal"))
+        opciones_medidor = (
+            medidores_facturacion_subestacion(st.session_state.get("subestacion_principal"))
+            if sub_actual
+            else []
+        )
+        medidor = st.selectbox(
+            "Medidor",
+            opciones_medidor,
+            key="medidor_principal",
+            label_visibility="collapsed",
+            format_func=etiqueta_medidor_consumo,
+        )
 
-    prefijo = 'ION' if medidor == 'ION' else 'BANCO'
-    ruta = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo}.csv')
+    prefijo = medidor
+    ruta = os.path.join(DIRECTORIO_REPORTES, f"COMBINADO_POR_MINUTO_{prefijo}.csv")
 
     if not os.path.exists(ruta):
-        st.warning(f"No hay datos para {medidor}")
+        st.warning(f"No hay datos para {etiqueta_medidor_consumo(medidor)}")
         return
 
     df = pd.read_csv(ruta)
     df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
 
-    tabs = st.tabs(["Operación BESS", "Análisis", "Tendencia", "Reporte", "Recibo"])
-
-    with tabs[0]:
-        tab_dashboard(df, prefijo, medidor)
-
-    with tabs[1]:
-        tab_analisis(df, prefijo)
-
-    with tabs[2]:
-        tab_tendencia(df, prefijo)
-
-    with tabs[3]:
-        tab_reporte(df, prefijo)
-
-    with tabs[4]:
-        tab_recibo(df, prefijo)
+    _bloque_reporteador(df, prefijo, medidor)
 
 if __name__ == "__main__":
     main()

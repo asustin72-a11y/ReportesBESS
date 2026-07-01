@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 
 import pandas as pd
 
 from bess.core.console import log
+
+_FMT_FECHA = "%d/%m/%Y"
+_FMT_FECHA_HORA = "%d/%m/%Y %H:%M"
+_INICIO_DIA_OPERATIVO = time(0, 5)
+_FIN_DIA_OPERATIVO = time(0, 0)
 
 
 def normalizar_fecha(fecha):
@@ -54,3 +59,68 @@ def validar_y_convertir_fecha(fecha_str):
     except Exception:
         log(f"ADVERTENCIA: No se pudo convertir la fecha: {fecha_str}")
         return fecha_str
+
+
+def fecha_operativa(dt: datetime) -> date:
+    """Día operativo: de 00:05 del día D hasta 00:00 del día D+1 (inclusive)."""
+    if dt.hour == 0 and dt.minute < 5:
+        return (dt - timedelta(days=1)).date()
+    return dt.date()
+
+
+def fecha_operativa_desde_str(fecha_hora: str) -> date:
+    return fecha_operativa(datetime.strptime(str(fecha_hora).strip(), _FMT_FECHA_HORA))
+
+
+def fecha_operativa_como_str(fecha_hora: str) -> str:
+    return fecha_operativa_desde_str(fecha_hora).strftime(_FMT_FECHA)
+
+
+def rango_datetimes_operativo(fecha_inicio: date, fecha_fin: date) -> tuple[datetime, datetime]:
+    inicio = datetime.combine(fecha_inicio, _INICIO_DIA_OPERATIVO)
+    fin = datetime.combine(fecha_fin + timedelta(days=1), _FIN_DIA_OPERATIVO)
+    return inicio, fin
+
+
+def etiqueta_rango_operativo(fecha_inicio: date, fecha_fin: date) -> str:
+    if fecha_inicio == fecha_fin:
+        return f"{fecha_inicio.strftime(_FMT_FECHA)} (00:05 – 00:00)"
+    return (
+        f"{fecha_inicio.strftime(_FMT_FECHA)} al {fecha_fin.strftime(_FMT_FECHA)} "
+        "(día operativo 00:05–00:00)"
+    )
+
+
+def serie_fecha_operativa(dt: pd.Series) -> pd.Series:
+    """Series datetime → date operativo (vectorizado)."""
+    fechas = dt.dt.floor("D")
+    ajustar = (dt.dt.hour == 0) & (dt.dt.minute < 5)
+    return fechas.where(~ajustar, fechas - pd.Timedelta(days=1)).dt.date
+
+
+def agregar_fecha_operativa(
+    df: pd.DataFrame,
+    *,
+    col_datetime: str = "DATETIME",
+    col_fecha_hora: str | None = "FECHA_HORA",
+    out_col: str = "FECHA",
+) -> pd.DataFrame:
+    out = df.copy()
+    if col_datetime not in out.columns:
+        if col_fecha_hora and col_fecha_hora in out.columns:
+            out[col_datetime] = pd.to_datetime(out[col_fecha_hora], format=_FMT_FECHA_HORA)
+        else:
+            raise KeyError(f"Falta columna {col_datetime} o {col_fecha_hora}")
+    out[out_col] = pd.to_datetime(serie_fecha_operativa(out[col_datetime])).dt.strftime(_FMT_FECHA)
+    return out
+
+
+def mascara_rango_operativo(
+    df: pd.DataFrame,
+    fecha_inicio: date,
+    fecha_fin: date,
+    *,
+    col_datetime: str = "DATETIME",
+) -> pd.Series:
+    inicio, fin = rango_datetimes_operativo(fecha_inicio, fecha_fin)
+    return (df[col_datetime] >= inicio) & (df[col_datetime] <= fin)

@@ -100,7 +100,6 @@ def login():
                         st.session_state.usuario = usuario
                         st.session_state.rol = registro['rol']
                         st.cache_data.clear()
-                        st.rerun()
                     else:
                         st.error("❌ Usuario o contraseña incorrectos")
 

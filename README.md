@@ -2,7 +2,7 @@
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
 
-**Versión actual:** 5.4 — UI modular, sync ION (Modbus) + BESS/BANCO (API), descarga PNG de gráficas y recibo CFE con tarifas MEM completas.
+**Versión actual:** 5.5 — Pipeline por minuto (sin capa horaria), día operativo 00:05–00:00, neteo IUSA2 por intervalo de 5 min, UI y reportes alineados al combinado minuto.
 
 ## Ejecución local
 

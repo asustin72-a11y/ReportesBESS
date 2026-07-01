@@ -7,6 +7,7 @@ import os
 import pandas as pd
 
 from bess.config.paths import DIRECTORIO_PROCESADOS, DIRECTORIO_REPORTES
+from bess.config.subestaciones import medidor_consumo_por_prefijo
 from bess.core.kvarh import columnas_kvarh_prefijo, normalizar_columnas_kvarh
 from bess.core.numbers import redondear_arriba_kw, sumar_energia
 
@@ -74,13 +75,14 @@ def obtener_kvarh_mes(fecha, prefijo):
             if not df_r.empty:
                 return float(pd.to_numeric(df_r['KVARH'], errors='coerce').fillna(0).sum())
 
-    archivo_map = {'ION': 'ION.csv', 'BANCO': 'Banco1.csv'}
-    archivo = archivo_map.get(prefijo)
-    if not archivo:
+    med = medidor_consumo_por_prefijo(prefijo)
+    if not med:
         return None
-    ruta = os.path.join(DIRECTORIO_PROCESADOS, archivo)
+    ruta = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_filtrado)
     if not os.path.exists(ruta):
-        return None
+        ruta = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_csv)
+        if not os.path.exists(ruta):
+            return None
     df = pd.read_csv(ruta)
     if 'Fecha' not in df.columns:
         return None

@@ -10,13 +10,63 @@ from datetime import timedelta
 import pandas as pd
 
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
+from bess.config.subestaciones import SUBESTACIONES, archivos_fuente_subestacion
 from bess.core.console import crear_barra, imprimir_progreso as _imprimir_progreso, log
 from bess.data.ingest.identify import identificar_y_renombrar_archivos
 from bess.data.ingest.readers import leer_archivo_perfil
 
 print = log
 
-def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo, intercambiar=False):
+_PRIMER_INTERVALO_DIA = (0, 5)
+# Solo ION (Modbus). BESS, Banco 1 y granja (API) deben conservar/rellenar 00:00.
+_ARCHIVOS_SALTAR_MEDIANOCHE_ION = frozenset({"ION.csv", "ION_IUSA2.csv"})
+
+
+def _saltar_slot_medianoche_opcional(esperada, siguiente_en_archivo) -> bool:
+    """
+    Al rellenar huecos: tras 23:55 el reloj cae en 00:00, pero el medidor puede
+    empezar el día en 00:05. No insertar un cero en 00:00 si ya viene 00:05.
+    Si el medidor sí trae 00:00 con datos, ese registro se conserva sin saltar.
+    """
+    if esperada.hour != 0 or esperada.minute != 0:
+        return False
+    if siguiente_en_archivo <= esperada:
+        return False
+    if siguiente_en_archivo.date() != esperada.date():
+        return False
+    return (
+        siguiente_en_archivo.hour == _PRIMER_INTERVALO_DIA[0]
+        and siguiente_en_archivo.minute == _PRIMER_INTERVALO_DIA[1]
+    )
+
+
+def _guardar_perfil_procesado(
+    perfil: pd.DataFrame,
+    ruta_destino: str,
+    nombre_archivo: str,
+) -> bool:
+    os.makedirs(os.path.dirname(ruta_destino), exist_ok=True)
+    if os.path.exists(ruta_destino):
+        backup_path = ruta_destino.replace('.csv', '_backup.csv')
+        shutil.copy2(ruta_destino, backup_path)
+        print(f"💾 Backup creado: {os.path.basename(backup_path)}")
+
+    salida = perfil.copy()
+    salida['Fecha'] = salida['Fecha'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        salida.to_csv(ruta_destino, index=False, encoding='utf-8-sig')
+    except OSError as e:
+        print(
+            f"❌ No se pudo guardar {nombre_archivo}: {e}. "
+            "Cierre Excel u otro programa que tenga abierto el CSV en ArchivosProcesados."
+        )
+        return False
+    print(f"✅ Archivo procesado guardado: {ruta_destino}")
+    print(f"📊 Registros finales: {len(salida)}")
+    return True
+
+
+def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
     """
     Procesa un archivo CSV verificando duplicados y registros faltantes
     """
@@ -45,7 +95,7 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo, int
         print(f"🗑️ Renglones duplicados eliminados: {renglones_duplicados}")
         
         perfil_sin_duplicados = perfil_sin_duplicados.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
-        
+
         # Verificar registros faltantes
         num_registros = len(perfil_sin_duplicados)
         fi = perfil_sin_duplicados.iloc[0, 0]
@@ -68,11 +118,18 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo, int
         columnas = perfil.columns.tolist()
         
         print("\n⏳ Verificando registros faltantes...")
+        usar_salto_medianoche = nombre_archivo in _ARCHIVOS_SALTAR_MEDIANOCHE_ION
         
         while x < num_registros:
             fecha_archivo = perfil_sin_duplicados.iloc[x, 0]
             
             if fecha_archivo != Fecha_Correcta:
+                if usar_salto_medianoche and _saltar_slot_medianoche_opcional(
+                    Fecha_Correcta, fecha_archivo
+                ):
+                    Fecha_Correcta = fecha_archivo
+                    continue
+
                 nuevo_registro = {'Fecha': Fecha_Correcta}
                 for col in columnas[1:]:
                     nuevo_registro[col] = 0
@@ -104,29 +161,12 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo, int
             perfil_completo = perfil_sin_duplicados
         
         perfil_completo = perfil_completo.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
-        
-        os.makedirs(ruta_destino, exist_ok=True)
-        ruta_guardado = os.path.join(ruta_destino, nombre_archivo)
-        
-        if os.path.exists(ruta_guardado):
-            backup_path = ruta_guardado.replace('.csv', '_backup.csv')
-            shutil.copy2(ruta_guardado, backup_path)
-            print(f"💾 Backup creado: {os.path.basename(backup_path)}")
-        
-        # Guardar con formato de fecha estandarizado
-        perfil_completo['Fecha'] = perfil_completo['Fecha'].dt.strftime('%Y-%m-%d %H:%M:%S')
-        try:
-            perfil_completo.to_csv(ruta_guardado, index=False, encoding='utf-8-sig')
-        except OSError as e:
-            print(
-                f"❌ No se pudo guardar {nombre_archivo}: {e}. "
-                "Cierre Excel u otro programa que tenga abierto el CSV en ArchivosProcesados."
-            )
-            return False
-        print(f"✅ Archivo procesado guardado: {ruta_guardado}")
-        print(f"📊 Registros finales: {len(perfil_completo)}")
-        
-        return True
+
+        return _guardar_perfil_procesado(
+            perfil_completo,
+            ruta_completa_destino,
+            nombre_archivo,
+        )
         
     except Exception as e:
         print(f"❌ Error al procesar {nombre_archivo}: {str(e)}")
@@ -141,67 +181,90 @@ def verificar_datos_fuente():
     # PASO 1: Identificar y renombrar archivos
     identificar_y_renombrar_archivos()
     
-    # PASO 2: Procesar archivos estándar
-    archivos = ['Banco1.csv', 'BESS.csv', 'ION.csv']
-    
-    print("\n" + "="*70)
+    # PASO 2: Procesar archivos por subestación (consumo, BESS y granja)
+    print("\n" + "=" * 70)
     print("🔍 VERIFICADOR DE PERFILES DE CARGA")
-    print("="*70)
+    print("=" * 70)
     print(f"📁 Carpeta origen: {DIRECTORIO_FUENTE}")
     print(f"📁 Carpeta destino: {DIRECTORIO_PROCESADOS}")
-    print("="*70)
-    
+    print("=" * 70)
+
     if not os.path.exists(DIRECTORIO_FUENTE):
         print(f"❌ Error: No existe la carpeta {DIRECTORIO_FUENTE}")
         os.makedirs(DIRECTORIO_FUENTE, exist_ok=True)
         print(f"✅ Carpeta creada: {DIRECTORIO_FUENTE}")
-        return False, f"No existía la carpeta {DIRECTORIO_FUENTE}. Coloque ION.csv, BESS.csv y Banco1.csv ahí."
-    
-    archivos_encontrados = []
-    for archivo in archivos:
-        ruta_completa = os.path.join(DIRECTORIO_FUENTE, archivo)
-        if os.path.exists(ruta_completa):
-            archivos_encontrados.append(archivo)
-    
-    if not archivos_encontrados:
-        print(f"❌ No se encontraron archivos en {DIRECTORIO_FUENTE}")
         return False, (
-            "No se encontraron archivos en ArchivosFuente. "
-            "Copie ION.csv, BESS.csv y Banco1.csv en data/ArchivosFuente."
+            f"No existía la carpeta {DIRECTORIO_FUENTE}. "
+            "Coloque los CSV de perfil ahí."
         )
-    
-    print(f"\n📋 Archivos encontrados: {', '.join(archivos_encontrados)}")
-    
-    resultados = {}
-    for archivo in archivos:
-        if os.path.exists(os.path.join(DIRECTORIO_FUENTE, archivo)):
-            intercambiar = (archivo == 'Banco1.csv')
-            resultados[archivo] = procesar_archivo_verificacion(
-                DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS, archivo, intercambiar
-            )
-        else:
-            print(f"\n⚠️ Archivo no encontrado: {archivo} (omitido)")
-            resultados[archivo] = False
-    
-    print("\n" + "="*70)
-    print("📊 RESUMEN FINAL VERIFICACIÓN")
-    print("="*70)
-    for archivo, exito in resultados.items():
-        estado = "✅ Éxito" if exito else "❌ Falló"
-        print(f"   {archivo}: {estado}")
-    
-    if all(resultados.values()):
-        return True, "Verificación completada para ION, BESS y Banco1."
 
-    faltantes = [a for a in archivos if not os.path.exists(os.path.join(DIRECTORIO_FUENTE, a))]
-    fallidos = [a for a, ok in resultados.items() if not ok]
-    partes = []
-    if faltantes:
-        partes.append(f"faltan en fuente: {', '.join(faltantes)}")
+    resultados: dict[str, bool | None] = {}
+
+    for sub in SUBESTACIONES:
+        print(f"\n{'=' * 70}")
+        print(f"🔍 {sub.nombre}")
+        print("=" * 70)
+        for archivo in archivos_fuente_subestacion(sub):
+            ruta_completa = os.path.join(DIRECTORIO_FUENTE, archivo)
+            if not os.path.exists(ruta_completa):
+                print(f"\n⚠️ {archivo} no está en ArchivosFuente (omitido)")
+                resultados[archivo] = None
+                continue
+            resultados[archivo] = procesar_archivo_verificacion(
+                DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS, archivo
+            )
+
+    print("\n" + "=" * 70)
+    print("📊 RESUMEN FINAL VERIFICACIÓN")
+    print("=" * 70)
+    for archivo, exito in resultados.items():
+        if exito is None:
+            estado = "⏭️ Omitido (no en fuente)"
+        elif exito:
+            estado = "✅ Éxito"
+        else:
+            estado = "❌ Falló"
+        print(f"   {archivo}: {estado}")
+
+    verificados = [a for a, ok in resultados.items() if ok is True]
+    fallidos = [a for a, ok in resultados.items() if ok is False]
+    omitidos = [a for a, ok in resultados.items() if ok is None]
+
+    if not verificados:
+        return False, (
+            "No se verificó ningún archivo. "
+            "Copie los CSV en data/ArchivosFuente y vuelva a intentar."
+        )
     if fallidos:
-        partes.append(f"error al procesar: {', '.join(fallidos)}")
-    detalle = '; '.join(partes)
-    return False, (
-        f"Verificación incompleta ({detalle}). "
-        "Cierre Excel u otros programas que tengan abiertos los CSV en ArchivosProcesados."
+        return False, (
+            f"Error al verificar: {', '.join(fallidos)}. "
+            "Cierre Excel u otros programas que tengan abiertos los CSV."
+        )
+
+    return True, _mensaje_verificacion_ok(verificados, omitidos)
+
+
+def _mensaje_verificacion_ok(verificados: list[str], omitidos: list[str]) -> str:
+    """Mensaje de éxito agrupado por subestación (incluye granja IUSA 2)."""
+    partes: list[str] = []
+    for sub in SUBESTACIONES:
+        archivos_sub = archivos_fuente_subestacion(sub)
+        ok_sub = [a for a in archivos_sub if a in verificados]
+        if not ok_sub:
+            continue
+        nombres = []
+        for med in sub.medidores_consumo:
+            if med.consumo_csv in ok_sub:
+                nombres.append(med.etiqueta)
+        if sub.bess_csv in ok_sub:
+            nombres.append("BESS")
+        if sub.granja_csv and sub.granja_csv in ok_sub:
+            nombres.append("Granja (20 MEGA)")
+        partes.append(f"{sub.nombre}: {', '.join(nombres)}")
+
+    mensaje = "Verificación completada — " + "; ".join(partes) if partes else (
+        f"Verificación OK ({len(verificados)} archivo(s)): {', '.join(verificados)}"
     )
+    if omitidos:
+        mensaje += f". Sin archivo en fuente: {', '.join(omitidos)}"
+    return mensaje

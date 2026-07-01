@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import subprocess
 import sys
 
+from bess.config.constants import slug_medidor
 from bess.cfe.receipt.html import render_html_recibo_documento
 
 _CHROMIUM_LAUNCH_ARGS = (
@@ -19,7 +19,7 @@ _CHROMIUM_LAUNCH_ARGS = (
 
 def nombre_archivo_recibo(fecha, prefijo, con_bess):
     escenario = "ConBESS" if con_bess else "SinBESS"
-    return f"Recibo_{prefijo}_{escenario}_{fecha.strftime('%Y%m%d')}.pdf"
+    return f"Recibo_{slug_medidor(prefijo)}_{escenario}_{fecha.strftime('%Y%m%d')}.pdf"
 
 
 def _ensure_playwright_chromium():

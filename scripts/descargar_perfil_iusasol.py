@@ -104,11 +104,12 @@ def main() -> int:
         if args.csv:
             alias = args.medidor.strip().lower()
             nombre_csv = {
-                'bess': 'BESS.csv',
-                'banco1': 'Banco1.csv',
-                'banco': 'Banco1.csv',
-                'banco2': 'Banco2.csv',
-            }.get(alias, f'{args.medidor}.csv')
+                "bess": "BESS.csv",
+                "bess_iusa2": "BESS_IUSA2.csv",
+                "banco1": "Banco1.csv",
+                "banco": "Banco1.csv",
+                "banco2": "Banco2.csv",
+            }.get(alias, f"{args.medidor}.csv")
             ruta_csv = args.salida or (DIRECTORIO_FUENTE / nombre_csv)
             guardar_perfil_csv(perfil, ruta_csv)
             print(f'CSV guardado en: {ruta_csv}')

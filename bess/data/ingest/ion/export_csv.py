@@ -9,11 +9,21 @@ from pathlib import Path
 
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
 from bess.data.ingest.ion import db
+from bess.data.ingest.iusasol.gaps import (
+    MEDIDORES_RELLENAR_MEDIANOCHE_API,
+    contexto_previo_bd,
+    filas_a_dataframe,
+    persistir_slots_medianoche_bd,
+    rellenar_slots_medianoche_api,
+)
 
 MEDIDORES_EXPORT = {
-    'ION': 'ION.csv',
-    'BESS': 'BESS.csv',
-    'BANCO': 'Banco1.csv',
+    "ION": "ION.csv",
+    "BESS": "BESS.csv",
+    "ION_IUSA2": "ION_IUSA2.csv",
+    "BESS_IUSA2": "BESS_IUSA2.csv",
+    "GRANJA_IUSA2": "GRANJA_IUSA2.csv",
+    "BANCO": "Banco1.csv",
 }
 
 COLUMNAS_BESS = [
@@ -48,7 +58,10 @@ def exportar(
 
     if desde:
         query += ' AND fecha >= ?'
-        params.append(desde if ' ' in desde else f'{desde} 00:05:00')
+        inicio = desde if ' ' in desde else f'{desde} 00:00:00'
+        if medidor_id not in MEDIDORES_RELLENAR_MEDIANOCHE_API and ' ' not in desde:
+            inicio = f'{desde} 00:05:00'
+        params.append(inicio)
     if hasta:
         query += ' AND fecha <= ?'
         params.append(hasta if ' ' in hasta else f'{hasta} 23:59:59')
@@ -63,23 +76,61 @@ def exportar(
             print(f'  {medidor_id}: sin registros para exportar')
         return 1
 
+    if medidor_id in MEDIDORES_RELLENAR_MEDIANOCHE_API:
+        persistir_slots_medianoche_bd(medidor_id, ruta_bd)
+        with db.conectar_bd(ruta_bd) as conn:
+            filas = conn.execute(query, params).fetchall()
+        df = filas_a_dataframe(filas)
+        contexto = None
+        if desde and filas:
+            contexto = contexto_previo_bd(medidor_id, ruta_bd, df['Fecha'].min())
+        df = rellenar_slots_medianoche_api(df, contexto_prev=contexto)
+        filas_export = df
+        usar_df = True
+    else:
+        filas_export = filas
+        usar_df = False
+
     with salida.open('w', newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
         writer.writerow(COLUMNAS_BESS)
-        for row in filas:
-            writer.writerow([
-                row['fecha'],
-                row['kwh_rec'],
-                row['kwh_ent'],
-                row['kvarh_q1'],
-                row['kvarh_q2'],
-                row['kvarh_q3'],
-                row['kvarh_q4'],
-            ])
+        if usar_df:
+            for _, row in filas_export.iterrows():
+                fecha = row['Fecha']
+                fecha_txt = fecha.strftime('%Y-%m-%d %H:%M:%S') if hasattr(fecha, 'strftime') else str(fecha)
+                writer.writerow([
+                    fecha_txt,
+                    row['KWH_REC'],
+                    row['KWH_ENT'],
+                    row['KVARH_Q1'],
+                    row['KVARH_Q2'],
+                    row['KVARH_Q3'],
+                    row['KVARH_Q4'],
+                ])
+        else:
+            for row in filas_export:
+                writer.writerow([
+                    row['fecha'],
+                    row['kwh_rec'],
+                    row['kwh_ent'],
+                    row['kvarh_q1'],
+                    row['kvarh_q2'],
+                    row['kvarh_q3'],
+                    row['kvarh_q4'],
+                ])
 
     if not quiet:
-        print(f'  {medidor_id}: {len(filas)} registros -> {salida.name}')
-        print(f'    Rango: {filas[0]["fecha"]}  a  {filas[-1]["fecha"]}')
+        n = len(filas_export) if usar_df else len(filas)
+        print(f'  {medidor_id}: {n} registros -> {salida.name}')
+        if usar_df:
+            primero = filas_export.iloc[0]['Fecha']
+            ultimo = filas_export.iloc[-1]['Fecha']
+            n_medianoche = int(
+                ((filas_export['Fecha'].dt.hour == 0) & (filas_export['Fecha'].dt.minute == 0)).sum()
+            )
+            print(f'    Rango: {primero}  a  {ultimo}  ({n_medianoche} slots 00:00)')
+        else:
+            print(f'    Rango: {filas[0]["fecha"]}  a  {filas[-1]["fecha"]}')
     return 0
 
 
@@ -93,12 +144,15 @@ def exportar_todos(
 ) -> int:
     if not quiet:
         print(f'Exportando a {carpeta}')
-    errores = 0
+    activos = {fila[0] for fila in db.MEDIDORES_CATALOGO if fila[6]}
     for medidor_id, nombre_archivo in MEDIDORES_EXPORT.items():
+        if medidor_id not in activos:
+            continue
         salida = carpeta / nombre_archivo
         if exportar(ruta_bd, medidor_id, salida, desde, hasta, quiet=quiet) != 0:
-            errores += 1
-    return 1 if errores else 0
+            if not quiet:
+                print(f'  {medidor_id}: sin registros, export omitido')
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

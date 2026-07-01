@@ -1,0 +1,62 @@
+GWE6odW7OrhHrb4ZXx4jj2-omXF9l0UhvnpxCOqCpnIGZOJS3I6muHaiHYnL2oJ9  banco1
+
+7AsKPv5OgZNSZD8GE0TTOReNjVWpBDa5Te883xmMMeLqfj7sYuI2eMS8GD6jiyWJ  BESS
+
+
+
+=== FLUJO DIARIO (todo en C:\BESS) ===
+
+
+
+  python scripts\sincronizar_perfiles.py
+
+
+
+  ION (Modbus) + BESS/BANCO (API) → data\bess_perfiles.db → data\ArchivosFuente\
+
+
+
+  Luego en la app: Verificar → Filtrar → Generar reportes.
+
+
+
+=== Scripts ===
+
+
+
+  scripts\sincronizar_perfiles.py   Orquestador completo
+
+  scripts\sync_ion.py               Solo ION → SQLite
+
+  scripts\export_perfiles.py        SQLite → CSV
+
+  scripts\import_perfil_csv.py      CSV → SQLite
+
+  scripts\lee_ion.py                Diagnóstico Modbus / descarga manual
+
+  scripts\descargar_perfil_iusasol.py  Descarga API a JSON/CSV directo
+
+
+
+=== Base de datos ===
+
+
+
+  C:\BESS\data\bess_perfiles.db
+
+  Mapa Modbus: C:\BESS\data\modbus_map_default.csv
+
+
+
+=== API ISOL ===
+
+
+
+  tye = E (energía)   tym = 2 (kWh)
+
+  .../Profiles/Gral?id=<idcode>&beginDate=...&endDate=...&company=ISM&tym=2&tye=E
+
+
+
+  Guía ION/Modbus: docs\GUIA_ION.md
+

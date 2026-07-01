@@ -65,7 +65,8 @@ def perfil_json_a_dataframe(perfil: Any) -> pd.DataFrame:
     df = pd.DataFrame(registros, columns=COLUMNAS_PERFIL)
     df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
     df = df.dropna(subset=['Fecha']).sort_values('Fecha').reset_index(drop=True)
-    return df
+    from bess.data.ingest.iusasol.gaps import rellenar_slots_medianoche_api
+    return rellenar_slots_medianoche_api(df)
 
 
 def _preparar_dataframe(perfil: Any) -> pd.DataFrame:

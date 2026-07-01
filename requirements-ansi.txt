@@ -1,0 +1,4 @@
+# Dependencias opcionales para probar ANSI C12.18/C12.19 (puerto óptico ION).
+# Instalar: pip install -r requirements-ansi.txt
+termineter>=1.0.6
+pyserial>=3.5
