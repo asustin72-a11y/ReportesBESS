@@ -41,6 +41,11 @@ from bess.data.ingest.ion.modbus import (
 from bess.data.ingest.iusasol.sync_db import fecha_fin_api, sincronizar_api
 from bess.data.ingest.granja.sync_db import sincronizar_granja_iusa2
 from bess.data.sync_resumen import construir_lineas_resumen
+from bess.data.sync_validacion import (
+    ResultadoValidacionSync,
+    aplicar_validacion_post_sync,
+    detectar_fallo_sync,
+)
 from zoneinfo import ZoneInfo
 
 MSG_ION_NO_DISPONIBLE = 'Medidor ION no disponible.'
@@ -121,6 +126,7 @@ def _imprimir_resumen_compacto(
     api_items: list,
     granja_item: dict | None,
     export_ok: bool,
+    validacion=None,
     incluir_ion_iusa2: bool = True,
     incluir_granja: bool = True,
 ) -> None:
@@ -137,6 +143,10 @@ def _imprimir_resumen_compacto(
         export_ok=export_ok,
     ):
         print(linea)
+    if validacion and validacion.marcados:
+        print(f'Validado: {len(validacion.marcados)} medidor(es)')
+    if validacion and validacion.pendientes_ion:
+        print(f'ION pendiente: {", ".join(validacion.pendientes_ion)}')
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -219,7 +229,7 @@ def main(argv: list[str] | None = None) -> int:
                     print('  Se exportara el perfil ION ya guardado en la base de datos.')
 
         if not args.sin_ion_iusa2:
-            sub_iusa2 = subestacion_por_id('IUSA2')
+            sub_iusa2 = subestacion_por_id('IUSA_2')
             ip_iusa2 = (sub_iusa2.modbus_ip if sub_iusa2 else None) or '172.16.205.203'
             if not args.quiet:
                 print(f'\n{"=" * 70}')
@@ -277,6 +287,16 @@ def main(argv: list[str] | None = None) -> int:
                                     f"({item['insertados']} nuevos, {item['actualizados']} act.) "
                                     f"{item['desde']} -> {item['hasta']}"
                                 )
+                fallo_api = detectar_fallo_sync(
+                    api_items=api_items,
+                    granja_item=None,
+                    incluir_api=True,
+                    incluir_granja=False,
+                )
+                if fallo_api:
+                    if not args.quiet:
+                        print(f'\n{fallo_api}', file=sys.stderr)
+                    return 1
             except Exception as exc:
                 print(f'ERROR API: {exc}', file=sys.stderr)
                 return 1
@@ -303,6 +323,16 @@ def main(argv: list[str] | None = None) -> int:
                             f"{granja_item['desde']} -> {granja_item['hasta']} "
                             f"· {granja_item.get('medidores_mega', 20)} MEGA"
                         )
+                fallo_granja = detectar_fallo_sync(
+                    api_items=[],
+                    granja_item=granja_item,
+                    incluir_api=False,
+                    incluir_granja=True,
+                )
+                if fallo_granja:
+                    if not args.quiet:
+                        print(f'\n{fallo_granja}', file=sys.stderr)
+                    return 1
             except Exception as exc:
                 granja_item = {
                     'medidor': db.MEDIDOR_GRANJA_IUSA2,
@@ -310,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
                 }
                 if not args.quiet:
                     print(f'ERROR Granja: {exc}', file=sys.stderr)
+                return 1
 
     export_ok = True
     if not args.sin_export:
@@ -319,9 +350,8 @@ def main(argv: list[str] | None = None) -> int:
             print('=' * 70)
         codigo = exportar_todos(
             RUTA_BD_PERFILES,
-            DIRECTORIO_FUENTE,
-            export_desde,
-            export_hasta,
+            desde=export_desde,
+            hasta=export_hasta,
             quiet=args.quiet,
         )
         export_ok = codigo == 0
@@ -329,6 +359,26 @@ def main(argv: list[str] | None = None) -> int:
             return codigo
         if not args.quiet:
             print(f'\nCSV listos en: {DIRECTORIO_FUENTE}')
+
+    validacion = ResultadoValidacionSync(True, "")
+    if not args.sin_export and not args.solo_export:
+        validacion = aplicar_validacion_post_sync(
+        ion_no_disponible=ion_no_disponible,
+        ion_iusa2_no_disponible=ion_iusa2_no_disponible,
+        api_items=api_items,
+        granja_item=granja_item,
+        export_ok=export_ok and not args.sin_export and not args.solo_export,
+        incluir_ion=not args.sin_ion and not args.solo_export,
+        incluir_ion_iusa2=not args.sin_ion_iusa2 and not args.solo_export,
+        incluir_api=not args.sin_api and not args.solo_export,
+        incluir_granja=not args.sin_granja and not args.solo_export,
+        )
+        if not validacion.exito:
+            if not args.quiet:
+                print(f'\n{validacion.mensaje}', file=sys.stderr)
+            return 1
+        if not args.quiet and validacion.marcados:
+            print(f'\n{validacion.mensaje}')
 
     if args.quiet:
         _imprimir_resumen_compacto(
@@ -338,6 +388,7 @@ def main(argv: list[str] | None = None) -> int:
             ion_iusa2_no_disponible=ion_iusa2_no_disponible,
             api_items=api_items,
             export_ok=export_ok,
+            validacion=validacion,
             incluir_ion_iusa2=not args.sin_ion_iusa2,
             granja_item=granja_item,
             incluir_granja=not args.sin_granja,

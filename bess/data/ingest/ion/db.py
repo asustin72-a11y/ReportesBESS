@@ -10,12 +10,18 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from bess.config.paths import RUTA_BD_PERFILES
+from bess.data.ingest.medidor_ids import (
+    MEDIDOR_BANCO,
+    MEDIDOR_BESS,
+    MEDIDOR_BESS_IUSA2,
+    MEDIDOR_GENERACION_IUSA2,
+    MEDIDOR_GRANJA_IUSA2,
+    MEDIDOR_ION,
+    MEDIDOR_ION_IUSA2,
+    construir_medidores_catalogo_bd,
+)
 
 RUTA_BD_DEFAULT = RUTA_BD_PERFILES
-MEDIDOR_ION = "ION"
-MEDIDOR_ION_IUSA2 = "ION_IUSA2"
-MEDIDOR_BESS_IUSA2 = "BESS_IUSA2"
-MEDIDOR_GRANJA_IUSA2 = "GRANJA_IUSA2"
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS medidores (
@@ -67,39 +73,11 @@ CREATE INDEX IF NOT EXISTS idx_perfil_medidor_fecha
     ON perfil_carga (medidor_id, fecha);
 """
 
-# id, nombre, tipo, ip, dr_modulo, intervalo_min, activo
-MEDIDORES_CATALOGO = (
-    ("ION", "Facturación · Subestación IUSA 1", "ION8650", "172.16.111.209", 1, 5, 1),
-    ("BESS", "BESS · Subestación IUSA 1", "BESS", None, None, 5, 1),
-    (
-        "ION_IUSA2",
-        "Facturación · Subestación IUSA 2",
-        "ION8650",
-        "172.16.205.203",
-        1,
-        5,
-        1,
-    ),
-    (
-        "BESS_IUSA2",
-        "BESS · Subestación IUSA 2 (CS3190)",
-        "BESS",
-        None,
-        None,
-        5,
-        1,
-    ),
-    (
-        "GRANJA_IUSA2",
-        "Granja · Subestación IUSA 2 (20 MEGA)",
-        "GRANJA",
-        None,
-        None,
-        5,
-        1,
-    ),
-    ("BANCO", "Banco 1 · Subestación IUSA 1", "BANCO", None, None, 5, 1),
-)
+def _catalogo_medidores() -> tuple[tuple, ...]:
+    return construir_medidores_catalogo_bd()
+
+
+MEDIDORES_CATALOGO = _catalogo_medidores()
 
 # Compatibilidad con scripts que esperan tuplas de 6 campos.
 MEDIDORES_INICIALES = tuple(fila[:6] for fila in MEDIDORES_CATALOGO)
@@ -133,7 +111,7 @@ def _registrar_catalogo_medidores(conn: sqlite3.Connection) -> None:
             intervalo_min = excluded.intervalo_min,
             activo = excluded.activo
         """,
-        MEDIDORES_CATALOGO,
+        construir_medidores_catalogo_bd(),
     )
 
 

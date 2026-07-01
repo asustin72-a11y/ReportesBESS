@@ -29,16 +29,38 @@ _DATA_DIRS = (
 def ensure_data_dirs() -> None:
     for path in _DATA_DIRS:
         os.makedirs(path, exist_ok=True)
+    try:
+        from bess.config.rutas import asegurar_carpetas_desde_catalogo
+
+        asegurar_carpetas_desde_catalogo()
+    except Exception:
+        pass
 
 
 def nombre_energia_bess_por_dia(prefijo: str) -> str:
-    """IUSA 1 (ION/BANCO) usa archivo general; demás subestaciones, por prefijo."""
-    if prefijo.upper() in ("ION", "BANCO"):
-        return "ENERGIA_BESS_POR_DIA.csv"
+    """Nombre de archivo BESS diario por subestación (compat. prefijo legado)."""
+    from bess.config.rutas import nombre_energia_bess_por_dia as _nombre_sub
+    from bess.config.subestaciones import subestacion_por_prefijo
+
+    sub = subestacion_por_prefijo(prefijo)
+    if sub:
+        return _nombre_sub(sub.id)
     return f"ENERGIA_BESS_POR_DIA_{prefijo}.csv"
 
 
 def ruta_energia_bess_por_dia(prefijo: str) -> Path:
+    from bess.config.rutas import ruta_energia_bess_por_dia as _ruta_sub
+    from bess.config.subestaciones import subestacion_por_prefijo
+
+    sub = subestacion_por_prefijo(prefijo)
+    if sub:
+        nueva = _ruta_sub(sub.id)
+        legacy = DIRECTORIO_REPORTES / f"ENERGIA_BESS_POR_DIA_{prefijo}.csv"
+        if nueva.exists():
+            return nueva
+        if legacy.exists():
+            return legacy
+        return nueva
     return DIRECTORIO_REPORTES / nombre_energia_bess_por_dia(prefijo)
 
 

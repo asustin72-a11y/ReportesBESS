@@ -15,10 +15,10 @@ _FIN_DIA_OPERATIVO = time(0, 0)
 
 
 def normalizar_fecha(fecha):
-    """Convierte fecha al formato DD/MM/YYYY HH:MM."""
+    """Convierte fecha al formato DD/MM/YYYY HH:MM:SS."""
     if isinstance(fecha, str):
         return fecha
-    return fecha.strftime("%d/%m/%Y %H:%M")
+    return fecha.strftime("%d/%m/%Y %H:%M:%S")
 
 
 def validar_y_convertir_fecha(fecha_str):
@@ -30,6 +30,7 @@ def validar_y_convertir_fecha(fecha_str):
     formatos_posibles = [
         "%Y-%m-%d %H:%M:%S",
         "%d/%m/%Y %H:%M:%S",
+        "%d/%m/%Y %H:%M",
         "%d/%m/%Y %I:%M:%S %p",
         "%d/%m/%Y %I:%M:%S.%f %p",
         "%d/%m/%Y %I:%M:%S.%f",
@@ -55,7 +56,7 @@ def validar_y_convertir_fecha(fecha_str):
             continue
 
     try:
-        return pd.to_datetime(fecha_str).strftime("%Y-%m-%d %H:%M:%S")
+        return pd.to_datetime(fecha_str, dayfirst=True).strftime("%Y-%m-%d %H:%M:%S")
     except Exception:
         log(f"ADVERTENCIA: No se pudo convertir la fecha: {fecha_str}")
         return fecha_str
@@ -69,7 +70,14 @@ def fecha_operativa(dt: datetime) -> date:
 
 
 def fecha_operativa_desde_str(fecha_hora: str) -> date:
-    return fecha_operativa(datetime.strptime(str(fecha_hora).strip(), _FMT_FECHA_HORA))
+    texto = str(fecha_hora).strip()
+    for formato in (_FMT_FECHA_HORA, "%d/%m/%Y %H:%M:%S", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return fecha_operativa(datetime.strptime(texto, formato))
+        except ValueError:
+            continue
+    dt = datetime.strptime(validar_y_convertir_fecha(texto), "%Y-%m-%d %H:%M:%S")
+    return fecha_operativa(dt)
 
 
 def fecha_operativa_como_str(fecha_hora: str) -> str:
@@ -108,7 +116,8 @@ def agregar_fecha_operativa(
     out = df.copy()
     if col_datetime not in out.columns:
         if col_fecha_hora and col_fecha_hora in out.columns:
-            out[col_datetime] = pd.to_datetime(out[col_fecha_hora], format=_FMT_FECHA_HORA)
+            normalizada = out[col_fecha_hora].map(validar_y_convertir_fecha)
+            out[col_datetime] = pd.to_datetime(normalizada, errors="coerce")
         else:
             raise KeyError(f"Falta columna {col_datetime} o {col_fecha_hora}")
     out[out_col] = pd.to_datetime(serie_fecha_operativa(out[col_datetime])).dt.strftime(_FMT_FECHA)

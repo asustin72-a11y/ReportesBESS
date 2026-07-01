@@ -1,129 +1,160 @@
-"""Identificación y renombrado de archivos fuente."""
+"""Identificación y ubicación de archivos fuente según catálogo CSV."""
 
 from __future__ import annotations
 
 import os
 import shutil
+from pathlib import Path
 
+from bess.config import rutas as rutas_mod
+from bess.config.catalog import obtener_catalogo
 from bess.config.paths import DIRECTORIO_FUENTE
+from bess.config.subestaciones import SUBESTACIONES
+from bess.data.ingest.medidor_ids import LEGACY_A_NOMBRE
 
 from bess.core.console import log
+
 print = log
 
-# Orden: patrones más específicos primero; cada archivo solo puede asignarse una vez.
-_REGLAS_IDENTIFICACION: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
-    ("ION_IUSA2", ("ION_IUSA2", "205.203"), ("BESS", "GRANJA")),
-    ("GRANJA_IUSA2", ("GRANJA_IUSA2", "MEGA_total", "GRANJA"), ()),
-    ("BESS_IUSA2", ("BESS_IUSA2", "BESSIUSA2", "CS3190"), ()),
-    ("Banco1", ("CS1996", "BANCO1", "Banco1"), ()),
-    ("ION", ("IUSA1", "ION"), ("IUSA2", "BESS", "BANCO", "CS3190", "CS3878", "CS1996")),
-    ("BESS", ("CS3878", "BESS"), ("IUSA2", "CS3190", "BANCO", "CS1996")),
+# Nombre de archivo legacy (sin ruta) → Nombre del catálogo
+_LEGACY_ARCHIVO_A_NOMBRE: dict[str, str] = {
+    "ION.csv": LEGACY_A_NOMBRE["ION"],
+    "BESS.csv": LEGACY_A_NOMBRE["BESS"],
+    "Banco1.csv": LEGACY_A_NOMBRE["BANCO"],
+    "BANCO.csv": LEGACY_A_NOMBRE["BANCO"],
+    "ION_IUSA2.csv": LEGACY_A_NOMBRE["ION_IUSA2"],
+    "BESS_IUSA2.csv": LEGACY_A_NOMBRE["BESS_IUSA2"],
+    "GRANJA_IUSA2.csv": LEGACY_A_NOMBRE["GRANJA_IUSA2"],
+    "Generacion_IUSA_2.csv": "Generacion_IUSA_2",
+}
+
+# Patrones en nombre de archivo → Nombre catálogo (más específicos primero)
+_PATRONES_A_NOMBRE: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
+    ("ION_TESTIGO_IUSA2", ("ION_IUSA2", "205.203", "IUSA2"), ("IUSA1", "GRANJA", "MEGA")),
+    ("Generacion_IUSA_2", ("GRANJA_IUSA2", "MEGA_total", "Generacion_IUSA"), ()),
+    ("BESS_SUR", ("BESS_IUSA2", "BESSIUSA2", "CS3190"), ()),
+    ("Banco_1", ("CS1996", "BANCO1", "Banco1", "BANCO"), ("IUSA2",)),
+    ("ION_Testigo_IUSA1", ("IUSA1", "ION_Testigo", "ION.csv"), ("IUSA2", "CS3190", "CS1996")),
+    ("BESS_NORTE", ("CS3878", "BESS.csv"), ("IUSA2", "CS3190", "CS1996", "BANCO")),
 )
 
 
 def _coincide_patron(
     archivo: str,
-    patrones_busqueda: tuple[str, ...],
+    patrones: tuple[str, ...],
     excluir: tuple[str, ...],
 ) -> bool:
     archivo_lower = archivo.lower()
     if any(ex.lower() in archivo_lower for ex in excluir):
         return False
-    return any(patron.lower() in archivo_lower for patron in patrones_busqueda)
+    return any(p.lower() in archivo_lower for p in patrones)
+
+
+def _destino_catalogo(nombre_catalogo: str) -> Path | None:
+    cat = obtener_catalogo()
+    for m in cat.medidores:
+        if m.nombre == nombre_catalogo:
+            return rutas_mod.ruta_fuente_medidor(m.nombre, m.subestacion_nombre)
+    if nombre_catalogo == "Generacion_IUSA_2":
+        return rutas_mod.ruta_fuente("IUSA_2", rutas_mod.nombre_generacion_subestacion("IUSA_2"))
+    return None
+
+
+def _resolver_nombre_desde_archivo(nombre_archivo: str) -> str | None:
+    base = nombre_archivo
+    if base.lower().endswith(".csv"):
+        base = base[:-4]
+    if nombre_archivo in _LEGACY_ARCHIVO_A_NOMBRE:
+        return _LEGACY_ARCHIVO_A_NOMBRE[nombre_archivo]
+    cat = obtener_catalogo()
+    for m in cat.medidores:
+        if m.nombre == base:
+            return m.nombre
+    for nombre_cat, patrones, excluir in _PATRONES_A_NOMBRE:
+        if _coincide_patron(nombre_archivo, patrones, excluir):
+            return nombre_cat
+    return None
+
+
+def _archivos_csv_en_fuente() -> list[Path]:
+    encontrados: list[Path] = []
+    if DIRECTORIO_FUENTE.exists():
+        for item in DIRECTORIO_FUENTE.iterdir():
+            if item.is_file() and item.suffix.lower() == ".csv" and "_backup" not in item.name.lower():
+                encontrados.append(item)
+            elif item.is_dir():
+                for csv in item.glob("*.csv"):
+                    if "_backup" not in csv.name.lower():
+                        encontrados.append(csv)
+    return encontrados
 
 
 def identificar_y_renombrar_archivos():
     """
-    Identifica archivos en DIRECTORIO_FUENTE por patrones en el nombre
-    y los renombra a los nombres estándar de cada subestación.
+    Ubica CSV en ArchivosFuente/{Subestacion}/{Nombre}.csv según catálogo.
+    Acepta archivos sueltos en la raíz (legacy) o ya en subcarpetas.
     """
-    renombrados = {}
-    errores = []
+    renombrados: dict[str, dict[str, str]] = {}
+    errores: list[str] = []
 
-    if not os.path.exists(DIRECTORIO_FUENTE):
-        os.makedirs(DIRECTORIO_FUENTE, exist_ok=True)
-        return {'renombrados': {}, 'errores': ['Directorio fuente no existe, se creó vacío']}
+    DIRECTORIO_FUENTE.mkdir(parents=True, exist_ok=True)
+    for sub in SUBESTACIONES:
+        rutas_mod.dir_subestacion(DIRECTORIO_FUENTE, sub.id).mkdir(parents=True, exist_ok=True)
 
-    archivos = [
-        nombre for nombre in os.listdir(DIRECTORIO_FUENTE)
-        if nombre.lower().endswith('.csv') and '_backup' not in nombre.lower()
-    ]
-    archivos_usados: set[str] = set()
+    archivos = _archivos_csv_en_fuente()
+    usados: set[Path] = set()
 
     print("\n" + "=" * 70)
-    print("🔍 IDENTIFICANDO ARCHIVOS POR PATRÓN")
+    print("IDENTIFICANDO ARCHIVOS FUENTE (CATALOGO)")
     print("=" * 70)
-    print(f"📁 Archivos encontrados en {DIRECTORIO_FUENTE}:")
-    for a in archivos:
-        print(f"   - {a}")
+    if archivos:
+        for a in archivos:
+            print(f"   - {a.relative_to(DIRECTORIO_FUENTE)}")
+    else:
+        print("   (sin CSV en ArchivosFuente)")
     print("=" * 70)
 
-    for nombre_estandar, patrones_busqueda, excluir in _REGLAS_IDENTIFICACION:
-        nombre_destino = f'{nombre_estandar}.csv'
-        ruta_destino = os.path.join(DIRECTORIO_FUENTE, nombre_destino)
-
-        # Priorizar el archivo que ya tiene el nombre estándar (p. ej. export SQLite).
-        if nombre_destino in archivos and nombre_destino not in archivos_usados:
-            archivos_usados.add(nombre_destino)
-            renombrados[nombre_estandar] = {
-                'origen': nombre_destino,
-                'destino': nombre_destino,
-            }
-            print(f'✅ {nombre_destino} (nombre estándar, sin cambios)')
+    for ruta in archivos:
+        if ruta in usados:
+            continue
+        nombre_catalogo = _resolver_nombre_desde_archivo(ruta.name)
+        if not nombre_catalogo:
+            errores.append(f"No se reconoce: {ruta.name}")
             continue
 
-        archivo_encontrado = None
+        destino = _destino_catalogo(nombre_catalogo)
+        if destino is None:
+            errores.append(f"Sin destino en catalogo para {nombre_catalogo}")
+            continue
 
-        for archivo in archivos:
-            if archivo in archivos_usados:
-                continue
-            if _coincide_patron(archivo, patrones_busqueda, excluir):
-                archivo_encontrado = archivo
-                break
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        if ruta.resolve() == destino.resolve():
+            usados.add(ruta)
+            renombrados[nombre_catalogo] = {"origen": str(ruta.name), "destino": str(destino)}
+            print(f"OK {destino.relative_to(DIRECTORIO_FUENTE)} (ya en lugar)")
+            continue
 
-        if archivo_encontrado:
-            archivos_usados.add(archivo_encontrado)
-            ruta_origen = os.path.join(DIRECTORIO_FUENTE, archivo_encontrado)
-
-            if os.path.normcase(ruta_origen) == os.path.normcase(ruta_destino):
-                renombrados[nombre_estandar] = {
-                    'origen': archivo_encontrado,
-                    'destino': nombre_destino,
-                }
-                print(f'✅ {archivo_encontrado} (nombre estándar, sin cambios)')
-                continue
-
-            backup_path = ruta_destino.replace('.csv', '_backup.csv')
-            try:
-                if os.path.exists(ruta_destino):
-                    shutil.move(ruta_destino, backup_path)
-                    print(f'💾 Backup creado: {os.path.basename(backup_path)}')
-
-                os.rename(ruta_origen, ruta_destino)
-                renombrados[nombre_estandar] = {
-                    'origen': archivo_encontrado,
-                    'destino': nombre_destino,
-                }
-                print(f'✅ {archivo_encontrado} → {nombre_destino}')
-            except OSError as e:
-                if os.path.exists(backup_path) and not os.path.exists(ruta_destino):
-                    shutil.move(backup_path, ruta_destino)
-                    print(f'↩️ Restaurado {nombre_destino} tras error de renombrado')
-                errores.append(f'Error al renombrar {archivo_encontrado}: {str(e)}')
-        else:
-            errores.append(
-                f"⚠️ No se encontró archivo que coincida con los patrones de {nombre_estandar}"
-            )
+        backup = destino.with_suffix(".csv_backup")
+        try:
+            if destino.exists():
+                shutil.move(destino, backup)
+            shutil.move(str(ruta), destino)
+            usados.add(destino)
+            renombrados[nombre_catalogo] = {
+                "origen": str(ruta.relative_to(DIRECTORIO_FUENTE)),
+                "destino": str(destino.relative_to(DIRECTORIO_FUENTE)),
+            }
+            print(f"OK {ruta.name} -> {destino.relative_to(DIRECTORIO_FUENTE)}")
+        except OSError as exc:
+            if backup.exists() and not destino.exists():
+                shutil.move(backup, destino)
+            errores.append(f"Error moviendo {ruta.name}: {exc}")
 
     print("=" * 70)
-    if renombrados:
-        print("📋 Archivos renombrados:")
-        for nombre, info in renombrados.items():
-            print(f"   ✅ {info['origen']} → {info['destino']}")
     if errores:
-        print("⚠️ Errores/Advertencias:")
-        for error in errores:
-            print(f"   {error}")
+        print("Advertencias:")
+        for err in errores:
+            print(f"   {err}")
     print("=" * 70)
 
-    return {'renombrados': renombrados, 'errores': errores}
+    return {"renombrados": renombrados, "errores": errores}

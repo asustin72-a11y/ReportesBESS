@@ -9,10 +9,12 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from bess.config.constants import VERSION
+from bess.config import rutas as rutas_mod
 from bess.config.subestaciones import SUBESTACIONES, archivos_fuente_requeridos
-from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS, DIRECTORIO_REPORTES
+from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
 from bess.tariffs.loader import cargar_tarifas
 from bess.ui.components import html_tarifas_sidebar, obtener_logo_html
+from bess.ui.catalog_check import medidores_pendientes_validacion, puede_generar_reportes
 from bess.ui.navigation import html_guia_usuario_sidebar
 
 def _inyectar_script_sidebar(expandida):
@@ -84,6 +86,13 @@ def sidebar_admin():
     with st.sidebar:
         sidebar_branding(es_admin=True)
 
+        pendientes = medidores_pendientes_validacion()
+        if pendientes:
+            st.warning(
+                f"{len(pendientes)} medidor(es) sin validar. "
+                "Sincronice antes de **Generar reportes**."
+            )
+
         with st.expander("Ayuda", expanded=False):
             st.markdown(html_flujo_trabajo_sidebar(), unsafe_allow_html=True)
 
@@ -99,21 +108,32 @@ def sidebar_admin():
                 for archivo in archivos:
                     if st.button(f"📤 {archivo.name}", key=f"subir_{archivo.name}"):
                         try:
-                            ruta = os.path.join(DIRECTORIO_FUENTE, archivo.name)
-                            with open(ruta, 'wb') as f:
+                            destino = rutas_mod.ruta_fuente_por_nombre_archivo(archivo.name)
+                            if destino is None:
+                                st.error(
+                                    f"❌ No se reconoce {archivo.name}. "
+                                    "Use el nombre del medidor en el catálogo (ej. ION_Testigo_IUSA1.csv)."
+                                )
+                                continue
+                            destino.parent.mkdir(parents=True, exist_ok=True)
+                            with open(destino, "wb") as f:
                                 f.write(archivo.getbuffer())
-                            st.success(f"✅ {archivo.name} subido")
-                            st.session_state['archivos_subidos'] = True
+                            st.success(f"✅ {destino.relative_to(DIRECTORIO_FUENTE.parent)} subido")
+                            st.session_state["archivos_subidos"] = True
                         except Exception as e:
                             st.error(f"❌ Error: {e}")
 
             st.divider()
             if st.button("Ver archivos fuente", use_container_width=True):
-                archivos_fuente = os.listdir(DIRECTORIO_FUENTE) if os.path.exists(DIRECTORIO_FUENTE) else []
-                if archivos_fuente:
-                    for a in archivos_fuente:
-                        st.write(f"📄 {a}")
-                else:
+                encontrados = False
+                for sub in SUBESTACIONES:
+                    carpeta = DIRECTORIO_FUENTE / sub.id
+                    if not carpeta.exists():
+                        continue
+                    for a in sorted(carpeta.glob("*.csv")):
+                        st.write(f"📄 {sub.id}/{a.name}")
+                        encontrados = True
+                if not encontrados:
                     st.info("No hay archivos fuente")
 
         with st.expander("🔄 Sincronizar perfiles", expanded=False):
@@ -125,6 +145,7 @@ def sidebar_admin():
                         from pathlib import Path
 
                         from bess.data.sync_resumen import html_resumen_sidebar
+                        from bess.config.catalog import invalidar_cache_catalogo
 
                         root = Path(__file__).resolve().parents[2]
                         script = root / "scripts" / "sincronizar_perfiles.py"
@@ -140,13 +161,24 @@ def sidebar_admin():
                         salida = (proc.stdout or "").strip()
                         ion_off = "Medidor ION no disponible." in salida or "ION: no disponible" in salida
                         if proc.returncode == 0:
+                            invalidar_cache_catalogo()
+                            pendientes = medidores_pendientes_validacion()
                             if ion_off:
                                 st.warning(
                                     "Medidor ION (IUSA 1) no disponible. "
-                                    "Sync API BESS y exportación completados."
+                                    "Sync API/export completados; ION sigue sin validar."
+                                )
+                            elif pendientes:
+                                st.warning(
+                                    f"Sync completada. Pendientes de validar: "
+                                    f"{', '.join(pendientes[:6])}"
+                                    f"{'…' if len(pendientes) > 6 else ''}"
                                 )
                             else:
-                                st.success("Sync completada. Siguiente: **Procesar todo**.")
+                                st.success(
+                                    "Sync completada y medidores validados. "
+                                    "Siguiente: **Procesar todo**."
+                                )
                             st.session_state["verificado"] = False
                             lineas = [ln.strip() for ln in salida.splitlines() if ln.strip()]
                             if lineas:
@@ -198,96 +230,174 @@ def sidebar_admin():
                             st.error(f"❌ Error: {e}")
 
             if st.button("Generar reportes", use_container_width=True, type="primary"):
-                filtrados = []
-                for sub in SUBESTACIONES:
-                    for med in sub.medidores_consumo:
-                        filtrados.append(med.consumo_filtrado)
-                    filtrados.append(sub.bess_filtrado)
-                faltan = [
-                    f for f in filtrados
-                    if not os.path.exists(os.path.join(DIRECTORIO_PROCESADOS, f))
-                ]
-                if faltan:
-                    st.error(
-                        f"Faltan archivos filtrados: {', '.join(faltan)}. "
-                        "Ejecute **Filtrar** antes de generar reportes."
-                    )
+                ok_val, msg_val = puede_generar_reportes()
+                if not ok_val:
+                    st.error(msg_val)
                 else:
-                    with st.spinner("Generando reportes..."):
-                        try:
-                            from bess_core import ejecutar_reporte_bess
-                            exito, mensajes = ejecutar_reporte_bess()
-                            if "_error" in mensajes:
-                                st.error(f"❌ {mensajes['_error']}")
-                                if mensajes.get("_traceback"):
-                                    with st.expander("Detalle del error"):
-                                        st.code(mensajes["_traceback"])
-                            elif exito:
-                                st.success("✅ Reportes generados exitosamente")
-                                for sub in SUBESTACIONES:
-                                    for med in sub.medidores_consumo:
-                                        msg = mensajes.get(med.prefijo, "")
-                                        if msg:
-                                            st.success(f"   {sub.nombre} · {med.etiqueta}: {msg}")
-                                st.session_state['reportes_generados'] = True
-                            else:
-                                st.warning("⚠️ Procesamiento parcial")
-                                for sub in SUBESTACIONES:
-                                    for med in sub.medidores_consumo:
-                                        msg = mensajes.get(med.prefijo, "")
-                                        if msg:
-                                            st.warning(f"   {sub.nombre} · {med.etiqueta}: {msg}")
-                        except OSError as e:
-                            st.error(
-                                f"❌ Error al escribir archivos de reporte: {e}. "
-                                "Cierre Excel u otros programas con CSV abiertos en ArchivosReporte."
-                            )
-                        except Exception as e:
-                            import traceback
-                            st.error(f"❌ Error: {e}")
-                            with st.expander("Detalle del error"):
-                                st.code(traceback.format_exc())
-
-            if st.button("Procesar todo", use_container_width=True):
-                with st.spinner("Verificando, filtrando y generando reportes..."):
-                    try:
-                        from bess_core import verificar_datos_fuente, filtrar_datos, ejecutar_reporte_bess
-                        exito_v, msg_v = verificar_datos_fuente()
-                        if not exito_v:
-                            st.error(msg_v)
-                        else:
-                            exito_f, msg_f = filtrar_datos()
-                            if not exito_f:
-                                st.error(msg_f)
-                            else:
-                                exito_r, mensajes = ejecutar_reporte_bess()
+                    faltan: list[str] = []
+                    for sub in SUBESTACIONES:
+                        for med in sub.medidores_consumo:
+                            ruta = med.ruta_consumo_lectura(filtrado=True)
+                            if not ruta.exists():
+                                faltan.append(f"{sub.id}/{med.consumo_filtrado}")
+                        ruta_bess = sub.ruta_bess_lectura(filtrado=True)
+                        if not ruta_bess.exists():
+                            faltan.append(f"{sub.id}/{sub.bess_filtrado}")
+                    if faltan:
+                        st.error(
+                            f"Faltan archivos filtrados: {', '.join(faltan)}. "
+                            "Ejecute **Filtrar** antes de generar reportes."
+                        )
+                    else:
+                        with st.spinner("Generando reportes..."):
+                            try:
+                                from bess_core import ejecutar_reporte_bess
+                                exito, mensajes = ejecutar_reporte_bess()
                                 if "_error" in mensajes:
                                     st.error(f"❌ {mensajes['_error']}")
                                     if mensajes.get("_traceback"):
                                         with st.expander("Detalle del error"):
                                             st.code(mensajes["_traceback"])
-                                elif exito_r:
-                                    partes = []
+                                elif exito:
+                                    st.success("✅ Reportes generados exitosamente")
                                     for sub in SUBESTACIONES:
                                         for med in sub.medidores_consumo:
                                             msg = mensajes.get(med.prefijo, "")
                                             if msg:
-                                                partes.append(f"{med.etiqueta}: {msg}")
-                                    st.success(
-                                        "Proceso completo — " + "; ".join(partes)
-                                        if partes
-                                        else "Proceso completo"
-                                    )
+                                                st.success(
+                                                    f"   {sub.nombre} · {med.etiqueta}: {msg}"
+                                                )
+                                    st.session_state['reportes_generados'] = True
                                 else:
-                                    partes = [
-                                        f"{med.etiqueta}: {mensajes.get(med.prefijo, '')}"
-                                        for sub in SUBESTACIONES
-                                        for med in sub.medidores_consumo
-                                        if mensajes.get(med.prefijo)
-                                    ]
-                                    st.warning("Parcial — " + " · ".join(partes))
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+                                    st.warning("⚠️ Procesamiento parcial")
+                                    for sub in SUBESTACIONES:
+                                        for med in sub.medidores_consumo:
+                                            msg = mensajes.get(med.prefijo, "")
+                                            if msg:
+                                                st.warning(
+                                                    f"   {sub.nombre} · {med.etiqueta}: {msg}"
+                                                )
+                            except OSError as e:
+                                st.error(
+                                    f"❌ Error al escribir archivos de reporte: {e}. "
+                                    "Cierre Excel u otros programas con CSV abiertos en ArchivosReporte."
+                                )
+                            except Exception as e:
+                                import traceback
+                                st.error(f"❌ Error: {e}")
+                                with st.expander("Detalle del error"):
+                                    st.code(traceback.format_exc())
+
+            if st.button("Procesar todo", use_container_width=True):
+                ok_val, msg_val = puede_generar_reportes()
+                if not ok_val:
+                    st.error(msg_val)
+                else:
+                    with st.spinner("Verificando, filtrando y generando reportes..."):
+                        try:
+                            from bess_core import verificar_datos_fuente, filtrar_datos, ejecutar_reporte_bess
+                            exito_v, msg_v = verificar_datos_fuente()
+                            if not exito_v:
+                                st.error(msg_v)
+                            else:
+                                exito_f, msg_f = filtrar_datos()
+                                if not exito_f:
+                                    st.error(msg_f)
+                                else:
+                                    exito_r, mensajes = ejecutar_reporte_bess()
+                                    if "_error" in mensajes:
+                                        st.error(f"❌ {mensajes['_error']}")
+                                        if mensajes.get("_traceback"):
+                                            with st.expander("Detalle del error"):
+                                                st.code(mensajes["_traceback"])
+                                    elif exito_r:
+                                        partes = []
+                                        for sub in SUBESTACIONES:
+                                            for med in sub.medidores_consumo:
+                                                msg = mensajes.get(med.prefijo, "")
+                                                if msg:
+                                                    partes.append(f"{med.etiqueta}: {msg}")
+                                        st.success(
+                                            "Proceso completo — " + "; ".join(partes)
+                                            if partes
+                                            else "Proceso completo"
+                                        )
+                                    else:
+                                        partes = [
+                                            f"{med.etiqueta}: {mensajes.get(med.prefijo, '')}"
+                                            for sub in SUBESTACIONES
+                                            for med in sub.medidores_consumo
+                                            if mensajes.get(med.prefijo)
+                                        ]
+                                        st.warning("Parcial — " + " · ".join(partes))
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+        with st.expander("🧹 Mantenimiento (Fase 7)", expanded=False):
+            from bess.data.pipeline.cleanup_legacy import listar_archivos_legacy, limpiar_datos_legacy
+
+            candidatos = listar_archivos_legacy()
+            st.caption(
+                f"{len(candidatos)} archivo(s) legacy (CSV planos, perfiles_granja, tmp). "
+                "Conserva Tarifas, SQLite y PDFs en ReportesDiarios."
+            )
+            if candidatos:
+                with st.expander("Vista previa", expanded=False):
+                    for ruta in candidatos[:30]:
+                        st.text(f"· {ruta.name}")
+                    if len(candidatos) > 30:
+                        st.caption(f"… y {len(candidatos) - 30} más")
+            confirmar = st.checkbox(
+                "Entiendo que se borrarán los CSV del pipeline y perfiles_granja",
+                key="fase7_confirmar",
+            )
+            col_l, col_c = st.columns(2)
+            with col_l:
+                if st.button("Solo limpiar", use_container_width=True, disabled=not confirmar):
+                    with st.spinner("Limpiando..."):
+                        borrados, errores = limpiar_datos_legacy(ejecutar=True, reset_validado=True)
+                        if errores:
+                            for err in errores:
+                                st.warning(err)
+                        st.success(f"Limpieza: {len(borrados)} archivo(s) eliminado(s).")
+                        st.info("Sincronice y use **Procesar todo** para regenerar.")
+            with col_c:
+                if st.button("Limpieza + corrida", use_container_width=True, disabled=not confirmar):
+                    import subprocess
+                    import sys
+                    from pathlib import Path
+
+                    root = Path(__file__).resolve().parents[2]
+                    script = root / "scripts" / "limpiar_datos_legacy.py"
+                    with st.spinner("Limpieza y corrida completa (puede tardar varios minutos)..."):
+                        proc = subprocess.run(
+                            [
+                                sys.executable,
+                                str(script),
+                                "--ejecutar",
+                                "--corrida-completa",
+                                "--quiet",
+                            ],
+                            cwd=str(root),
+                            capture_output=True,
+                            text=True,
+                            encoding="utf-8",
+                            errors="replace",
+                            timeout=3600,
+                        )
+                        salida = (proc.stdout or "").strip()
+                        if salida:
+                            st.code(salida[-4000:] if len(salida) > 4000 else salida)
+                        if proc.returncode == 0:
+                            from bess.config.catalog import invalidar_cache_catalogo
+
+                            invalidar_cache_catalogo()
+                            st.success("Corrida Fase 7 completada.")
+                        else:
+                            err = (proc.stderr or "").strip()
+                            st.error("La corrida falló. Revise la salida.")
+                            if err:
+                                st.code(err[-2000:])
 
         with st.expander("💲 Tarifas", expanded=False):
             tarifas = cargar_tarifas()

@@ -15,6 +15,11 @@ st.set_page_config(
 
 
 def main():
+    from bess.ui.catalog_check import validar_catalogo_al_arranque
+
+    if not validar_catalogo_al_arranque():
+        return
+
     from bess.ui.pages import main as run_pages
 
     run_pages()

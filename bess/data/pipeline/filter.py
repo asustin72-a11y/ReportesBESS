@@ -9,6 +9,7 @@ from bess.config.subestaciones import SUBESTACIONES
 from bess.core.consumo import orientar_kwh_consumo
 from bess.core.console import log
 from bess.data.ingest.readers import leer_archivo_perfil
+from bess.data.pipeline.bess_consolidate import consolidar_bess_subestacion
 from bess.data.pipeline.clean import generar_archivo_limpio
 
 print = log
@@ -46,9 +47,12 @@ def filtrar_datos():
         print(f"🔍 {sub.nombre}")
         print("=" * 70)
 
-        ruta_bess = os.path.join(DIRECTORIO_PROCESADOS, sub.bess_csv)
+        ruta_bess = str(sub.ruta_bess_lectura())
         if not os.path.exists(ruta_bess):
-            print(f"⚠️ Omitido: falta {sub.bess_csv} verificado en ArchivosProcesados")
+            if consolidar_bess_subestacion(sub, filtrado=False):
+                ruta_bess = str(sub.ruta_bess_lectura())
+        if not os.path.exists(ruta_bess):
+            print(f"⚠️ Omitido: falta {sub.bess_csv} verificado en ArchivosProcesados/{sub.id}")
             subs_omitidas.append(sub.nombre)
             continue
 
@@ -60,7 +64,7 @@ def filtrar_datos():
         fechas_bess_filtradas: set | None = None
 
         for med in sub.medidores_consumo:
-            ruta_consumo = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_csv)
+            ruta_consumo = str(med.ruta_consumo_lectura())
             if not os.path.exists(ruta_consumo):
                 return False, (
                     f"{sub.nombre} ({med.etiqueta}): falta {med.consumo_csv} verificado. "
@@ -92,7 +96,7 @@ def filtrar_datos():
                         f"🔄 {med.consumo_filtrado}: Intercambiando KWH_REC ↔ KWH_ENT "
                         f"(solo en archivo filtrado)"
                     )
-            ruta_destino = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_filtrado)
+            ruta_destino = str(med.ruta_consumo(filtrado=True))
             generar_archivo_limpio(df_filtrado, ruta_destino)
 
             if fechas_bess_filtradas is None:
@@ -106,13 +110,13 @@ def filtrar_datos():
             df_bess_out = df_bess_out.sort_values("Fecha").reset_index(drop=True)
             generar_archivo_limpio(
                 df_bess_out,
-                os.path.join(DIRECTORIO_PROCESADOS, sub.bess_filtrado),
+                str(sub.ruta_bess(filtrado=True)),
             )
             total_fechas += len(fechas_bess_filtradas)
             subestaciones_ok += 1
 
         if sub.granja_csv and sub.granja_filtrado and fechas_bess_filtradas:
-            ruta_granja = os.path.join(DIRECTORIO_PROCESADOS, sub.granja_csv)
+            ruta_granja = str(sub.ruta_generacion_lectura())
             if os.path.exists(ruta_granja):
                 df_granja, err = _leer_perfil(ruta_granja, sub.granja_csv)
                 if err:
@@ -121,7 +125,7 @@ def filtrar_datos():
                 df_granja_out = df_granja_out.sort_values("Fecha").reset_index(drop=True)
                 generar_archivo_limpio(
                     df_granja_out,
-                    os.path.join(DIRECTORIO_PROCESADOS, sub.granja_filtrado),
+                    str(sub.ruta_generacion(filtrado=True)),
                 )
                 print(
                     f"📊 Granja ({sub.granja_csv}): {len(df_granja)} registros "
@@ -186,14 +190,29 @@ def limpiar_archivos_fuente():
     if not os.path.exists(DIRECTORIO_FUENTE):
         return [], ["El directorio de archivos fuente no existe"]
 
+    for sub in SUBESTACIONES:
+        carpeta_sub = DIRECTORIO_FUENTE / sub.id
+        if not carpeta_sub.is_dir():
+            continue
+        for archivo in carpeta_sub.glob("*.csv"):
+            try:
+                os.remove(archivo)
+                archivos_eliminados.append(f"{sub.id}/{archivo.name}")
+                print(f"🗑️ Archivo fuente eliminado: {sub.id}/{archivo.name}")
+            except Exception as e:
+                errores.append(f"Error al eliminar {sub.id}/{archivo.name}: {e}")
+
+    # Compatibilidad: CSV sueltos en la raíz de ArchivosFuente (legacy)
     for archivo in os.listdir(DIRECTORIO_FUENTE):
         if archivo.lower().endswith(".csv"):
             ruta_archivo = os.path.join(DIRECTORIO_FUENTE, archivo)
+            if not os.path.isfile(ruta_archivo):
+                continue
             try:
                 os.remove(ruta_archivo)
                 archivos_eliminados.append(archivo)
-                print(f"🗑️ Archivo fuente eliminado: {archivo}")
+                print(f"🗑️ Archivo fuente eliminado (raíz): {archivo}")
             except Exception as e:
-                errores.append(f"Error al eliminar {archivo}: {str(e)}")
+                errores.append(f"Error al eliminar {archivo}: {e}")
 
     return archivos_eliminados, errores

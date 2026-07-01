@@ -8,7 +8,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from bess.config.paths import DIRECTORIO_REPORTES
+from bess.config.subestaciones import medidor_consumo_por_prefijo
 from bess.cfe.periods import obtener_periodo_por_fecha_hora
 from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
 from bess.core.dates import agregar_fecha_operativa
@@ -149,8 +149,14 @@ def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo):
         f"{col_sin}_DEM_15min",
     ])
 
-    nombre_archivo = f"COMBINADO_POR_MINUTO_{prefijo}.csv"
-    ruta_salida = os.path.join(DIRECTORIO_REPORTES, nombre_archivo)
+    med = medidor_consumo_por_prefijo(prefijo)
+    nombre_archivo = (
+        med.ruta_combinado().name
+        if med
+        else f"COMBINADO_POR_MINUTO_{prefijo}.csv"
+    )
+    ruta_salida = str(med.ruta_combinado()) if med else nombre_archivo
+    os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
     df_combinado[columnas_export].to_csv(ruta_salida, index=False)
 
     print(f"OK {nombre_archivo} - {len(df_combinado)} registros")

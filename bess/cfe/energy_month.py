@@ -6,7 +6,7 @@ import os
 
 import pandas as pd
 
-from bess.config.paths import DIRECTORIO_REPORTES
+from bess.config.subestaciones import ruta_energia_dia_por_prefijo
 from bess.core.numbers import (
     kwh_para_calculo,
     redondear_mxn_energia,
@@ -37,9 +37,10 @@ def calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, con_bess=True
     if tarifas is None:
         tarifas = cargar_tarifas()
     columnas = _COLUMNAS_ENERGIA_CON if con_bess else _COLUMNAS_ENERGIA_SIN
-    ruta = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
-    if not os.path.exists(ruta):
+    ruta_p = ruta_energia_dia_por_prefijo(prefijo)
+    if not ruta_p or not ruta_p.exists():
         return None
+    ruta = str(ruta_p)
     df = pd.read_csv(ruta)
     df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
     mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)

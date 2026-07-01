@@ -55,7 +55,7 @@ def linea_ion_modbus(
 
 
 def linea_ion(ion_stats: dict[str, Any] | None, *, no_disponible: bool, ruta_bd: Path) -> str:
-    return linea_ion_modbus('ION', 'ION', ion_stats, no_disponible=no_disponible, ruta_bd=ruta_bd)
+    return linea_ion_modbus(db.MEDIDOR_ION, 'ION', ion_stats, no_disponible=no_disponible, ruta_bd=ruta_bd)
 
 
 def _etiqueta_sync(medidor_bd: str) -> str:
@@ -103,8 +103,8 @@ def construir_lineas_resumen(
     if incluir_ion_iusa2:
         lineas.append(
             linea_ion_modbus(
-                'ION_IUSA2',
-                _etiqueta_sync('ION_IUSA2'),
+                db.MEDIDOR_ION_IUSA2,
+                _etiqueta_sync(db.MEDIDOR_ION_IUSA2),
                 ion_iusa2_stats,
                 no_disponible=ion_iusa2_no_disponible,
                 ruta_bd=ruta_bd,

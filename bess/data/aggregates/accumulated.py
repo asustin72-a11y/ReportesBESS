@@ -6,7 +6,10 @@ import os
 
 import pandas as pd
 
-from bess.config.paths import DIRECTORIO_REPORTES
+from bess.config.subestaciones import (
+    medidor_consumo_por_prefijo,
+    ruta_energia_dia_por_prefijo,
+)
 
 from bess.core.console import log
 print = log
@@ -17,7 +20,18 @@ def generar_acumulados(prefijo):
     print(f"GENERANDO ARCHIVOS ACUMULADOS ({prefijo})")
     print("=" * 60)
     
-    ruta_med_dia = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
+    med = medidor_consumo_por_prefijo(prefijo)
+    ruta_med_dia_p = ruta_energia_dia_por_prefijo(prefijo)
+    if not ruta_med_dia_p or not ruta_med_dia_p.exists():
+        print(f"ERROR: No se encuentra energía diaria para {prefijo}")
+        return None
+    ruta_med_dia = str(ruta_med_dia_p)
+    if med:
+        ruta_salida = str(med.ruta_acumulados())
+        nombre_med_acum = med.ruta_acumulados().name
+    else:
+        nombre_med_acum = f"ACUMULADOS_{prefijo}.csv"
+        ruta_salida = nombre_med_acum
     
     if not os.path.exists(ruta_med_dia):
         print(f"ERROR: No se encuentra {ruta_med_dia}")
@@ -73,8 +87,7 @@ def generar_acumulados(prefijo):
             df_acum_med[f"{col_valor}_MAX"] = valores
             df_acum_med[f"{col_valor}_MAX_FECHA_HORA"] = fechahoras
 
-    nombre_med_acum = f'ACUMULADOS_{prefijo}.csv'
-    ruta_salida = os.path.join(DIRECTORIO_REPORTES, nombre_med_acum)
+    os.makedirs(os.path.dirname(ruta_salida) or ".", exist_ok=True)
     df_acum_med.to_csv(ruta_salida, index=False)
     print(f"OK {nombre_med_acum} - {len(df_acum_med)} dias (acumulado por mes)")
     

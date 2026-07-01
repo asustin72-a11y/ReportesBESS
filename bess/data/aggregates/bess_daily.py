@@ -1,4 +1,4 @@
-"""Reporte diario BESS."""
+"""Reporte diario BESS por subestación."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import os
 
 import pandas as pd
 
-from bess.config.paths import DIRECTORIO_REPORTES, nombre_energia_bess_por_dia
+from bess.config.subestaciones import Subestacion, medidor_consumo_por_prefijo, ruta_combinado_por_prefijo
 from bess.cfe.periods import obtener_periodo_por_fecha_hora
 from bess.core.dates import agregar_fecha_operativa
 from bess.core.console import log
@@ -44,9 +44,13 @@ def _pivot_bess_periodos(df_bess_dia: pd.DataFrame) -> pd.DataFrame:
 
 def _bess_diario_desde_combinado_minuto(prefijo: str) -> pd.DataFrame | None:
     """Carga/descarga BESS por periodo desde COMBINADO_POR_MINUTO (5 min)."""
-    ruta = os.path.join(DIRECTORIO_REPORTES, f"COMBINADO_POR_MINUTO_{prefijo}.csv")
-    if not os.path.exists(ruta):
+    med = medidor_consumo_por_prefijo(prefijo)
+    if not med:
         return None
+    ruta_p = ruta_combinado_por_prefijo(prefijo)
+    if not ruta_p or not ruta_p.exists():
+        return None
+    ruta = str(ruta_p)
 
     df = pd.read_csv(ruta)
     if "KWH_REC_BESS" not in df.columns or "KWH_ENT_BESS" not in df.columns:
@@ -65,33 +69,42 @@ def _bess_diario_desde_combinado_minuto(prefijo: str) -> pd.DataFrame | None:
 
 
 def _guardar_bess_diario(df: pd.DataFrame, ruta_salida: str, etiqueta: str) -> pd.DataFrame:
+    os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
     df.to_csv(ruta_salida, index=False)
     print(f"OK {etiqueta} - {len(df)} dias (desde COMBINADO_POR_MINUTO)")
     return df
 
 
-def generar_bess_diario():
-    """Genera ENERGIA_BESS_POR_DIA.csv (IUSA 1 · archivo general, medidor ION)."""
-    print("\n" + "=" * 60)
-    print("GENERANDO ENERGIA_BESS_POR_DIA.csv")
-    print("=" * 60)
-
-    ruta_salida = os.path.join(DIRECTORIO_REPORTES, "ENERGIA_BESS_POR_DIA.csv")
-    df_bess_diario = _bess_diario_desde_combinado_minuto("ION")
-    if df_bess_diario is None:
-        print("ERROR: No se pudo generar desde COMBINADO_POR_MINUTO_ION.csv")
+def generar_bess_diario_subestacion(sub: Subestacion):
+    """Genera ENERGIA_BESS_{sub}.csv desde el combinado del medidor de facturación."""
+    if not sub.medidores_consumo:
         return None
-    return _guardar_bess_diario(df_bess_diario, ruta_salida, "ENERGIA_BESS_POR_DIA.csv")
+    med_fact = sub.medidores_consumo[0]
+    nombre = sub.ruta_energia_bess_dia().name
+    ruta_salida = str(sub.ruta_energia_bess_dia())
+    print(f"\n--- GENERANDO {nombre} ({sub.id}) ---")
+
+    df_bess_diario = _bess_diario_desde_combinado_minuto(med_fact.prefijo)
+    if df_bess_diario is None:
+        print(f"ERROR: No se pudo generar desde combinado de {med_fact.nombre}")
+        return None
+    return _guardar_bess_diario(df_bess_diario, ruta_salida, nombre)
+
+
+def generar_bess_diario():
+    """Compatibilidad: primera subestación con medidor ION."""
+    from bess.config.subestaciones import SUBESTACIONES
+
+    for sub in SUBESTACIONES:
+        return generar_bess_diario_subestacion(sub)
+    return None
 
 
 def generar_bess_diario_prefijo(prefijo: str):
-    """Genera ENERGIA_BESS_POR_DIA*.csv desde COMBINADO_POR_MINUTO (5 min)."""
-    nombre = nombre_energia_bess_por_dia(prefijo)
-    ruta_salida = os.path.join(DIRECTORIO_REPORTES, nombre)
-    print(f"\n--- GENERANDO {nombre} ({prefijo}) ---")
+    """Compatibilidad: BESS diario de la subestación del prefijo."""
+    from bess.config.subestaciones import subestacion_por_prefijo
 
-    df_bess_diario = _bess_diario_desde_combinado_minuto(prefijo)
-    if df_bess_diario is None:
-        print(f"ERROR: No se pudo generar desde COMBINADO_POR_MINUTO_{prefijo}.csv")
-        return None
-    return _guardar_bess_diario(df_bess_diario, ruta_salida, nombre)
+    sub = subestacion_por_prefijo(prefijo)
+    if sub:
+        return generar_bess_diario_subestacion(sub)
+    return None

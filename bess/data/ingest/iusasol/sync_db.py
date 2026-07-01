@@ -28,26 +28,11 @@ ZONA_API = ZoneInfo('America/Mexico_City')
 # y se sobrescribe en BD para corregir huecos o ceros del sync incremental.
 DIAS_SOLAPAMIENTO_API = 1
 
-MEDIDOR_API_A_BD: dict[str, str] = {
-    'BESS': 'BESS',
-    'bess': 'BESS',
-    'banco1': 'BANCO',
-    'banco': 'BANCO',
-    'BANCO': 'BANCO',
-    'bess_iusa2': 'BESS_IUSA2',
-    'BESS_IUSA2': 'BESS_IUSA2',
-}
+from bess.data.ingest.medidor_ids import resolver_medidor_bd_desde_api
 
 
 def _resolver_medidor_bd(medidor: str) -> str:
-    clave = medidor.strip()
-    if clave in MEDIDOR_API_A_BD:
-        return MEDIDOR_API_A_BD[clave]
-    clave_lower = clave.lower()
-    for alias, medidor_bd in MEDIDOR_API_A_BD.items():
-        if alias.lower() == clave_lower:
-            return medidor_bd
-    raise ValueError(f'Medidor API no reconocido: {medidor!r}')
+    return resolver_medidor_bd_desde_api(medidor)
 
 
 def _dataframe_a_registros(df) -> list[dict[str, Any]]:
@@ -286,6 +271,7 @@ def sincronizar_api(
                 'medidor': medidor_bd,
                 'error': str(exc),
             })
+            return resumen
     return resumen
 
 

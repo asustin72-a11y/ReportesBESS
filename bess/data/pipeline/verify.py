@@ -9,8 +9,11 @@ from datetime import timedelta
 
 import pandas as pd
 
+from bess.config import rutas as rutas_mod
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
+from bess.config.catalog import obtener_catalogo
 from bess.config.subestaciones import SUBESTACIONES, archivos_fuente_subestacion
+from bess.data.pipeline.bess_consolidate import consolidar_bess_subestacion
 from bess.core.console import crear_barra, imprimir_progreso as _imprimir_progreso, log
 from bess.data.ingest.identify import identificar_y_renombrar_archivos
 from bess.data.ingest.readers import leer_archivo_perfil
@@ -19,7 +22,11 @@ print = log
 
 _PRIMER_INTERVALO_DIA = (0, 5)
 # Solo ION (Modbus). BESS, Banco 1 y granja (API) deben conservar/rellenar 00:00.
-_ARCHIVOS_SALTAR_MEDIANOCHE_ION = frozenset({"ION.csv", "ION_IUSA2.csv"})
+_ARCHIVOS_SALTAR_MEDIANOCHE_ION = frozenset(
+    rutas_mod.nombre_archivo_medidor(m.nombre)
+    for m in obtener_catalogo().medidores
+    if m.descarga == "ION"
+)
 
 
 def _saltar_slot_medianoche_opcional(esperada, siguiente_en_archivo) -> bool:
@@ -205,14 +212,20 @@ def verificar_datos_fuente():
         print(f"🔍 {sub.nombre}")
         print("=" * 70)
         for archivo in archivos_fuente_subestacion(sub):
-            ruta_completa = os.path.join(DIRECTORIO_FUENTE, archivo)
+            ruta_fuente_sub = os.path.join(DIRECTORIO_FUENTE, sub.id)
+            ruta_completa = os.path.join(ruta_fuente_sub, archivo)
             if not os.path.exists(ruta_completa):
-                print(f"\n⚠️ {archivo} no está en ArchivosFuente (omitido)")
+                print(f"\n⚠️ {sub.id}/{archivo} no está en ArchivosFuente (omitido)")
                 resultados[archivo] = None
                 continue
             resultados[archivo] = procesar_archivo_verificacion(
-                DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS, archivo
+                ruta_fuente_sub,
+                os.path.join(DIRECTORIO_PROCESADOS, sub.id),
+                archivo,
             )
+
+        if consolidar_bess_subestacion(sub):
+            print(f"✅ BESS consolidado: {sub.bess_csv}")
 
     print("\n" + "=" * 70)
     print("📊 RESUMEN FINAL VERIFICACIÓN")

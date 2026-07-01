@@ -6,7 +6,10 @@ import os
 
 import pandas as pd
 
-from bess.config.paths import DIRECTORIO_REPORTES
+from bess.config.subestaciones import (
+    medidor_consumo_por_prefijo,
+    ruta_combinado_por_prefijo,
+)
 from bess.core.consumo import kwh_neto_consumo
 from bess.cfe.periods import obtener_periodo_por_fecha_hora
 from bess.core.kvarh import (
@@ -34,6 +37,18 @@ _MAPA_PERIODO_SIN_BESS = {
     "Intermedio": "INTERMEDIO_REC_SIN_BESS",
     "Punta": "PUNTA_REC_SIN_BESS",
 }
+
+
+def _idxmax_por_grupo(df: pd.DataFrame, group_cols: list[str], value_col: str) -> pd.Series:
+    """idxmax por grupo; omite grupos donde todos los valores son NA (rolling incompleto)."""
+
+    def _idxmax_group(s: pd.Series):
+        valid = s.dropna()
+        if valid.empty:
+            return pd.NA
+        return valid.idxmax()
+
+    return df.groupby(group_cols, group_keys=False)[value_col].apply(_idxmax_group)
 
 
 def _pivot_por_periodo(
@@ -85,16 +100,18 @@ def generar_diarios_con_demandas(prefijo):
     print(f"GENERANDO ARCHIVOS DIARIOS ({prefijo}) CON DEMANDAS MAXIMAS")
     print("=" * 60)
 
-    ruta_minuto = os.path.join(DIRECTORIO_REPORTES, f"COMBINADO_POR_MINUTO_{prefijo}.csv")
-    if not os.path.exists(ruta_minuto):
-        print(f"ERROR: Falta COMBINADO_POR_MINUTO_{prefijo}.csv")
+    ruta_p = ruta_combinado_por_prefijo(prefijo)
+    if not ruta_p or not ruta_p.exists():
+        print(f"ERROR: Falta combinado para {prefijo}")
         return None
+    ruta_minuto = str(ruta_p)
+    nombre_combinado = ruta_p.name
 
     df_minuto = _preparar_minuto(ruta_minuto, prefijo)
     if df_minuto is None:
         return None
 
-    print(f"  Energía y sin BESS desde COMBINADO_POR_MINUTO_{prefijo}.csv (5 min)")
+    print(f"  Energía y sin BESS desde {nombre_combinado} (5 min)")
 
     col_ent = f"KWH_ENT_{prefijo}"
     df_ent = df_minuto.groupby(["FECHA", "PERIODO"], as_index=False)[col_ent].sum()
@@ -120,7 +137,7 @@ def generar_diarios_con_demandas(prefijo):
     col_con_dem = f"IUSA_CON_BESS_{prefijo}_kW_DEM_15min"
     col_sin_dem = f"IUSA_SIN_BESS_{prefijo}_kW_DEM_15min"
 
-    idx_con_max = df_minuto.groupby(["FECHA", "PERIODO"])[col_con_dem].idxmax()
+    idx_con_max = _idxmax_por_grupo(df_minuto, ["FECHA", "PERIODO"], col_con_dem).dropna()
     df_con_max = df_minuto.loc[
         idx_con_max,
         ["FECHA", "PERIODO", col_con_dem, "FECHA_HORA"],
@@ -148,7 +165,7 @@ def generar_diarios_con_demandas(prefijo):
         }
     )
 
-    idx_sin_max = df_minuto.groupby(["FECHA", "PERIODO"])[col_sin_dem].idxmax()
+    idx_sin_max = _idxmax_por_grupo(df_minuto, ["FECHA", "PERIODO"], col_sin_dem).dropna()
     df_sin_max = df_minuto.loc[
         idx_sin_max,
         ["FECHA", "PERIODO", col_sin_dem, "FECHA_HORA"],
@@ -220,8 +237,14 @@ def generar_diarios_con_demandas(prefijo):
     df_med_diario["FECHA_DT"] = pd.to_datetime(df_med_diario["FECHA"], format="%d/%m/%Y")
     df_med_diario = df_med_diario.sort_values("FECHA_DT").drop("FECHA_DT", axis=1)
 
-    nombre_med_dia = f"ENERGIA_{prefijo}_POR_DIA.csv"
-    ruta_salida = os.path.join(DIRECTORIO_REPORTES, nombre_med_dia)
+    med = medidor_consumo_por_prefijo(prefijo)
+    if med:
+        ruta_salida = str(med.ruta_energia_dia())
+        nombre_med_dia = med.ruta_energia_dia().name
+    else:
+        nombre_med_dia = f"ENERGIA_{prefijo}_POR_DIA.csv"
+        ruta_salida = nombre_med_dia
+    os.makedirs(os.path.dirname(ruta_salida) or ".", exist_ok=True)
     df_med_diario.to_csv(ruta_salida, index=False)
     print(f"OK {nombre_med_dia} - {len(df_med_diario)} dias")
 

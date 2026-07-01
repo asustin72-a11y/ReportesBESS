@@ -10,8 +10,8 @@ from pathlib import Path
 
 from bess.data.ingest.ion import db
 
-MEDIDOR_BESS = "BESS"
-MEDIDOR_BANCO = "BANCO"
+MEDIDOR_BESS = db.MEDIDOR_BESS
+MEDIDOR_BANCO = db.MEDIDOR_BANCO
 LOTE = 500
 PRIMER_INTERVALO = (0, 5)
 

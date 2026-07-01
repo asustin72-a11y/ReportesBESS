@@ -10,16 +10,20 @@ import pandas as pd
 
 from bess.data.ingest.iusasol.to_csv import COLUMNAS_PERFIL
 
-MEDIDORES_RELLENAR_MEDIANOCHE_API = frozenset({
-    "BESS",
-    "BANCO",
-    "BESS_IUSA2",
-    "GRANJA_IUSA2",
-})
+from bess.data.ingest.medidor_ids import (
+    FUENTE_MEDIANOCHE_API,
+    MEDIDORES_RELLENAR_MEDIANOCHE_API,
+    medidor_id_canonico,
+)
 
-FUENTE_MEDIANOCHE_API: dict[str, str] = {
-    "GRANJA_IUSA2": "farm_api",
-}
+
+def medidor_rellena_medianoche_api(medidor_id: str) -> bool:
+    return medidor_id_canonico(medidor_id) in MEDIDORES_RELLENAR_MEDIANOCHE_API
+
+
+def fuente_medianoche_medidor(medidor_id: str) -> str:
+    canon = medidor_id_canonico(medidor_id)
+    return FUENTE_MEDIANOCHE_API.get(canon, "iusasol")
 
 
 def _fila_cero_medianoche(fecha: datetime) -> dict[str, Any]:
@@ -131,10 +135,6 @@ def registros_slots_medianoche_faltantes(df: pd.DataFrame) -> list[dict[str, Any
     return registros
 
 
-def fuente_medianoche_medidor(medidor_id: str) -> str:
-    return FUENTE_MEDIANOCHE_API.get(medidor_id, "iusasol")
-
-
 def persistir_slots_medianoche_bd(
     medidor_id: str,
     ruta_bd: Path,
@@ -147,7 +147,8 @@ def persistir_slots_medianoche_bd(
     """
     from bess.data.ingest.ion import db
 
-    if medidor_id not in MEDIDORES_RELLENAR_MEDIANOCHE_API:
+    medidor_id = medidor_id_canonico(medidor_id)
+    if not medidor_rellena_medianoche_api(medidor_id):
         return 0
 
     fuente = fuente or fuente_medianoche_medidor(medidor_id)

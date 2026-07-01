@@ -10,8 +10,12 @@ from bess.core.dates import rango_datetimes_operativo
 
 import pandas as pd
 
-from bess.config.constants import slug_medidor
-from bess.config.paths import DIRECTORIO_REPORTES, DIRECTORIO_REPORTES_DIARIOS
+from bess.config import rutas as rutas_mod
+from bess.config.subestaciones import (
+    medidor_consumo_por_prefijo,
+    ruta_acumulados_por_prefijo,
+    ruta_combinado_por_prefijo,
+)
 from bess.core.console import log
 from bess.core.numbers import a_num as _a_num, kwh_para_calculo, redondear_arriba_kw
 from bess.cfe.arbitrage import calcular_arbitraje_dia
@@ -343,12 +347,17 @@ def generar_reporte_pdf(fecha_str, medidor):
         from reportlab.lib.units import inch
 
         prefijo = medidor
+        med = medidor_consumo_por_prefijo(prefijo)
+        if not med:
+            return False, f"Medidor desconocido: {medidor}"
 
-        ruta_combinado = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo}.csv')
-        ruta_acumulados = os.path.join(DIRECTORIO_REPORTES, f'ACUMULADOS_{prefijo}.csv')
-
-        if not os.path.exists(ruta_combinado):
+        ruta_combinado_p = ruta_combinado_por_prefijo(prefijo)
+        ruta_acumulados_p = ruta_acumulados_por_prefijo(prefijo)
+        if not ruta_combinado_p or not ruta_combinado_p.exists():
             return False, "No se encontraron datos para generar el reporte"
+
+        ruta_combinado = str(ruta_combinado_p)
+        ruta_acumulados = str(ruta_acumulados_p) if ruta_acumulados_p else ""
 
         df_combinado = pd.read_csv(ruta_combinado)
         df_combinado['DATETIME'] = pd.to_datetime(df_combinado['FECHA_HORA'], format='%d/%m/%Y %H:%M')
@@ -363,11 +372,10 @@ def generar_reporte_pdf(fecha_str, medidor):
         if len(df_dia) == 0:
             return False, f"No hay datos para la fecha {fecha_str}"
 
-        nombre_archivo = (
-            f'Reporte_{slug_medidor(medidor)}_{fecha_dt.strftime("%Y%m%d")}.pdf'
-        )
-        ruta_pdf = os.path.join(DIRECTORIO_REPORTES_DIARIOS, nombre_archivo)
-        os.makedirs(DIRECTORIO_REPORTES_DIARIOS, exist_ok=True)
+        nombre_archivo = rutas_mod.nombre_pdf_diario(med.nombre, fecha_dt)
+        ruta_pdf = rutas_mod.ruta_pdf_diario(med.subestacion_nombre, nombre_archivo)
+        ruta_pdf.parent.mkdir(parents=True, exist_ok=True)
+        ruta_pdf = str(ruta_pdf)
 
         doc = SimpleDocTemplate(
             ruta_pdf, pagesize=landscape(letter),
@@ -394,7 +402,7 @@ def generar_reporte_pdf(fecha_str, medidor):
 
         tarifas = cargar_tarifas()
 
-        if os.path.exists(ruta_acumulados):
+        if ruta_acumulados and os.path.exists(ruta_acumulados):
             df_acum = pd.read_csv(ruta_acumulados)
             fila_acum = df_acum[df_acum['FECHA'] == fecha_str]
         else:

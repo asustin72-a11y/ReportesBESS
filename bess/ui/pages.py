@@ -29,14 +29,15 @@ from bess.config.subestaciones import (
     SUBESTACIONES,
     etiqueta_medidor_consumo,
     medidores_facturacion_subestacion,
+    ruta_acumulados_por_prefijo,
+    ruta_combinado_por_prefijo,
+    ruta_energia_dia_por_prefijo,
     subestacion_por_id,
 )
 from bess.config.paths import (
     DIRECTORIO_BASE,
     DIRECTORIO_FUENTE,
     DIRECTORIO_PROCESADOS,
-    DIRECTORIO_REPORTES,
-    DIRECTORIO_REPORTES_DIARIOS,
     DIRECTORIO_TARIFAS,
     nombre_energia_bess_por_dia,
     ruta_energia_bess_por_dia,
@@ -318,10 +319,10 @@ def _fila_por_fecha(df, fecha):
     return filas.iloc[0] if len(filas) > 0 else None
 
 def _cargar_acumulados(prefijo):
-    ruta = os.path.join(DIRECTORIO_REPORTES, f'ACUMULADOS_{prefijo}.csv')
-    if not os.path.exists(ruta):
+    ruta_p = ruta_acumulados_por_prefijo(prefijo)
+    if not ruta_p or not ruta_p.exists():
         return None
-    df = pd.read_csv(ruta)
+    df = pd.read_csv(ruta_p)
     df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
     return df
 
@@ -425,8 +426,10 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
     rango_un_dia = fecha_inicio == fecha_fin
     rango_label = etiqueta_rango_operativo(fecha_inicio, fecha_fin)
 
-    ruta_acumulados = os.path.join(DIRECTORIO_REPORTES, f'ACUMULADOS_{prefijo}.csv')
-    ruta_med_dia = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
+    ruta_acumulados_p = ruta_acumulados_por_prefijo(prefijo)
+    ruta_med_dia_p = ruta_energia_dia_por_prefijo(prefijo)
+    ruta_acumulados = str(ruta_acumulados_p) if ruta_acumulados_p else ""
+    ruta_med_dia = str(ruta_med_dia_p) if ruta_med_dia_p else ""
     ruta_bess_dia = str(ruta_energia_bess_por_dia(prefijo))
 
     df_acum = pd.read_csv(ruta_acumulados) if os.path.exists(ruta_acumulados) else None
@@ -946,8 +949,8 @@ def tab_analisis(df, prefijo):
                 )
 
 def _mtime_fuente_reporte(prefijo):
-    ruta = os.path.join(DIRECTORIO_REPORTES, f'COMBINADO_POR_MINUTO_{prefijo}.csv')
-    return os.path.getmtime(ruta) if os.path.exists(ruta) else 0
+    ruta_p = ruta_combinado_por_prefijo(prefijo)
+    return ruta_p.stat().st_mtime if ruta_p and ruta_p.exists() else 0
 
 @st.cache_data(show_spinner="Generando reporte PDF...")
 def _pdf_bytes_descarga(fecha_str, prefijo, _mtime_fuente):
@@ -1086,10 +1089,10 @@ def tab_reporte(df, prefijo):
 
 # ========== TENDENCIA ==========
 def _cargar_energia_diaria_rango(prefijo, fecha_inicio, fecha_fin):
-    ruta = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
-    if not os.path.exists(ruta):
+    ruta_p = ruta_energia_dia_por_prefijo(prefijo)
+    if not ruta_p or not ruta_p.exists():
         return None
-    df = pd.read_csv(ruta)
+    df = pd.read_csv(ruta_p)
     df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
     mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
     df = df[mask].sort_values('FECHA_DT').reset_index(drop=True)
@@ -1358,11 +1361,11 @@ def main():
     _ajustar_sidebar_por_rol(es_admin)
     
     rutas_disponibles = [
-        os.path.join(DIRECTORIO_REPORTES, f"COMBINADO_POR_MINUTO_{med.prefijo}.csv")
+        ruta_combinado_por_prefijo(med.prefijo)
         for sub in SUBESTACIONES
         for med in sub.medidores_consumo
     ]
-    if not any(os.path.exists(r) for r in rutas_disponibles):
+    if not any(r and r.exists() for r in rutas_disponibles):
         st.warning("No hay datos procesados. Contacta al administrador.")
         return
 
@@ -1411,13 +1414,13 @@ def main():
         )
 
     prefijo = medidor
-    ruta = os.path.join(DIRECTORIO_REPORTES, f"COMBINADO_POR_MINUTO_{prefijo}.csv")
+    ruta_p = ruta_combinado_por_prefijo(prefijo)
 
-    if not os.path.exists(ruta):
+    if not ruta_p or not ruta_p.exists():
         st.warning(f"No hay datos para {etiqueta_medidor_consumo(medidor)}")
         return
 
-    df = pd.read_csv(ruta)
+    df = pd.read_csv(ruta_p)
     df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
 
     _bloque_reporteador(df, prefijo, medidor)

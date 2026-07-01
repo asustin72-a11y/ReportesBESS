@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-from bess.config.paths import DIRECTORIO_REPORTES
+from bess.config.subestaciones import ruta_energia_dia_por_prefijo
 from bess.core.numbers import a_num, kwh_para_calculo, redondear_mxn_energia
 from bess.cfe.daily_data import fila_por_fecha_csv
 from bess.tariffs.loader import cargar_tarifas
@@ -34,7 +34,10 @@ def calcular_costo_energia_dia(
     if tarifas is None:
         tarifas = cargar_tarifas()
     columnas = _COL_ENERGIA_CON if con_bess else _COL_ENERGIA_SIN
-    ruta = os.path.join(DIRECTORIO_REPORTES, f"ENERGIA_{prefijo}_POR_DIA.csv")
+    ruta_p = ruta_energia_dia_por_prefijo(prefijo)
+    if not ruta_p or not ruta_p.exists():
+        return {k: 0.0 for k in _PERIODOS_ENERGIA_KEYS}
+    ruta = str(ruta_p)
     fila = fila_por_fecha_csv(ruta, fecha_str)
     if fila is None:
         return None

@@ -18,6 +18,12 @@ from bess.core.console import log
 print = log
 
 
+def _parsear_columna_fecha(serie: pd.Series) -> pd.Series:
+    """Unifica fechas ISO y dd/mm/yyyy (con o sin segundos) desde CSV de perfiles."""
+    normalizada = serie.map(validar_y_convertir_fecha)
+    return pd.to_datetime(normalizada, errors="coerce")
+
+
 def _asegurar_columnas_kwh(df: pd.DataFrame) -> pd.DataFrame:
     """Garantiza columnas KWH_REC y KWH_ENT numéricas (nombres alternativos o posición)."""
     out = df.copy()
@@ -84,8 +90,7 @@ def leer_archivo_perfil(ruta, nombre_archivo):
                     break
     
     # Convertir fechas
-    df['Fecha'] = df['Fecha'].apply(validar_y_convertir_fecha)
-    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+    df["Fecha"] = _parsear_columna_fecha(df["Fecha"])
     
     registros_invalidos = df['Fecha'].isna().sum()
     if registros_invalidos > 0:
@@ -103,9 +108,7 @@ def leer_sin_agrupar(ruta_archivo, prefijo_consumo: str | None = None):
     """Lee el archivo original SIN agrupar (incluye kVArh si existen)."""
     df = pd.read_csv(ruta_archivo, encoding='utf-8-sig')
     columna_fecha = df.columns[0]
-    df['DATETIME'] = pd.to_datetime(df[columna_fecha], format='%d/%m/%Y %H:%M', errors='coerce')
-    if df['DATETIME'].isna().all():
-        df['DATETIME'] = pd.to_datetime(df[columna_fecha], errors='coerce')
+    df['DATETIME'] = _parsear_columna_fecha(df[columna_fecha])
     df = df.dropna(subset=['DATETIME']).reset_index(drop=True)
 
     df = _asegurar_columnas_kwh(df)
@@ -124,9 +127,7 @@ def leer_y_agrupar_por_hora(ruta_archivo, nombre_archivo, prefijo_consumo: str |
     """Lee y agrupa datos por hora (incluye kVArh si existen)."""
     df = pd.read_csv(ruta_archivo, encoding='utf-8-sig')
     columna_fecha = df.columns[0]
-    df['DATETIME'] = pd.to_datetime(df[columna_fecha], format='%d/%m/%Y %H:%M', errors='coerce')
-    if df['DATETIME'].isna().all():
-        df['DATETIME'] = pd.to_datetime(df[columna_fecha], errors='coerce')
+    df['DATETIME'] = _parsear_columna_fecha(df[columna_fecha])
     df = df.dropna(subset=['DATETIME']).reset_index(drop=True)
 
     df = _asegurar_columnas_kwh(df)

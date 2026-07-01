@@ -6,8 +6,11 @@ import os
 
 import pandas as pd
 
-from bess.config.paths import DIRECTORIO_PROCESADOS, DIRECTORIO_REPORTES
-from bess.config.subestaciones import medidor_consumo_por_prefijo
+from bess.config.subestaciones import (
+    medidor_consumo_por_prefijo,
+    ruta_acumulados_por_prefijo,
+    ruta_energia_dia_por_prefijo,
+)
 from bess.core.kvarh import columnas_kvarh_prefijo, normalizar_columnas_kvarh
 from bess.core.numbers import redondear_arriba_kw, sumar_energia
 
@@ -20,9 +23,10 @@ def _fila_por_fecha(df, fecha):
 
 
 def _cargar_acumulados(prefijo):
-    ruta = os.path.join(DIRECTORIO_REPORTES, f'ACUMULADOS_{prefijo}.csv')
-    if not os.path.exists(ruta):
+    ruta_p = ruta_acumulados_por_prefijo(prefijo)
+    if not ruta_p or not ruta_p.exists():
         return None
+    ruta = str(ruta_p)
     df = pd.read_csv(ruta)
     df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
     return df
@@ -66,8 +70,9 @@ def obtener_kvarh_mes(fecha, prefijo):
         if not pd.isna(val):
             return float(val)
 
-    ruta_dia = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
-    if os.path.exists(ruta_dia):
+    ruta_p = ruta_energia_dia_por_prefijo(prefijo)
+    if ruta_p and ruta_p.exists():
+        ruta_dia = str(ruta_p)
         df = pd.read_csv(ruta_dia)
         if 'KVARH' in df.columns:
             df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
@@ -78,9 +83,9 @@ def obtener_kvarh_mes(fecha, prefijo):
     med = medidor_consumo_por_prefijo(prefijo)
     if not med:
         return None
-    ruta = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_filtrado)
+    ruta = str(med.ruta_consumo(filtrado=True))
     if not os.path.exists(ruta):
-        ruta = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_csv)
+        ruta = str(med.ruta_consumo())
         if not os.path.exists(ruta):
             return None
     df = pd.read_csv(ruta)
@@ -114,9 +119,10 @@ def obtener_demanda_rolada_punta(fecha, prefijo, con_bess=True):
 
 def _obtener_energia_mes_desde_diario(fecha, prefijo, columnas_periodo):
     """Suma energía por periodo desde ENERGIA_*_POR_DIA.csv (mes al día indicado)."""
-    ruta = os.path.join(DIRECTORIO_REPORTES, f'ENERGIA_{prefijo}_POR_DIA.csv')
-    if not os.path.exists(ruta):
+    ruta_p = ruta_energia_dia_por_prefijo(prefijo)
+    if not ruta_p or not ruta_p.exists():
         return None
+    ruta = str(ruta_p)
     df = pd.read_csv(ruta)
     df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
     df_r = _filtrar_mes_hasta_fecha(df, fecha)

@@ -10,7 +10,7 @@ import plotly.graph_objects as go
 from bess.core.dates import serie_fecha_operativa
 
 from bess.charts.layout import _titulo_y_leyenda_externos
-from bess.config.paths import DIRECTORIO_REPORTES
+from bess.config import rutas as rutas_mod
 from bess.config.subestaciones import etiqueta_medidor_consumo, subestacion_por_prefijo
 from bess.config.theme import COLORES
 from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
@@ -44,8 +44,9 @@ def _unir_granja_perfil(df: pd.DataFrame, prefijo: str) -> pd.DataFrame:
     sub = subestacion_por_prefijo(prefijo)
     if not sub or not sub.granja_bd:
         return df
-    ruta = os.path.join(DIRECTORIO_REPORTES, f"COMBINADO_POR_MINUTO_{sub.granja_bd}.csv")
-    if not os.path.exists(ruta):
+    prefijo_gen = sub.granja_bd or rutas_mod.nombre_generacion_subestacion(sub.id).replace(".csv", "")
+    ruta = rutas_mod.ruta_reporte(sub.id, f"COMBINADO_POR_MINUTO_{prefijo_gen}.csv")
+    if not ruta.exists():
         return df
     df_granja = pd.read_csv(ruta, encoding="utf-8-sig")
     if "FECHA_HORA" not in df_granja.columns or "KWH_REC" not in df_granja.columns:

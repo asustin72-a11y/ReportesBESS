@@ -5,11 +5,10 @@ from __future__ import annotations
 import os
 
 from bess.config.constants import etiqueta_medidor
-from bess.config.paths import DIRECTORIO_PROCESADOS, DIRECTORIO_REPORTES
-from bess.config.subestaciones import SUBESTACIONES, medidor_consumo_por_prefijo
+from bess.config.subestaciones import SUBESTACIONES, medidor_consumo_por_prefijo, ruta_combinado_por_prefijo
 from bess.core.consumo import usa_consumo_neto
 from bess.data.aggregates.accumulated import generar_acumulados
-from bess.data.aggregates.bess_daily import generar_bess_diario, generar_bess_diario_prefijo
+from bess.data.aggregates.bess_daily import generar_bess_diario_subestacion
 from bess.data.aggregates.combined import generar_combinado_por_minuto
 from bess.data.aggregates.granja import generar_reportes_granja
 from bess.data.aggregates.daily import generar_diarios_con_demandas
@@ -72,12 +71,12 @@ def _validar_archivos_filtrados():
     faltantes: list[str] = []
     for sub in SUBESTACIONES:
         for med in sub.medidores_consumo:
-            ruta = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_filtrado)
+            ruta = str(med.ruta_consumo_lectura(filtrado=True))
             if not os.path.exists(ruta):
-                faltantes.append(med.consumo_filtrado)
-        ruta_bess = os.path.join(DIRECTORIO_PROCESADOS, sub.bess_filtrado)
+                faltantes.append(f"{sub.id}/{med.consumo_filtrado}")
+        ruta_bess = str(sub.ruta_bess_lectura(filtrado=True))
         if not os.path.exists(ruta_bess):
-            faltantes.append(sub.bess_filtrado)
+            faltantes.append(f"{sub.id}/{sub.bess_filtrado}")
     if faltantes:
         return False, (
             f"Faltan archivos filtrados: {', '.join(faltantes)}. "
@@ -97,16 +96,13 @@ def reporte_bess():
         print(f"ERROR: {msg}")
         return False, {"_error": msg}
 
-    print(f"\nDirectorio de archivos procesados: {DIRECTORIO_PROCESADOS}")
-    print(f"Directorio de reportes: {DIRECTORIO_REPORTES}")
-
     mensajes: dict[str, str] = {}
     resultados: list[bool] = []
 
     for sub in SUBESTACIONES:
-        ruta_bess = os.path.join(DIRECTORIO_PROCESADOS, sub.bess_filtrado)
+        ruta_bess = str(sub.ruta_bess_lectura(filtrado=True))
         for med in sub.medidores_consumo:
-            ruta_consumo = os.path.join(DIRECTORIO_PROCESADOS, med.consumo_filtrado)
+            ruta_consumo = str(med.ruta_consumo_lectura(filtrado=True))
             exito, mensaje = procesar_grupo(
                 ruta_bess,
                 ruta_consumo,
@@ -120,33 +116,23 @@ def reporte_bess():
     print("GENERANDO ARCHIVOS DIARIOS DEL BESS")
     print("=" * 60)
 
-    if os.path.exists(os.path.join(DIRECTORIO_REPORTES, "COMBINADO_POR_MINUTO_ION.csv")):
-        generar_bess_diario()
-    else:
-        print("No se encontro COMBINADO_POR_MINUTO_ION.csv")
-
     for sub in SUBESTACIONES:
-        for med in sub.medidores_consumo:
-            if med.prefijo.upper() in ("ION", "BANCO"):
-                continue
-            ruta_minuto = os.path.join(
-                DIRECTORIO_REPORTES, f"COMBINADO_POR_MINUTO_{med.prefijo}.csv"
-            )
-            if os.path.exists(ruta_minuto):
-                generar_bess_diario_prefijo(med.prefijo)
-            else:
-                print(f"No se encontro COMBINADO_POR_MINUTO_{med.prefijo}.csv")
-            break
+        med_fact = sub.medidores_consumo[0]
+        ruta_comb = ruta_combinado_por_prefijo(med_fact.prefijo)
+        if ruta_comb and ruta_comb.exists():
+            generar_bess_diario_subestacion(sub)
+        else:
+            print(f"No se encontro combinado para BESS diario · {sub.id}")
 
     print("\n" + "=" * 60)
-    print("GENERANDO REPORTES GRANJA (solo energía)")
+    print("GENERANDO REPORTES GENERACIÓN")
     print("=" * 60)
     for sub in SUBESTACIONES:
-        if not sub.granja_filtrado or not sub.granja_bd:
+        if not sub.granja_filtrado:
             continue
-        ruta_granja = os.path.join(DIRECTORIO_PROCESADOS, sub.granja_filtrado)
+        ruta_granja = str(sub.ruta_generacion_lectura(filtrado=True))
         if os.path.exists(ruta_granja):
-            generar_reportes_granja(ruta_granja, sub.granja_bd)
+            generar_reportes_granja(ruta_granja, sub.id, sub.granja_bd)
         else:
             print(f"⚠️ {sub.nombre}: sin {sub.granja_filtrado} (omitido)")
 

@@ -10,21 +10,13 @@ from pathlib import Path
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
 from bess.data.ingest.ion import db
 from bess.data.ingest.iusasol.gaps import (
-    MEDIDORES_RELLENAR_MEDIANOCHE_API,
     contexto_previo_bd,
     filas_a_dataframe,
+    medidor_rellena_medianoche_api,
     persistir_slots_medianoche_bd,
     rellenar_slots_medianoche_api,
 )
-
-MEDIDORES_EXPORT = {
-    "ION": "ION.csv",
-    "BESS": "BESS.csv",
-    "ION_IUSA2": "ION_IUSA2.csv",
-    "BESS_IUSA2": "BESS_IUSA2.csv",
-    "GRANJA_IUSA2": "GRANJA_IUSA2.csv",
-    "BANCO": "Banco1.csv",
-}
+from bess.data.ingest.medidor_ids import destinos_export_bd, medidor_id_canonico
 
 COLUMNAS_BESS = [
     'Fecha',
@@ -46,6 +38,7 @@ def exportar(
     *,
     quiet: bool = False,
 ) -> int:
+    medidor_id = medidor_id_canonico(medidor_id)
     db.init_db(ruta_bd)
     salida.parent.mkdir(parents=True, exist_ok=True)
 
@@ -59,7 +52,7 @@ def exportar(
     if desde:
         query += ' AND fecha >= ?'
         inicio = desde if ' ' in desde else f'{desde} 00:00:00'
-        if medidor_id not in MEDIDORES_RELLENAR_MEDIANOCHE_API and ' ' not in desde:
+        if not medidor_rellena_medianoche_api(medidor_id) and ' ' not in desde:
             inicio = f'{desde} 00:05:00'
         params.append(inicio)
     if hasta:
@@ -76,7 +69,7 @@ def exportar(
             print(f'  {medidor_id}: sin registros para exportar')
         return 1
 
-    if medidor_id in MEDIDORES_RELLENAR_MEDIANOCHE_API:
+    if medidor_rellena_medianoche_api(medidor_id):
         persistir_slots_medianoche_bd(medidor_id, ruta_bd)
         with db.conectar_bd(ruta_bd) as conn:
             filas = conn.execute(query, params).fetchall()
@@ -121,7 +114,7 @@ def exportar(
 
     if not quiet:
         n = len(filas_export) if usar_df else len(filas)
-        print(f'  {medidor_id}: {n} registros -> {salida.name}')
+        print(f'  {medidor_id}: {n} registros -> {salida}')
         if usar_df:
             primero = filas_export.iloc[0]['Fecha']
             ultimo = filas_export.iloc[-1]['Fecha']
@@ -136,43 +129,49 @@ def exportar(
 
 def exportar_todos(
     ruta_bd: Path,
-    carpeta: Path,
-    desde: str | None,
-    hasta: str | None,
+    desde: str | None = None,
+    hasta: str | None = None,
     *,
     quiet: bool = False,
 ) -> int:
+    destinos = destinos_export_bd(ruta_bd)
     if not quiet:
-        print(f'Exportando a {carpeta}')
-    activos = {fila[0] for fila in db.MEDIDORES_CATALOGO if fila[6]}
-    for medidor_id, nombre_archivo in MEDIDORES_EXPORT.items():
-        if medidor_id not in activos:
-            continue
-        salida = carpeta / nombre_archivo
+        print(f'Exportando {len(destinos)} perfiles desde {ruta_bd}')
+    codigo = 0
+    for medidor_id, salida in destinos:
         if exportar(ruta_bd, medidor_id, salida, desde, hasta, quiet=quiet) != 0:
             if not quiet:
                 print(f'  {medidor_id}: sin registros, export omitido')
-    return 0
+            codigo = 1
+    return codigo
+
+
+def _medidores_export_choices() -> list[str]:
+    return [medidor_id for medidor_id, _ in destinos_export_bd()]
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description='Exportar perfiles SQLite a CSV BESS')
     parser.add_argument('--bd', type=Path, default=db.RUTA_BD_DEFAULT)
-    parser.add_argument('--medidor', choices=list(MEDIDORES_EXPORT.keys()))
+    parser.add_argument('--medidor', choices=_medidores_export_choices())
     parser.add_argument('--destino', choices=['fuente', 'procesados'], default='fuente')
     parser.add_argument('--salida', type=Path)
     parser.add_argument('--desde', help='Filtrar desde YYYY-MM-DD')
     parser.add_argument('--hasta', help='Filtrar hasta YYYY-MM-DD')
     args = parser.parse_args(argv)
 
-    carpeta = DIRECTORIO_FUENTE if args.destino == 'fuente' else DIRECTORIO_PROCESADOS
-
     if args.medidor:
-        nombre = MEDIDORES_EXPORT[args.medidor]
-        salida = args.salida or (carpeta / nombre)
+        if args.salida:
+            salida = args.salida
+        else:
+            destinos = dict(destinos_export_bd())
+            salida = destinos.get(args.medidor)
+            if salida is None:
+                carpeta = DIRECTORIO_FUENTE if args.destino == 'fuente' else DIRECTORIO_PROCESADOS
+                salida = carpeta / f'{args.medidor}.csv'
         return exportar(args.bd, args.medidor, salida, args.desde, args.hasta)
 
-    return exportar_todos(args.bd, carpeta, args.desde, args.hasta)
+    return exportar_todos(args.bd, args.desde, args.hasta)
 
 
 if __name__ == '__main__':

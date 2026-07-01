@@ -6,7 +6,7 @@ import os
 
 import pandas as pd
 
-from bess.config.paths import DIRECTORIO_REPORTES
+from bess.config import rutas as rutas_mod
 from bess.cfe.periods import obtener_periodo_por_fecha_hora
 from bess.core.dates import agregar_fecha_operativa
 from bess.core.console import log
@@ -38,18 +38,19 @@ def _energia_por_dia_y_periodo(df_min: pd.DataFrame) -> pd.DataFrame:
     return df_dia[list(_COLUMNAS_DIA_GRANJA)].sort_values("FECHA").reset_index(drop=True)
 
 
-def generar_reportes_granja(ruta_filtrado: str, prefijo: str = "GRANJA_IUSA2") -> dict[str, int]:
+def generar_reportes_granja(ruta_filtrado: str, subestacion: str, prefijo: str | None = None) -> dict[str, int]:
     """
-    Genera a partir del CSV filtrado de granja:
-      - COMBINADO_POR_MINUTO_{prefijo}.csv  (5 min · KWH_REC)
-      - ENERGIA_{prefijo}_POR_DIA.csv
+    Genera a partir del CSV filtrado de generación:
+      - COMBINADO_POR_MINUTO_{prefijo}.csv en ArchivosReporte/{sub}/
+      - ENERGIA_Generacion_{sub}_POR_DIA.csv
     """
     if not os.path.exists(ruta_filtrado):
         print(f"ERROR: No se encuentra {ruta_filtrado}")
         return {}
 
+    prefijo = prefijo or rutas_mod.nombre_generacion_subestacion(subestacion).replace(".csv", "")
     print("\n" + "=" * 60)
-    print(f"GENERANDO REPORTES GRANJA ({prefijo})")
+    print(f"GENERANDO REPORTES GENERACIÓN ({prefijo} · {subestacion})")
     print("=" * 60)
 
     df_min = leer_sin_agrupar(ruta_filtrado)
@@ -58,13 +59,14 @@ def generar_reportes_granja(ruta_filtrado: str, prefijo: str = "GRANJA_IUSA2") -
 
     df_min_out = df_min[["FECHA", "FECHA_HORA", "KWH_REC"]].copy()
     nombre_min = f"COMBINADO_POR_MINUTO_{prefijo}.csv"
-    ruta_min = os.path.join(DIRECTORIO_REPORTES, nombre_min)
+    ruta_min = str(rutas_mod.ruta_reporte(subestacion, nombre_min))
+    os.makedirs(os.path.dirname(ruta_min), exist_ok=True)
     df_min_out.to_csv(ruta_min, index=False)
     print(f"OK {nombre_min} - {len(df_min_out)} registros")
 
     df_dia = _energia_por_dia_y_periodo(df_min)
-    nombre_dia = f"ENERGIA_{prefijo}_POR_DIA.csv"
-    ruta_dia = os.path.join(DIRECTORIO_REPORTES, nombre_dia)
+    nombre_dia = f"ENERGIA_Generacion_{subestacion}_POR_DIA.csv"
+    ruta_dia = str(rutas_mod.ruta_reporte(subestacion, nombre_dia))
     df_dia.to_csv(ruta_dia, index=False)
     print(f"OK {nombre_dia} - {len(df_dia)} días (desde COMBINADO_POR_MINUTO)")
 
