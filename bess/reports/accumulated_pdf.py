@@ -225,10 +225,6 @@ def generar_reporte_acumulado_pdf(fecha_corte, prefijo: str):
             if not df_dia.empty:
                 gen_txt = " · incluye generación granja solar" if dia_tipo.get("incluye_granja") else ""
                 story.append(Paragraph(
-                    f"{titulo_dt} · {dia_tipo['dia_semana']} {dia_tipo['fecha_str']}",
-                    styles["PdfSection"],
-                ))
-                story.append(Paragraph(
                     f"Carga {dia_tipo['carga_kwh']:,} kWh · "
                     f"Descarga {dia_tipo['descarga_kwh']:,} kWh{gen_txt}.",
                     styles["PdfSectionSub"],

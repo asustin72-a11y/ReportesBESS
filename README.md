@@ -2,7 +2,7 @@
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
 
-**Versión actual:** 5.6.3 — Fix sync cogeneración, cron Docker robusto.
+**Versión actual:** 5.6.4 — Superadmin, Mantenimiento DB, preflight reloj en cron.
 
 ## Ejecución local
 

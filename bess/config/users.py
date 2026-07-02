@@ -6,7 +6,23 @@ import hashlib
 import json
 import os
 
-ROLES_VALIDOS = frozenset({'admin', 'user'})
+ROLES_VALIDOS = frozenset({'admin', 'user', 'superadmin'})
+
+ETIQUETA_ROL = {
+    'admin': 'Administrador',
+    'superadmin': 'Superadministrador',
+    'user': 'Visualizador',
+}
+
+
+def rol_es_operador(rol: str | None) -> bool:
+    """Acceso a panel admin (sync, procesar, subir archivos)."""
+    return rol in ('admin', 'superadmin')
+
+
+def rol_es_superadmin(rol: str | None) -> bool:
+    """Administrador + herramientas de mantenimiento SQLite."""
+    return rol == 'superadmin'
 
 
 def hash_password(password: str) -> str:
@@ -22,7 +38,7 @@ def _normalizar_entrada(username: str, data: dict) -> dict:
         raise ValueError(f'Usuario "{username}": entrada inválida.')
     rol = str(data.get('rol', 'user')).strip()
     if rol not in ROLES_VALIDOS:
-        raise ValueError(f'Usuario "{username}": rol "{rol}" no válido (admin|user).')
+        raise ValueError(f'Usuario "{username}": rol "{rol}" no válido (admin|user|superadmin).')
     nombre = str(data.get('nombre', username)).strip() or username
 
     if 'password_hash' in data:

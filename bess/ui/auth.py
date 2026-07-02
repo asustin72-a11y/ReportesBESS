@@ -58,6 +58,7 @@ def init_session():
         st.session_state.autenticado = False
         st.session_state.usuario = None
         st.session_state.rol = None
+        st.session_state.modo_vista = "reporteador"
 
 
 def _emitir_script_ui(markup: str) -> None:
@@ -259,6 +260,7 @@ def logout():
     st.session_state.usuario = None
     st.session_state.rol = None
     st.session_state.pop("seccion_activa", None)
+    st.session_state.pop("modo_vista", None)
     st.session_state.pop("sidebar_inicial_aplicada", None)
     # Recarga completa del navegador: única forma fiable de vaciar la sidebar en Streamlit.
     _emitir_script_ui(

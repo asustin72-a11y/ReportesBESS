@@ -16,6 +16,7 @@ from bess.tariffs.loader import cargar_tarifas
 from bess.ui.components import html_tarifas_sidebar, obtener_logo_html
 from bess.ui.catalog_check import medidores_pendientes_validacion, puede_generar_reportes
 from bess.ui.navigation import html_guia_usuario_sidebar
+from bess.data.sync_preflight import advertencias_sidebar
 
 def _inyectar_script_sidebar(expandida: bool):
     """Ajusta la sidebar tras el login (Streamlit fija el estado inicial solo al cargar la app)."""
@@ -108,9 +109,25 @@ def html_flujo_trabajo_sidebar() -> str:
     """
 
 
-def sidebar_admin():
+def _sidebar_mantenimiento_db():
+    st.divider()
+    en_bd = st.session_state.get("modo_vista") == "mantenimiento_db"
+    with st.expander("🗄️ Mantenimiento DB", expanded=en_bd):
+        st.caption("SQLite: importar, exportar y purgar perfiles.")
+        etiqueta = "Volver al reporteador" if en_bd else "Abrir herramientas BD"
+        if st.button(etiqueta, use_container_width=True, key="toggle_mantenimiento_db"):
+            st.session_state["modo_vista"] = "reporteador" if en_bd else "mantenimiento_db"
+
+
+def sidebar_admin(*, mostrar_mantenimiento_db: bool = False):
     with st.sidebar:
         sidebar_branding(es_admin=True)
+
+        for aviso in advertencias_sidebar():
+            st.warning(aviso)
+
+        if mostrar_mantenimiento_db:
+            _sidebar_mantenimiento_db()
 
         pendientes = medidores_pendientes_validacion()
         if pendientes:

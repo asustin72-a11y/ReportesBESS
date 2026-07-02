@@ -72,6 +72,7 @@ from bess.cfe.report_data import (
     obtener_demanda_rolada_punta,
 )
 from bess.tariffs.loader import cargar_tarifas
+from bess.config.users import ETIQUETA_ROL, rol_es_operador, rol_es_superadmin
 from bess.ui.auth import get_usuarios, init_session, login, logout, preparar_ui_login, restaurar_ui_app
 from bess.ui.components import (
     html_tarifas_sidebar,
@@ -134,12 +135,12 @@ def mostrar_aviso_sin_bess(estado):
         return True
     return False
 
-def render_barra_superior(es_admin):
+def render_barra_superior(rol: str | None):
     """Logo, título y cierre de sesión."""
     logo_html = obtener_logo_html(288)
     usuario = st.session_state.get('usuario', '')
     rol_nombre = get_usuarios().get(usuario, {}).get('nombre', usuario)
-    rol_tipo = 'Administrador' if es_admin else 'Visualizador'
+    rol_tipo = ETIQUETA_ROL.get(rol or 'user', 'Usuario')
     logo_block = (
         f'<div style="flex-shrink:0;background:white;border-radius:8px;padding:4px 8px;">{logo_html}</div>'
         if logo_html else ''
@@ -1375,15 +1376,29 @@ def main():
 
     restaurar_ui_app()
     aplicar_estilos()
-    es_admin = st.session_state.get('rol') == 'admin'
-    if not es_admin:
+    rol = st.session_state.get('rol')
+    es_operador = rol_es_operador(rol)
+    es_superadmin = rol_es_superadmin(rol)
+    if not es_operador:
         st.markdown('<div class="bess-rol-user" aria-hidden="true"></div>', unsafe_allow_html=True)
 
-    if es_admin:
-        sidebar_admin()
+    if es_operador:
+        sidebar_admin(mostrar_mantenimiento_db=es_superadmin)
     else:
         sidebar_user()
-    _ajustar_sidebar_por_rol(es_admin)
+    _ajustar_sidebar_por_rol(es_operador)
+
+    if st.session_state.get("modo_vista") == "mantenimiento_db":
+        if not es_superadmin:
+            st.session_state["modo_vista"] = "reporteador"
+            st.warning("Acceso denegado a Mantenimiento DB.")
+        else:
+            with st.container(border=True):
+                render_barra_superior(rol)
+            from bess.ui.db_tools.page import main as db_tools_main
+
+            db_tools_main()
+            return
     
     rutas_disponibles = [
         ruta_combinado_por_prefijo(med.prefijo)
@@ -1400,7 +1415,7 @@ def main():
         st.session_state["medidor_principal"] = SUBESTACIONES[0].prefijo
 
     with st.container(border=True):
-        render_barra_superior(es_admin)
+        render_barra_superior(rol)
         st.markdown(
             '<div class="panel-medidor">'
             '<p class="panel-medidor-label">Subestación</p>'

@@ -29,6 +29,12 @@ _log "Inicio sync + procesar (usuario=$(whoami), pwd=$ROOT)"
 
 cd "$ROOT"
 
+PREFLIGHT_JSON="$ROOT/data/sync_preflight.json"
+if ! python3 "$ROOT/scripts/preflight_reloj.py" "$PREFLIGHT_JSON"; then
+  _log "ADVERTENCIA: preflight reloj/zona — sync automatico omitido (ver data/sync_preflight.json)"
+  exit 1
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
   _log "ERROR: comando 'docker' no encontrado (revise PATH del cron)"
   exit 127

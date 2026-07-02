@@ -23,6 +23,7 @@ backups/*.zip
 # SQLite y depuración local (regenerables)
 data/bess_perfiles.db
 data/bess_perfiles.pre_migracion_*.db
+data/sync_preflight.json
 data/tmp_*
 data/fase7_corrida.log
 data/*.log
