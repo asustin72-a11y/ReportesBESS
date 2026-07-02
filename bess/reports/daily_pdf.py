@@ -15,9 +15,12 @@ from bess.config.subestaciones import (
     medidor_consumo_por_prefijo,
     ruta_acumulados_por_prefijo,
     ruta_combinado_por_prefijo,
+    soporta_participacion_capacidad,
+    subestacion_por_id,
 )
+from bess.data.aggregates.generacion import sumar_generacion_por_periodo
 from bess.core.console import log
-from bess.core.numbers import a_num as _a_num, kwh_para_calculo, redondear_arriba_kw
+from bess.core.numbers import a_num as _a_num, kwh_para_calculo, redondear_arriba_kw, sumar_energia
 from bess.cfe.arbitrage import calcular_arbitraje_dia
 from bess.cfe.daily_data import obtener_bess_energia_dia
 from bess.reports.assets import buscar_logo, formatear_fecha_espanol
@@ -424,17 +427,33 @@ def generar_reporte_pdf(fecha_str, medidor):
 
         bess_dia = obtener_bess_energia_dia(fecha_str, prefijo)
         c_b, c_i, c_p, c_t = _celdas_kwh_tabla(consumo_base, consumo_intermedio, consumo_punta)
-        g_b, g_i, g_p, g_t = _celdas_kwh_tabla(
+        car_b, car_i, car_p, car_t = _celdas_kwh_tabla(
             bess_dia['carga_base'], bess_dia['carga_intermedio'], bess_dia['carga_punta']
         )
-        d_b, d_i, d_p, d_t = _celdas_kwh_tabla(
+        des_b, des_i, des_p, des_t = _celdas_kwh_tabla(
             bess_dia['descarga_base'], bess_dia['descarga_intermedio'], bess_dia['descarga_punta']
         )
 
         data.append(['Consumo Mensual (kWh)', c_b, c_i, c_p, c_t])
         data.append(['Demanda Rolada (kW)', f'{demanda_base:,}', f'{demanda_intermedio:,}', f'{demanda_punta:,}', f'{demanda_punta:,}'])
-        data.append(['Carga del día BESS (kWh)', g_b, g_i, g_p, g_t])
-        data.append(['Descarga del día BESS (kWh)', d_b, d_i, d_p, d_t])
+
+        sub = subestacion_por_id(med.subestacion_nombre)
+        if sub and soporta_participacion_capacidad(sub.id):
+            gen = sumar_generacion_por_periodo(
+                sub.id,
+                fecha_dt.date().replace(day=1),
+                fecha_dt.date(),
+            )
+            if gen is not None:
+                gen_b, gen_i, gen_p, gen_t = _celdas_kwh_tabla(
+                    sumar_energia(gen['base']),
+                    sumar_energia(gen['intermedio']),
+                    sumar_energia(gen['punta']),
+                )
+                data.append(['Generación Acumulada', gen_b, gen_i, gen_p, gen_t])
+
+        data.append(['Carga del día BESS (kWh)', car_b, car_i, car_p, car_t])
+        data.append(['Descarga del día BESS (kWh)', des_b, des_i, des_p, des_t])
 
         arb = calcular_arbitraje_dia(fecha_str, prefijo, tarifas=tarifas)
         data.append([

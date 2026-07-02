@@ -20,6 +20,7 @@ TIPO_FACTURACION = 1
 TIPO_TESTIGO = 2
 TIPO_BESS = 3
 TIPO_GENERACION = 4
+TIPO_COGENERACION = 5
 DESCARGAS_VALIDAS = frozenset({"ION", "API"})
 REACTIVOS_VALIDOS = frozenset({0, 1, 2})
 
@@ -76,6 +77,10 @@ class MedidorCatalogo:
     @property
     def es_generacion(self) -> bool:
         return self.tipo_medidor == TIPO_GENERACION
+
+    @property
+    def es_cogeneracion(self) -> bool:
+        return self.tipo_medidor == TIPO_COGENERACION
 
     @property
     def validado_ok(self) -> bool:
@@ -309,6 +314,7 @@ def _validar_reglas_negocio(catalogo: Catalogo) -> list[str]:
         testigos = [m for m in meds if m.tipo_medidor == TIPO_TESTIGO]
         bess = [m for m in meds if m.tipo_medidor == TIPO_BESS]
         generacion = [m for m in meds if m.tipo_medidor == TIPO_GENERACION]
+        cogeneracion = [m for m in meds if m.tipo_medidor == TIPO_COGENERACION]
 
         if len(facturacion) != 1:
             errores.append(
@@ -334,6 +340,15 @@ def _validar_reglas_negocio(catalogo: Catalogo) -> list[str]:
                     f'Subestación "{sub.nombre}": medidores tipo 4 sin Grupo_Generacion: '
                     f"{', '.join(sin_grupo)}."
                 )
+        if len(cogeneracion) > 1:
+            errores.append(
+                f'Subestación "{sub.nombre}": solo se permite 1 medidor tipo 5 (Cogeneración).'
+            )
+        if cogeneracion and sub.generacion:
+            errores.append(
+                f'Subestación "{sub.nombre}": tipo 5 (Cogeneración) y granja (tipo 4) '
+                "no pueden coexistir."
+            )
 
         _ = testigos  # varios permitidos
 

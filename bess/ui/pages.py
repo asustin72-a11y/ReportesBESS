@@ -33,7 +33,10 @@ from bess.config.subestaciones import (
     ruta_combinado_por_prefijo,
     ruta_energia_dia_por_prefijo,
     subestacion_por_id,
+    subestacion_por_prefijo,
+    soporta_participacion_capacidad,
 )
+from bess.data.aggregates.generacion import sumar_generacion_por_periodo
 from bess.config.paths import (
     DIRECTORIO_BASE,
     DIRECTORIO_FUENTE,
@@ -69,7 +72,7 @@ from bess.cfe.report_data import (
     obtener_demanda_rolada_punta,
 )
 from bess.tariffs.loader import cargar_tarifas
-from bess.ui.auth import get_usuarios, init_session, login, logout
+from bess.ui.auth import get_usuarios, init_session, login, logout, preparar_ui_login, restaurar_ui_app
 from bess.ui.components import (
     html_tarifas_sidebar,
     metric_compact,
@@ -79,6 +82,7 @@ from bess.ui.components import (
 )
 from bess.ui.downloads import render_boton_descarga
 from bess.ui.chart_view import render_grafica_plotly
+from bess.ui.participacion_tab import tab_participacion_capacidad
 from bess.ui.receipt_tab import tab_recibo as _tab_recibo_core
 from bess.ui.sidebar import _ajustar_sidebar_por_rol, sidebar_admin, sidebar_user
 from bess.ui.styles import aplicar_estilos
@@ -504,14 +508,27 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
     arbitraje_total = arb['total']
 
     c_b, c_i, c_p, c_t = _celdas_kwh_tabla(consumo_base, consumo_intermedio, consumo_punta)
-    g_b, g_i, g_p, g_t = _celdas_kwh_tabla(carga_base, carga_intermedio, carga_punta)
-    d_b, d_i, d_p, d_t = _celdas_kwh_tabla(descarga_base, descarga_intermedio, descarga_punta)
+    car_b, car_i, car_p, car_t = _celdas_kwh_tabla(carga_base, carga_intermedio, carga_punta)
+    des_b, des_i, des_p, des_t = _celdas_kwh_tabla(descarga_base, descarga_intermedio, descarga_punta)
 
     data = [['Periodo', 'Base', 'Intermedio', 'Punta', 'Total']]
     data.append([lbl_consumo, c_b, c_i, c_p, c_t])
     data.append(['Demanda Rolada (kW)', f'{demanda_base:,}', f'{demanda_intermedio:,}', f'{demanda_punta:,}', f'{demanda_punta:,}'])
-    data.append([lbl_carga, g_b, g_i, g_p, g_t])
-    data.append([lbl_descarga, d_b, d_i, d_p, d_t])
+
+    sub = subestacion_por_prefijo(prefijo)
+    if sub and soporta_participacion_capacidad(sub.id):
+        gen_inicio = fecha_fin.replace(day=1) if rango_un_dia else fecha_inicio
+        gen = sumar_generacion_por_periodo(sub.id, gen_inicio, fecha_fin)
+        if gen is not None:
+            gen_b, gen_i, gen_p, gen_t = _celdas_kwh_tabla(
+                sumar_energia(gen['base']),
+                sumar_energia(gen['intermedio']),
+                sumar_energia(gen['punta']),
+            )
+            data.append(['Generación Acumulada', gen_b, gen_i, gen_p, gen_t])
+
+    data.append([lbl_carga, car_b, car_i, car_p, car_t])
+    data.append([lbl_descarga, des_b, des_i, des_p, des_t])
     data.append(['Arbitraje de Energía (MXN)', f'${arbitraje_base:,.2f}', f'${arbitraje_intermedio:,.2f}', f'${arbitraje_punta:,.2f}', f'${arbitraje_total:,.2f}'])
 
     return {
@@ -1324,6 +1341,9 @@ def _bloque_reporteador(df, prefijo, medidor):
         tab_dashboard(df, prefijo, medidor)
     elif seccion == "analisis":
         tab_analisis(df, prefijo)
+    elif seccion == "participacion":
+        sub_id = st.session_state.get("subestacion_principal", "")
+        tab_participacion_capacidad(df, sub_id)
     elif seccion == "tendencia":
         tab_tendencia(df, prefijo)
     elif seccion == "reporte":
@@ -1344,6 +1364,7 @@ def main():
     init_session()
 
     if not st.session_state.get('autenticado', False):
+        preparar_ui_login()
         login_placeholder = st.empty()
         with login_placeholder.container():
             login()
@@ -1351,8 +1372,11 @@ def main():
             return
         login_placeholder.empty()
 
+    restaurar_ui_app()
     aplicar_estilos()
     es_admin = st.session_state.get('rol') == 'admin'
+    if not es_admin:
+        st.markdown('<div class="bess-rol-user" aria-hidden="true"></div>', unsafe_allow_html=True)
 
     if es_admin:
         sidebar_admin()

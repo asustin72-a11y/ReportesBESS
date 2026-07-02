@@ -33,6 +33,18 @@ SECCIONES = [
         ],
     },
     {
+        "key": "participacion",
+        "pill": "Participación",
+        "titulo": "Participación Capacidad",
+        "icono": "⚖️",
+        "resumen": "Atribución Shapley de la reducción de capacidad CFE (generación vs BESS).",
+        "capacidades": [
+            "Escenarios D0–Dcb",
+            "Shapley kW y MXN",
+            "Criterio CFE",
+        ],
+    },
+    {
         "key": "tendencia",
         "pill": "Tendencia",
         "titulo": "Tendencia",

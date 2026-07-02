@@ -601,8 +601,50 @@ def aplicar_estilos():
 def aplicar_estilos_login():
     st.markdown("""
     <style>
-        [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="stSidebar"] {
-            display: none;
+        body.bess-login-mode section[data-testid="stSidebar"],
+        body.bess-login-mode [data-testid="stSidebarCollapsedControl"],
+        body.bess-login-mode [data-testid="collapsedControl"],
+        body.bess-login-mode [data-testid="stExpandSidebarButton"],
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="stSidebar"],
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="stSidebarCollapsedControl"],
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="collapsedControl"] {
+            display: none !important;
+            visibility: hidden !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            overflow: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        body.bess-login-mode .sidebar-guia,
+        body.bess-login-mode .sidebar-modulo,
+        body.bess-login-mode .sidebar-flujo,
+        body.bess-login-mode .sidebar-paso,
+        body.bess-login-mode .sidebar-guia-titulo,
+        body.bess-login-mode .sidebar-flujo-titulo,
+        body.bess-login-mode .sidebar-modulo-icon,
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) .bess-floating-tip,
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) #bess-nav-tooltip-root,
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) .sidebar-guia,
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) .sidebar-modulo,
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) .sidebar-flujo,
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) .sidebar-paso {
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            width: 0 !important;
+            overflow: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            position: absolute !important;
+            left: -9999px !important;
+        }
+        body.bess-login-mode [data-testid="stAppViewContainer"] > .main,
+        [data-testid="stAppViewContainer"]:has(.login-page-marker) > .main {
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+            max-width: 100% !important;
         }
         [data-testid="stAppViewContainer"]:has(.login-page-marker) > .main .block-container,
         [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="stMainBlockContainer"],

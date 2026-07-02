@@ -36,6 +36,7 @@ _PATRONES_A_NOMBRE: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
     ("Banco_1", ("CS1996", "BANCO1", "Banco1", "BANCO"), ("IUSA2",)),
     ("ION_Testigo_IUSA1", ("IUSA1", "ION_Testigo", "ION.csv"), ("IUSA2", "CS3190", "CS1996")),
     ("BESS_NORTE", ("CS3878", "BESS.csv"), ("IUSA2", "CS3190", "CS1996", "BANCO")),
+    ("Cogeneracion", ("CS1305", "Cogeneracion", "COGEN"), ("IUSA2", "CS3190", "CS1996")),
 )
 
 

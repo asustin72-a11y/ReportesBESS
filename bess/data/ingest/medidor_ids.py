@@ -23,6 +23,7 @@ MEDIDOR_BESS = "BESS_NORTE"
 MEDIDOR_BANCO = "Banco_1"
 MEDIDOR_BESS_IUSA2 = "BESS_SUR"
 MEDIDOR_GENERACION_IUSA2 = "Generacion_IUSA_2"
+MEDIDOR_COGENERACION = "Cogeneracion"
 
 # Alias de compatibilidad con scripts que usan el nombre antiguo de la constante.
 MEDIDOR_GRANJA_IUSA2 = MEDIDOR_GENERACION_IUSA2
@@ -32,6 +33,7 @@ MEDIDORES_RELLENAR_MEDIANOCHE_API = frozenset({
     MEDIDOR_BANCO,
     MEDIDOR_BESS_IUSA2,
     MEDIDOR_GENERACION_IUSA2,
+    MEDIDOR_COGENERACION,
 })
 
 FUENTE_MEDIANOCHE_API: dict[str, str] = {
@@ -56,6 +58,7 @@ def construir_medidores_catalogo_bd() -> tuple[tuple, ...]:
     """
     from bess.config.catalog import (
         TIPO_BESS,
+        TIPO_COGENERACION,
         TIPO_FACTURACION,
         TIPO_TESTIGO,
         obtener_catalogo,
@@ -65,7 +68,7 @@ def construir_medidores_catalogo_bd() -> tuple[tuple, ...]:
     filas: list[tuple] = []
 
     for m in cat.medidores:
-        if m.tipo_medidor not in (TIPO_FACTURACION, TIPO_TESTIGO, TIPO_BESS):
+        if m.tipo_medidor not in (TIPO_FACTURACION, TIPO_TESTIGO, TIPO_BESS, TIPO_COGENERACION):
             continue
         if m.descarga == "ION":
             tipo = "ION8650"
@@ -73,6 +76,10 @@ def construir_medidores_catalogo_bd() -> tuple[tuple, ...]:
             dr = 1
         elif m.es_bess:
             tipo = "BESS"
+            ip = None
+            dr = None
+        elif m.es_cogeneracion:
+            tipo = "COGENERACION"
             ip = None
             dr = None
         else:
@@ -97,12 +104,18 @@ def construir_medidores_catalogo_bd() -> tuple[tuple, ...]:
 def destinos_export_bd(ruta_bd: Path | None = None) -> list[tuple[str, Path]]:
     """(medidor_id, ruta_csv) para exportar SQLite → ArchivosFuente/{Subestacion}/."""
     from bess.config import rutas as rutas_mod
-    from bess.config.catalog import TIPO_BESS, TIPO_FACTURACION, TIPO_TESTIGO, obtener_catalogo
+    from bess.config.catalog import (
+        TIPO_BESS,
+        TIPO_COGENERACION,
+        TIPO_FACTURACION,
+        TIPO_TESTIGO,
+        obtener_catalogo,
+    )
 
     cat = obtener_catalogo()
     destinos: list[tuple[str, Path]] = []
     for m in cat.medidores:
-        if m.tipo_medidor in (TIPO_FACTURACION, TIPO_TESTIGO, TIPO_BESS):
+        if m.tipo_medidor in (TIPO_FACTURACION, TIPO_TESTIGO, TIPO_BESS, TIPO_COGENERACION):
             destinos.append((
                 m.nombre,
                 rutas_mod.ruta_fuente_medidor(m.nombre, m.subestacion_nombre),

@@ -132,12 +132,14 @@ Contiene tres sub-pestañas:
 
 - Compara **demanda con BESS** y **demanda sin BESS** en intervalos de **15 minutos**.
 - Fuente: columnas `IUSA_CON_BESS_*_kW_DEM_15min` e `IUSA_SIN_BESS_*_kW_DEM_15min`.
+- La **demanda rodante se reinicia al inicio de cada mes operativo** (media móvil de 15 min sobre intervalos de 5 min). Los intervalos **00:05** y **00:10** del mes llevan **0**; el primer valor calculado es **00:15**.
 - Permite ver cómo la batería modifica el perfil de demanda hora a hora.
 
 #### Tabla «Demanda máxima del mes»
 
 - Para cada periodo (Base, Intermedio, Punta): valor máximo de demanda (kW) y **hora del pico** en el mes, con y sin BESS.
-- Fuente: archivo `ACUMULADOS_{ION|BANCO}.csv`.
+- Fuente: archivo `ACUMULADOS_{ION|BANCO}.csv` (calculado a partir de la demanda rodante del combinado).
+- La demanda rodante usada para esos máximos **se reinicia al inicio de cada mes operativo** (ver arriba).
 
 ### 5.2 Energía y costos
 

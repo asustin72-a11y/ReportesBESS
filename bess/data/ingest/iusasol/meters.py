@@ -11,6 +11,7 @@ ALIAS_SERIAL: dict[str, tuple[str, ...]] = {
     "banco": ("CS1996", "BANCO1", "BANCO"),
     "banco2": ("BANCO2",),
     "bess_iusa2": ("CS3190", "BESS_IUSA2", "BESSIUSA2"),
+    "cogeneracion": ("CS1305", "COGENERACION", "COGEN"),
 }
 
 # Referencia histórica (puede estar desactualizada; preferir resolver_id_medidor).

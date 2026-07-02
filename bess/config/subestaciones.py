@@ -10,6 +10,7 @@ from bess.config import rutas as rutas_mod
 from bess.config.paths import DIRECTORIO_REPORTES
 from bess.config.catalog import (
     TIPO_BESS,
+    TIPO_COGENERACION,
     TIPO_FACTURACION,
     TIPO_GENERACION,
     TIPO_TESTIGO,
@@ -27,6 +28,7 @@ _API_ALIAS: dict[str, str] = {
     "Banco_1": "banco1",
     "BESS_NORTE": "BESS",
     "BESS_SUR": "bess_iusa2",
+    "Cogeneracion": "cogeneracion",
 }
 
 _ETIQUETAS: dict[str, str] = {
@@ -86,6 +88,9 @@ class Subestacion:
     granja_csv: str | None = None
     granja_filtrado: str | None = None
     granja_bd: str | None = None
+    cogeneracion_csv: str | None = None
+    cogeneracion_filtrado: str | None = None
+    cogeneracion_nombre: str | None = None
 
     @property
     def prefijo(self) -> str:
@@ -130,6 +135,22 @@ class Subestacion:
     def ruta_generacion_lectura(self, *, filtrado: bool = False) -> Path:
         return rutas_mod.resolver_ruta_procesado(self.ruta_generacion(filtrado=filtrado))
 
+    def ruta_cogeneracion(self, *, filtrado: bool = False) -> Path | None:
+        if not self.cogeneracion_csv:
+            return None
+        archivo = self.cogeneracion_filtrado if filtrado else self.cogeneracion_csv
+        return rutas_mod.ruta_procesado(self.id, archivo or "")
+
+    def ruta_cogeneracion_lectura(self, *, filtrado: bool = False) -> Path | None:
+        ruta = self.ruta_cogeneracion(filtrado=filtrado)
+        if ruta is None:
+            return None
+        proc = rutas_mod.resolver_ruta_procesado(ruta)
+        if proc.exists():
+            return proc
+        fuente = rutas_mod.ruta_fuente(self.id, self.cogeneracion_csv or "")
+        return fuente if fuente.exists() else proc
+
     def ruta_energia_bess_dia(self) -> Path:
         return rutas_mod.ruta_energia_bess_por_dia(self.id)
 
@@ -172,10 +193,20 @@ def _construir_subestaciones() -> tuple[Subestacion, ...]:
         granja_csv = None
         granja_filtrado = None
         granja_bd = None
+        cogeneracion_csv = None
+        cogeneracion_filtrado = None
+        cogeneracion_nombre = None
         if sub_c.generacion:
             granja_csv = rutas_mod.nombre_generacion_subestacion(sub_c.nombre)
             granja_filtrado = rutas_mod.nombre_generacion_subestacion_filtrado(sub_c.nombre)
             granja_bd = granja_csv.replace(".csv", "")
+
+        cogeneracion_meds = [m for m in meds_sub if m.tipo_medidor == TIPO_COGENERACION]
+        if cogeneracion_meds:
+            cog = cogeneracion_meds[0]
+            cogeneracion_nombre = cog.nombre
+            cogeneracion_csv = rutas_mod.nombre_archivo_medidor(cog.nombre)
+            cogeneracion_filtrado = rutas_mod.nombre_archivo_filtrado(cog.nombre)
 
         serial_bess = bess_meds[0].numero_serie.split()[0] if bess_meds else None
         cliente = consumo[0].prefijo if consumo else sub_c.nombre
@@ -194,6 +225,9 @@ def _construir_subestaciones() -> tuple[Subestacion, ...]:
                 granja_csv=granja_csv,
                 granja_filtrado=granja_filtrado,
                 granja_bd=granja_bd,
+                cogeneracion_csv=cogeneracion_csv,
+                cogeneracion_filtrado=cogeneracion_filtrado,
+                cogeneracion_nombre=cogeneracion_nombre,
             )
         )
     return tuple(subs)
@@ -298,11 +332,11 @@ def aliases_sync_api() -> list[tuple[str, str]]:
 
 
 def archivos_fuente_subestacion(sub: Subestacion) -> list[str]:
-    """CSV en ArchivosFuente/{sub}/: consumo, BESS individual; agregado de generación."""
+    """CSV en ArchivosFuente/{sub}/: consumo, BESS, cogeneración; agregado de generación."""
     cat = obtener_catalogo()
     nombres: list[str] = []
     for m in cat.medidores_subestacion(sub.id):
-        if m.tipo_medidor in (TIPO_BESS, TIPO_FACTURACION, TIPO_TESTIGO):
+        if m.tipo_medidor in (TIPO_BESS, TIPO_FACTURACION, TIPO_TESTIGO, TIPO_COGENERACION):
             nombres.append(rutas_mod.nombre_archivo_medidor(m.nombre))
     if sub.granja_csv:
         nombres.append(sub.granja_csv)
@@ -328,6 +362,8 @@ def pares_filtrado() -> list[tuple[str, str, str]]:
         pares.append((sub.bess_csv, sub.bess_filtrado, sub.bess_csv))
         if sub.granja_csv and sub.granja_filtrado:
             pares.append((sub.granja_csv, sub.granja_filtrado, sub.granja_csv))
+        if sub.cogeneracion_csv and sub.cogeneracion_filtrado:
+            pares.append((sub.cogeneracion_csv, sub.cogeneracion_filtrado, sub.cogeneracion_csv))
     return pares
 
 
@@ -384,4 +420,59 @@ def ruta_acumulados_por_prefijo(prefijo: str) -> Path | None:
         legacy = _legacy_acumulados(prefijo)
         return legacy if legacy.exists() else None
     return _resolver_ruta(med.ruta_acumulados(), _legacy_acumulados(med.prefijo))
+
+
+def medidor_testigo_subestacion(sub_id: str) -> MedidorConsumo | None:
+    """Medidor ION testigo para cálculos de capacidad / Shapley."""
+    sub = subestacion_por_id(sub_id)
+    if not sub:
+        return None
+    for med in sub.medidores_consumo:
+        if "ION" in med.nombre.upper():
+            return med
+    return sub.medidores_consumo[0] if sub.medidores_consumo else None
+
+
+def soporta_participacion_capacidad(sub_id: str) -> bool:
+    sub = subestacion_por_id(sub_id)
+    if not sub:
+        return False
+    return bool(sub.granja_csv or sub.cogeneracion_csv)
+
+
+@dataclass(frozen=True)
+class RecursoGeneracion:
+    """Recurso de generación por subestación (granja solar o cogeneración)."""
+
+    tipo: str
+    prefijo_reporte: str
+    columna_kwh: str
+    etiqueta: str
+    csv_procesado: str
+    csv_filtrado: str
+
+
+def recurso_generacion_subestacion(sub_id: str) -> RecursoGeneracion | None:
+    sub = subestacion_por_id(sub_id)
+    if not sub:
+        return None
+    if sub.granja_csv and sub.granja_filtrado and sub.granja_bd:
+        return RecursoGeneracion(
+            tipo="granja",
+            prefijo_reporte=sub.granja_bd,
+            columna_kwh="KWH_REC",
+            etiqueta="Generación granja solar",
+            csv_procesado=sub.granja_csv,
+            csv_filtrado=sub.granja_filtrado,
+        )
+    if sub.cogeneracion_csv and sub.cogeneracion_filtrado and sub.cogeneracion_nombre:
+        return RecursoGeneracion(
+            tipo="cogeneracion",
+            prefijo_reporte=sub.cogeneracion_nombre,
+            columna_kwh="KWH_ENT",
+            etiqueta="Cogeneración",
+            csv_procesado=sub.cogeneracion_csv,
+            csv_filtrado=sub.cogeneracion_filtrado,
+        )
+    return None
 

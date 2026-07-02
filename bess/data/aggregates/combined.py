@@ -12,6 +12,7 @@ from bess.config.subestaciones import medidor_consumo_por_prefijo
 from bess.cfe.periods import obtener_periodo_por_fecha_hora
 from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
 from bess.core.dates import agregar_fecha_operativa
+from bess.core.demand import demanda_rodante_15min_por_mes
 from bess.core.kvarh import columnas_kvarh as _columnas_kvarh
 from bess.data.ingest.readers import leer_sin_agrupar
 
@@ -115,17 +116,14 @@ def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo):
         df_combinado[f"Mejora_BESS_{prefijo}_kWh"] * 12
     )
 
-    print("\n--- Calculando demanda rodante (rolling demand 15 minutos) ---")
-    ventana = 15
-    registros_ventana = ventana // 5
+    print("\n--- Calculando demanda rodante (rolling 15 min, reinicio mensual) ---")
+    df_combinado = agregar_fecha_operativa(df_combinado, col_fecha_hora="FECHA_HORA")
+    mes_operativo = pd.to_datetime(df_combinado["FECHA"], format="%d/%m/%Y").dt.to_period("M")
     for col in (col_con, col_sin):
         col_demanda = f"{col}_DEM_15min"
-        df_combinado[col_demanda] = df_combinado[col].rolling(
-            window=registros_ventana,
-            min_periods=registros_ventana,
-        ).mean()
-
-    df_combinado = agregar_fecha_operativa(df_combinado, col_fecha_hora='FECHA_HORA')
+        df_combinado[col_demanda] = demanda_rodante_15min_por_mes(
+            df_combinado[col], mes_operativo
+        )
 
     columnas_export = [
         "FECHA",

@@ -1,0 +1,21 @@
+# BESS en Linux — uso: ver docs/DOCKER.md
+services:
+  bess:
+    build: .
+    image: bess:5.6.1
+    container_name: bess-app
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      # Datos persistentes (SQLite, Tarifas, reportes CSV/PDF)
+      - ./data:/app/data
+      # Secretos (NO commitear). Copie deploy/secrets.toml.example → deploy/secrets.toml
+      - ./deploy/secrets.toml:/app/.streamlit/secrets.toml:ro
+    environment:
+      # Opcional: credenciales API si no van en secrets.toml
+      # IUSASOL_CLIENT_ID: ""
+      # IUSASOL_CLIENT_SECRET: ""
+      TZ: America/Mexico_City
+    # Descomente si el contenedor debe alcanzar medidores ION en la red de planta (Modbus TCP)
+    # network_mode: host

@@ -137,6 +137,28 @@ def filtrar_datos():
                     f"Verifique {sub.granja_csv} en ArchivosFuente y ejecute Verificar."
                 )
 
+        if sub.cogeneracion_csv and sub.cogeneracion_filtrado and fechas_bess_filtradas:
+            ruta_cogen = str(sub.ruta_cogeneracion_lectura() or "")
+            if ruta_cogen and os.path.exists(ruta_cogen):
+                df_cogen, err = _leer_perfil(ruta_cogen, sub.cogeneracion_csv)
+                if err:
+                    return False, f"{sub.nombre} (cogeneración): {err}"
+                df_cogen_out = df_cogen[df_cogen["Fecha"].isin(fechas_bess_filtradas)].copy()
+                df_cogen_out = df_cogen_out.sort_values("Fecha").reset_index(drop=True)
+                generar_archivo_limpio(
+                    df_cogen_out,
+                    str(sub.ruta_cogeneracion(filtrado=True)),
+                )
+                print(
+                    f"📊 Cogeneración ({sub.cogeneracion_csv}): {len(df_cogen)} registros "
+                    f"→ {sub.cogeneracion_filtrado}: {len(df_cogen_out)}"
+                )
+            else:
+                print(
+                    f"⚠️ Cogeneración omitida: falta {sub.cogeneracion_csv} en ArchivosProcesados. "
+                    f"Verifique {sub.cogeneracion_csv} en ArchivosFuente y ejecute Verificar."
+                )
+
     if subestaciones_ok == 0:
         return False, (
             "Ninguna subestación pudo filtrarse. "

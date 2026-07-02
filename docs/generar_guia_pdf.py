@@ -516,7 +516,9 @@ def _build_story():
     story.extend(_img("03-analisis-demanda.png", "Demanda del día (15 min) y demanda máxima del mes", 3))
     story.append(
         _p(
-            "Curva con/sin BESS en intervalos de 15 minutos. Tabla de picos mensuales por periodo (kW y hora).",
+            "Curva con/sin BESS en intervalos de 15 minutos (demanda rodante reiniciada al inicio de "
+            "cada mes operativo; 00:05 y 00:10 del mes en 0, primer valor calculado a las 00:15). Tabla de picos mensuales "
+            "por periodo (kW y hora).",
             "body",
         )
     )

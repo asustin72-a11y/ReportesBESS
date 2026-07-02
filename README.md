@@ -2,7 +2,7 @@
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
 
-**Versión actual:** 5.6 — Catálogo CSV, rutas por subestación (`IUSA_1` / `IUSA_2`), sync con `Validado`, limpieza legacy y parseo de fechas unificado en el pipeline.
+**Versión actual:** 5.6.1 — Flujo unificado IUSA 1 + IUSA 2, Shapley capacidad, generación acumulada, Docker y sync cogeneración.
 
 ## Ejecución local
 
@@ -28,6 +28,10 @@ streamlit run streamlit_app.py
 | user    | user123    | User  |
 
 Cambia estas contraseñas antes de compartir la app en producción.
+
+### Despliegue en servidor Linux (Docker)
+
+Ver [docs/DOCKER.md](docs/DOCKER.md) — `docker compose up -d` en el VPS con volúmenes `data/` y `deploy/secrets.toml`.
 
 ### Descarga de perfil ION (ejecutable)
 

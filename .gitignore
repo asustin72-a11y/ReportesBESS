@@ -15,6 +15,7 @@ data/ReportesDiarios/
 # Secretos locales
 .streamlit/secrets.toml
 .env
+deploy/secrets.toml
 
 # Respaldos portables (pueden incluir secretos)
 backups/*.zip
@@ -25,6 +26,7 @@ data/bess_perfiles.pre_migracion_*.db
 data/tmp_*
 data/fase7_corrida.log
 data/*.log
+logs/*.log
 *_backup*.csv
 
 # Builds Windows

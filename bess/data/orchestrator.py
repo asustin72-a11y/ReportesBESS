@@ -5,12 +5,17 @@ from __future__ import annotations
 import os
 
 from bess.config.constants import etiqueta_medidor
-from bess.config.subestaciones import SUBESTACIONES, medidor_consumo_por_prefijo, ruta_combinado_por_prefijo
+from bess.config.subestaciones import (
+    SUBESTACIONES,
+    medidor_consumo_por_prefijo,
+    recurso_generacion_subestacion,
+    ruta_combinado_por_prefijo,
+)
 from bess.core.consumo import usa_consumo_neto
 from bess.data.aggregates.accumulated import generar_acumulados
 from bess.data.aggregates.bess_daily import generar_bess_diario_subestacion
 from bess.data.aggregates.combined import generar_combinado_por_minuto
-from bess.data.aggregates.granja import generar_reportes_granja
+from bess.data.aggregates.granja import generar_reportes_generacion
 from bess.data.aggregates.daily import generar_diarios_con_demandas
 from bess.data.ingest.readers import leer_sin_agrupar
 
@@ -128,13 +133,22 @@ def reporte_bess():
     print("GENERANDO REPORTES GENERACIÓN")
     print("=" * 60)
     for sub in SUBESTACIONES:
-        if not sub.granja_filtrado:
+        recurso = recurso_generacion_subestacion(sub.id)
+        if recurso is None:
             continue
-        ruta_granja = str(sub.ruta_generacion_lectura(filtrado=True))
-        if os.path.exists(ruta_granja):
-            generar_reportes_granja(ruta_granja, sub.id, sub.granja_bd)
+        if recurso.tipo == "granja":
+            ruta_gen = str(sub.ruta_generacion_lectura(filtrado=True))
         else:
-            print(f"⚠️ {sub.nombre}: sin {sub.granja_filtrado} (omitido)")
+            ruta_gen = str(sub.ruta_cogeneracion_lectura(filtrado=True) or "")
+        if ruta_gen and os.path.exists(ruta_gen):
+            generar_reportes_generacion(
+                ruta_gen,
+                sub.id,
+                recurso.prefijo_reporte,
+                columna_kwh=recurso.columna_kwh,
+            )
+        else:
+            print(f"⚠️ {sub.nombre}: sin {recurso.csv_filtrado} (omitido)")
 
     print("\n" + "=" * 60)
     print("RESUMEN DEL PROCESO")

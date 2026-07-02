@@ -17,25 +17,51 @@ from bess.ui.components import html_tarifas_sidebar, obtener_logo_html
 from bess.ui.catalog_check import medidores_pendientes_validacion, puede_generar_reportes
 from bess.ui.navigation import html_guia_usuario_sidebar
 
-def _inyectar_script_sidebar(expandida):
+def _inyectar_script_sidebar(expandida: bool):
     """Ajusta la sidebar tras el login (Streamlit fija el estado inicial solo al cargar la app)."""
-    objetivo = 'true' if expandida else 'false'
+    expandida_js = "true" if expandida else "false"
     js = f"""
     (function () {{
+        const DEBE_EXPANDIR = {expandida_js};
+
         function doc() {{
             return window.parent && window.parent.document ? window.parent.document : document;
         }}
+
+        function sidebarExpandida(sidebar) {{
+            return sidebar && sidebar.getAttribute('aria-expanded') === 'true';
+        }}
+
+        function botonColapsar(d) {{
+            return (
+                d.querySelector('[data-testid="stSidebarCollapseButton"]') ||
+                d.querySelector('[data-testid="stHeader"] [data-testid="stBaseButton-headerNoPadding"]') ||
+                d.querySelector('[data-testid="stHeader"] button[aria-label*="sidebar" i]') ||
+                d.querySelector('[data-testid="stHeader"] button[aria-label*="Close" i]') ||
+                d.querySelector('[data-testid="stHeader"] button')
+            );
+        }}
+
+        function botonExpandir(d) {{
+            return (
+                d.querySelector('[data-testid="stSidebarCollapsedControl"] button') ||
+                d.querySelector('[data-testid="stSidebarCollapsedControl"]') ||
+                d.querySelector('[data-testid="collapsedControl"]') ||
+                d.querySelector('[data-testid="stExpandSidebarButton"]')
+            );
+        }}
+
         function ajustar() {{
             const d = doc();
             const sidebar = d.querySelector('section[data-testid="stSidebar"]');
             if (!sidebar) return;
-            const abierta = sidebar.getAttribute('aria-expanded') === 'true';
-            const debeEstarAbierta = {objetivo};
-            if (abierta === debeEstarAbierta) return;
-            const btn = d.querySelector('[data-testid="stHeader"] button');
+            const abierta = sidebarExpandida(sidebar);
+            if (abierta === DEBE_EXPANDIR) return;
+            const btn = DEBE_EXPANDIR ? botonExpandir(d) : botonColapsar(d);
             if (btn) btn.click();
         }}
-        [80, 250, 600, 1200, 2000].forEach(function (ms) {{
+
+        [0, 80, 200, 500, 1000, 1800].forEach(function (ms) {{
             setTimeout(ajustar, ms);
         }});
     }})();
@@ -414,7 +440,11 @@ def sidebar_admin():
 
 
 def _ajustar_sidebar_por_rol(es_admin):
+    """Colapsa o expande la sidebar solo al entrar (no en cada interacción)."""
+    if st.session_state.get("sidebar_inicial_aplicada"):
+        return
     _inyectar_script_sidebar(expandida=es_admin)
+    st.session_state["sidebar_inicial_aplicada"] = True
 
 
 def sidebar_user():
