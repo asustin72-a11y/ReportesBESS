@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Sync horario: ION + API + granja -> CSV -> verificar -> filtrar -> reportes.
+# Sync cada 15 min: ION + API + granja -> CSV -> verificar -> filtrar -> reportes.
 # Uso manual o desde cron (ver deploy/install-cron.sh).
 
 set -euo pipefail

@@ -57,14 +57,14 @@ SECCIONES = [
         ],
     },
     {
-        "key": "reporte",
-        "pill": "Reporte",
-        "titulo": "Reporte diario",
+        "key": "reportes",
+        "pill": "Reportes",
+        "titulo": "Reportes",
         "icono": "📄",
-        "resumen": "Vista previa y descarga del PDF oficial del día seleccionado.",
+        "resumen": "Reporte diario y reporte acumulado de ahorros BESS (PDF descargable).",
         "capacidades": [
-            "Resumen del día",
-            "Gráficas incluidas",
+            "Reporte diario",
+            "Reporte acumulado",
             "PDF descargable",
         ],
     },
@@ -285,6 +285,8 @@ def _inyectar_script_ayuda_nav(delay_ms: int = 2000):
 def _inicializar_seccion():
     if "seccion_activa" not in st.session_state:
         st.session_state["seccion_activa"] = SECCIONES[0]["key"]
+    elif st.session_state["seccion_activa"] == "reporte":
+        st.session_state["seccion_activa"] = "reportes"
 
 
 def render_navegacion_principal() -> str:

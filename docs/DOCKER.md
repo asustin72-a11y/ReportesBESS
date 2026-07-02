@@ -17,7 +17,7 @@ sudo usermod -aG docker $USER
 
 git clone https://github.com/asustin72-a11y/ReportesBESS.git
 cd ReportesBESS
-git checkout v5.6.0
+git checkout v5.6.2
 ```
 
 ## 2. Secretos y datos
@@ -111,7 +111,7 @@ En `docker-compose.yml` puede usar:
 
 `secrets.toml` montado en `/app/.streamlit/secrets.toml` tiene prioridad para usuarios si existe.
 
-## 8. Sincronización automática cada hora
+## 8. Sincronización automática cada 15 minutos
 
 Para mantener la página al día sin intervención manual (sync + verificar + filtrar + reportes):
 
@@ -120,7 +120,7 @@ cd ~/ReportesBESS
 bash deploy/install-cron.sh
 ```
 
-Eso programa **cada hora** (minuto 5, zona `America/Mexico_City`):
+Eso programa **cada 15 minutos** (zona `America/Mexico_City`):
 
 ```text
 python scripts/sincronizar_perfiles.py --quiet --procesar
@@ -144,4 +144,4 @@ crontab -e    # borrar las líneas con cron_sincronizar.sh
 
 **Modbus ION:** si el sync a `172.16.x.x` falla desde Docker bridge, active `network_mode: host` en `docker-compose.yml` (sección 6). El cron usa el mismo contenedor que la app.
 
-**Nota:** si una corrida tarda más de 1 hora, la siguiente se omite hasta que termine (`flock`).
+**Nota:** si una corrida tarda más de 15 minutos, la siguiente se omite hasta que termine (`flock`).

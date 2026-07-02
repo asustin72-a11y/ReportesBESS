@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instala cron horario en la VM (usuario actual, tipicamente bess).
+# Instala cron cada 15 minutos en la VM (usuario actual, tipicamente bess).
 # Ejecutar desde la raiz del proyecto: bash deploy/install-cron.sh
 
 set -euo pipefail
@@ -16,7 +16,7 @@ fi
 chmod +x "$SYNC_SCRIPT"
 mkdir -p "$ROOT/logs"
 
-CRON_BODY="5 * * * * $SYNC_SCRIPT"
+CRON_BODY="*/15 * * * * $SYNC_SCRIPT"
 CRON_BLOCK=$(
   cat <<EOF
 CRON_TZ=America/Mexico_City
@@ -32,7 +32,7 @@ TMP="$(mktemp)"
 crontab "$TMP"
 rm -f "$TMP"
 
-echo "Cron instalado (cada hora, minuto 5, hora Ciudad de Mexico):"
+echo "Cron instalado (cada 15 minutos, hora Ciudad de Mexico):"
 crontab -l | grep -A1 'CRON_TZ' || crontab -l
 
 echo ""

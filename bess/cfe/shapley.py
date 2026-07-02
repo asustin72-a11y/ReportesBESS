@@ -17,7 +17,7 @@ from bess.config.subestaciones import (
 )
 from bess.core.consumo import kwh_neto_consumo
 from bess.core.demand import demanda_rodante_15min_por_mes
-from bess.core.numbers import redondear_arriba_kw, redondear_arriba_mxn
+from bess.core.numbers import redondear_arriba_kw, redondear_mxn_energia
 from bess.tariffs.loader import cargar_tarifas
 
 
@@ -153,7 +153,9 @@ def calcular_participacion_capacidad(
 
     if tarifas is None:
         tarifas = cargar_tarifas()
-    tarifa_cap = float(tarifas.get("Capacidad", {}).get(fecha_corte.month, 0))
+    tarifa_cap = redondear_mxn_energia(
+        float(tarifas.get("Capacidad", {}).get(fecha_corte.month, 0))
+    )
     dias = fecha_corte.day
 
     raw = pd.read_csv(cfg.ruta_combinado, encoding="utf-8-sig")
@@ -212,25 +214,35 @@ def calcular_participacion_capacidad(
         punta_raw = _max_punta_rodada(calc, col_p)
         energia = _energia_mes(calc, col_e)
         res = _capacidad_cfe(punta_raw, energia, dias)
-        res["costo_capacidad_mxn"] = redondear_arriba_mxn(res["capacidad_kw"] * tarifa_cap)
+        res["costo_capacidad_mxn"] = redondear_mxn_energia(res["capacidad_kw"] * tarifa_cap)
         cfe[clave] = res
         punta_max[clave] = res["demanda_punta_kw"]
 
     c0, cc, cb, ccb = (cfe[k]["capacidad_kw"] for k in ("D0", "Dc", "Db", "Dcb"))
-    s_g_cap = (c0 - cc + cb - ccb) / 2
-    s_b_cap = (c0 - cb + cc - ccb) / 2
+    c0_mxn, cc_mxn, cb_mxn, ccb_mxn = (
+        cfe[k]["costo_capacidad_mxn"] for k in ("D0", "Dc", "Db", "Dcb")
+    )
 
-    d0, dc, db, dcb = (punta_max[k] for k in ("D0", "Dc", "Db", "Dcb"))
-    s_g_punta = (d0 - dc + db - dcb) / 2
-    s_b_punta = (d0 - db + dc - dcb) / 2
+    # Shapley sobre capacidad (kW) — referencia técnica (demanda: ceil al entero)
+    s_g_cap = redondear_arriba_kw((c0 - cc + cb - ccb) / 2)
+    s_b_cap = redondear_arriba_kw((c0 - cb + cc - ccb) / 2)
+
+    # Shapley sobre costo de capacidad (MXN) — atribución en dinero
+    ahorro_mxn = redondear_mxn_energia(c0_mxn - ccb_mxn)
+    s_g_mxn = redondear_mxn_energia((c0_mxn - cc_mxn + cb_mxn - ccb_mxn) / 2)
+    s_b_mxn = redondear_mxn_energia((c0_mxn - cb_mxn + cc_mxn - ccb_mxn) / 2)
 
     ahorro_kw = c0 - ccb
-    ahorro_mxn = redondear_arriba_mxn(ahorro_kw * tarifa_cap)
-    s_g_mxn = redondear_arriba_mxn(s_g_cap * tarifa_cap)
-    s_b_mxn = redondear_arriba_mxn(s_b_cap * tarifa_cap)
+    ahorro_mxn_kw = redondear_mxn_energia(ahorro_kw * tarifa_cap)
 
-    pct_g = (s_g_cap / ahorro_kw * 100) if ahorro_kw else 0.0
-    pct_b = (s_b_cap / ahorro_kw * 100) if ahorro_kw else 0.0
+    d0, dc, db, dcb = (punta_max[k] for k in ("D0", "Dc", "Db", "Dcb"))
+    s_g_punta = redondear_arriba_kw((d0 - dc + db - dcb) / 2)
+    s_b_punta = redondear_arriba_kw((d0 - db + dc - dcb) / 2)
+
+    pct_g = (s_g_mxn / ahorro_mxn * 100) if ahorro_mxn else 0.0
+    pct_b = (s_b_mxn / ahorro_mxn * 100) if ahorro_mxn else 0.0
+    pct_g_kw = (s_g_cap / ahorro_kw * 100) if ahorro_kw else 0.0
+    pct_b_kw = (s_b_cap / ahorro_kw * 100) if ahorro_kw else 0.0
 
     criterio_cfe = pd.DataFrame(
         [
@@ -247,10 +259,40 @@ def calcular_participacion_capacidad(
         ]
     )
 
-    shapley = pd.DataFrame(
+    shapley_mxn = pd.DataFrame(
         {
             "Concepto": [
                 f"Tarifa capacidad ({fecha_corte.strftime('%m/%Y')}) ($/kW)",
+                "",
+                "Costo capacidad D0 (sin recursos)",
+                f"Costo capacidad Dc (solo {cfg.etiqueta_generacion.lower()})",
+                "Costo capacidad Db (solo BESS)",
+                "Costo capacidad Dcb (con recursos)",
+                "Ahorro capacidad D0−Dcb (MXN)",
+                f"Shapley {cfg.etiqueta_generacion} (MXN)",
+                "Shapley BESS (MXN)",
+                f"Participación {cfg.etiqueta_generacion} (%)",
+                "Participación BESS (%)",
+            ],
+            "Valor": [
+                f"${tarifa_cap:,.2f}",
+                "",
+                f"${c0_mxn:,.2f}",
+                f"${cc_mxn:,.2f}",
+                f"${cb_mxn:,.2f}",
+                f"${ccb_mxn:,.2f}",
+                f"${ahorro_mxn:,.2f}",
+                f"${s_g_mxn:,.2f}",
+                f"${s_b_mxn:,.2f}",
+                f"{pct_g:.1f} %",
+                f"{pct_b:.1f} %",
+            ],
+        }
+    )
+
+    shapley_kw = pd.DataFrame(
+        {
+            "Concepto": [
                 "",
                 "Capacidad D0 (sin recursos)",
                 f"Capacidad Dc (solo {cfg.etiqueta_generacion.lower()})",
@@ -259,29 +301,55 @@ def calcular_participacion_capacidad(
                 "Reducción capacidad D0−Dcb (kW)",
                 f"Shapley {cfg.etiqueta_generacion} (kW)",
                 "Shapley BESS (kW)",
-                "Ahorro capacidad total (MXN)",
-                f"Shapley {cfg.etiqueta_generacion} (MXN)",
-                "Shapley BESS (MXN)",
                 f"Participación {cfg.etiqueta_generacion} (%)",
                 "Participación BESS (%)",
+                "",
+                "Referencia — solo demanda punta (sin criterio CFE)",
+                f"Shapley {cfg.etiqueta_generacion} punta (kW)",
+                "Shapley BESS punta (kW)",
             ],
             "Valor": [
-                tarifa_cap,
                 "",
-                c0,
-                cc,
-                cb,
-                ccb,
-                ahorro_kw,
-                round(s_g_cap, 2),
-                round(s_b_cap, 2),
-                ahorro_mxn,
-                s_g_mxn,
-                s_b_mxn,
-                round(pct_g, 1),
-                round(pct_b, 1),
+                f"{c0:,}",
+                f"{cc:,}",
+                f"{cb:,}",
+                f"{ccb:,}",
+                f"{ahorro_kw:,}",
+                f"{s_g_cap:,}",
+                f"{s_b_cap:,}",
+                f"{pct_g_kw:.1f} %",
+                f"{pct_b_kw:.1f} %",
+                "",
+                "",
+                f"{s_g_punta:,}",
+                f"{s_b_punta:,}",
             ],
         }
+    )
+
+    shapley = shapley_mxn
+
+    participantes = pd.DataFrame(
+        [
+            {
+                "Participante": "Total (reducción D0 − Dcb)",
+                "Ahorro capacidad (kW)": f"{ahorro_kw:,}",
+                "Ahorro (MXN)": f"${ahorro_mxn:,.2f}",
+                "Participación": "100.0 %",
+            },
+            {
+                "Participante": cfg.etiqueta_generacion,
+                "Ahorro capacidad (kW)": f"{s_g_cap:,}",
+                "Ahorro (MXN)": f"${s_g_mxn:,.2f}",
+                "Participación": f"{pct_g:.1f} %",
+            },
+            {
+                "Participante": "BESS",
+                "Ahorro capacidad (kW)": f"{s_b_cap:,}",
+                "Ahorro (MXN)": f"${s_b_mxn:,.2f}",
+                "Participación": f"{pct_b:.1f} %",
+            },
+        ]
     )
 
     metodologia = pd.DataFrame(
@@ -292,8 +360,11 @@ def calcular_participacion_capacidad(
                 "Recurso de generación",
                 "Criterio CFE capacidad",
                 "Factor de carga",
-                "Shapley (sobre capacidad CFE)",
+                "Shapley (sobre costo capacidad CFE en MXN)",
+                "Shapley kW (referencia técnica)",
                 "Demanda rodante",
+                "Redondeo demanda (kW)",
+                "Redondeo dinero (MXN)",
             ],
             "Detalle": [
                 cfg.nombre,
@@ -301,8 +372,11 @@ def calcular_participacion_capacidad(
                 cfg.etiqueta_generacion,
                 "Capacidad = min(Demanda punta rodada, DemandaCalculadaCFE)",
                 f"DemandaCalculadaCFE = Energía / ({FACTOR_CFE_CAPACIDAD} × 24 × días)",
-                "S_g = ((C0−Cc)+(Cb−Ccb))/2 ; S_b = ((C0−Cb)+(Cc−Ccb))/2",
+                "S_g = ((C0−Cc)+(Cb−Ccb))/2 ; S_b = ((C0−Cb)+(Cc−Ccb))/2 (costos MXN)",
+                "Equivalente en kW con tarifa del mes",
                 "15 min, reinicio mensual, 00:05/00:10 = 0",
+                "Cualquier decimal en demanda (kW) → entero superior (ceil)",
+                "Dinero (MXN): ≥0.5 al entero superior, <0.5 hacia abajo (2 decimales)",
             ],
         }
     )
@@ -313,13 +387,19 @@ def calcular_participacion_capacidad(
         "tarifa_cap": tarifa_cap,
         "dias": dias,
         "cfe": cfe,
+        "costo": {"d0": c0_mxn, "dc": cc_mxn, "db": cb_mxn, "dcb": ccb_mxn},
         "cap": {"d0": c0, "dc": cc, "db": cb, "dcb": ccb},
         "shapley_kw": {"generacion": s_g_cap, "bess": s_b_cap, "total": ahorro_kw},
         "shapley_mxn": {"generacion": s_g_mxn, "bess": s_b_mxn, "total": ahorro_mxn},
+        "shapley_mxn_ref": {"total": ahorro_mxn_kw},
         "shapley_punta_kw": {"generacion": s_g_punta, "bess": s_b_punta},
         "participacion_pct": {"generacion": pct_g, "bess": pct_b},
+        "participacion_pct_kw": {"generacion": pct_g_kw, "bess": pct_b_kw},
         "criterio_cfe": criterio_cfe,
         "shapley": shapley,
+        "shapley_mxn_tabla": shapley_mxn,
+        "shapley_kw_tabla": shapley_kw,
+        "participantes": participantes,
         "metodologia": metodologia,
         "criterio_limitante": cfe["Dcb"]["criterio_aplicado"],
     }

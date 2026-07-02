@@ -175,7 +175,7 @@ def _pdf_encabezado(story, styles, logo_path, fecha_espanol, archivos_temp):
     story.append(linea)
     story.append(Spacer(1, 0.06 * inch))
 
-def _pdf_grafica_perfil(df_dia, prefijo, fecha_dt, archivos_temp):
+def _pdf_grafica_perfil(df_dia, prefijo, fecha_dt, archivos_temp, *, titulo: str | None = None):
     """Genera gráfica de perfil de carga con estilo alineado al dashboard."""
     import matplotlib
     matplotlib.use('Agg')
@@ -222,7 +222,7 @@ def _pdf_grafica_perfil(df_dia, prefijo, fecha_dt, archivos_temp):
     ax.plot(horas, bess_ent, color=_PDF['descarga'], linewidth=1.5, label='Descarga BESS')
 
     ax.set_title(
-        'Perfil de carga del día',
+        titulo or 'Perfil de carga del día',
         fontsize=11, fontweight='bold', color=_PDF['primary'],
         loc='center', pad=26,
     )

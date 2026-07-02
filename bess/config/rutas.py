@@ -93,6 +93,10 @@ def nombre_pdf_diario(nombre_medidor: str, fecha: datetime) -> str:
     return f"{nombre_medidor}_{fecha.strftime('%d_%m_%Y')}.pdf"
 
 
+def nombre_pdf_acumulado(nombre_medidor: str, fecha: datetime) -> str:
+    return f"{nombre_medidor}_Acumulado_{fecha.strftime('%m_%Y')}.pdf"
+
+
 def ruta_fuente(subestacion: str, nombre_archivo: str) -> Path:
     return dir_subestacion(DIRECTORIO_FUENTE, subestacion) / nombre_archivo
 

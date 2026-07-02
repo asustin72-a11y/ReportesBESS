@@ -83,6 +83,7 @@ from bess.ui.components import (
 from bess.ui.downloads import render_boton_descarga
 from bess.ui.chart_view import render_grafica_plotly
 from bess.ui.participacion_tab import tab_participacion_capacidad
+from bess.ui.reportes_tab import tab_reportes
 from bess.ui.receipt_tab import tab_recibo as _tab_recibo_core
 from bess.ui.sidebar import _ajustar_sidebar_por_rol, sidebar_admin, sidebar_user
 from bess.ui.styles import aplicar_estilos
@@ -1346,8 +1347,8 @@ def _bloque_reporteador(df, prefijo, medidor):
         tab_participacion_capacidad(df, sub_id)
     elif seccion == "tendencia":
         tab_tendencia(df, prefijo)
-    elif seccion == "reporte":
-        tab_reporte(df, prefijo)
+    elif seccion in ("reporte", "reportes"):
+        tab_reportes(df, prefijo, tab_reporte)
     elif seccion == "recibo":
         tab_recibo(df, prefijo)
 

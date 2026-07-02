@@ -194,6 +194,60 @@ def aplicar_estilos():
         .metric-card .value { font-size: 24px; font-weight: 700; color: #1a202c; }
         .metric-card .sub { font-size: 12px; color: #a0aec0; }
 
+        .metric-card-total {
+            text-align: left;
+            padding: 20px 24px;
+        }
+        .metric-card-total .label {
+            font-size: 18px;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+        .metric-card-total .total-grid {
+            display: flex;
+            justify-content: space-between;
+            align-items: stretch;
+            width: 100%;
+            gap: 0;
+            margin-top: 0.25rem;
+        }
+        .metric-card-total .total-item {
+            flex: 1;
+            text-align: center;
+            min-width: 0;
+            padding: 0.5rem 1.5rem;
+        }
+        .metric-card-total .total-item-mxn {
+            border-left: 1px solid #e2e8f0;
+        }
+        .metric-card-total .total-item .item-label {
+            font-size: 17px;
+            color: #718096;
+            font-weight: 500;
+            margin-bottom: 0.35rem;
+        }
+        .metric-card-total .total-item .value {
+            font-size: 29px;
+            line-height: 1.2;
+        }
+        .metric-card-total .total-item .unit {
+            font-size: 17px;
+            color: #718096;
+            font-weight: 500;
+            margin-top: 0.2rem;
+        }
+        @media (max-width: 640px) {
+            .metric-card-total .total-grid {
+                flex-direction: column;
+                gap: 1rem;
+            }
+            .metric-card-total .total-item-mxn {
+                border-left: none;
+                border-top: 1px solid #e2e8f0;
+                padding-top: 1rem;
+            }
+        }
+
         .metric-compact {
             background: #fafbfc;
             border-radius: 8px;

@@ -74,6 +74,7 @@ from bess.cfe.daily_data import (
 from bess.cfe.energy import calcular_costo_energia_dia
 from bess.reports.assets import buscar_logo, formatear_fecha_espanol
 from bess.reports.daily_pdf import generar_reporte_pdf
+from bess.reports.accumulated_pdf import generar_reporte_acumulado_pdf
 
 _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "generar_acumulados": ("bess.data.aggregates.accumulated", "generar_acumulados"),
