@@ -27,7 +27,7 @@ def _energia_por_dia_y_periodo(df_min: pd.DataFrame, columna_kwh: str = "KWH_REC
     df_dia = df_rec.pivot_table(
         index="FECHA",
         columns="PERIODO",
-        values="KWH_REC",
+        values=columna_kwh,
         aggfunc="sum",
         fill_value=0,
     ).reset_index()

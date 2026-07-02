@@ -4,31 +4,57 @@
 
 set -euo pipefail
 
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
+
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 LOG_DIR="$ROOT/logs"
 LOCK_FILE="/tmp/bess-sync.lock"
+CONTAINER_NAME="bess-app"
 mkdir -p "$LOG_DIR"
 
 LOG="$LOG_DIR/sync-$(date +%Y%m%d).log"
 TS="$(date '+%Y-%m-%d %H:%M:%S')"
 
+_log() {
+  echo "[$TS] $*" >> "$LOG"
+}
+
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
-  echo "[$TS] Omitido: hay otra sincronizacion en curso" >> "$LOG"
+  _log "Omitido: hay otra sincronizacion en curso"
   exit 0
 fi
 
-echo "[$TS] Inicio sync + procesar" >> "$LOG"
+_log "Inicio sync + procesar (usuario=$(whoami), pwd=$ROOT)"
 
 cd "$ROOT"
 
-if ! docker compose ps --status running --services 2>/dev/null | grep -qx 'bess'; then
-  echo "[$TS] ERROR: contenedor bess no esta en ejecucion" >> "$LOG"
+if ! command -v docker >/dev/null 2>&1; then
+  _log "ERROR: comando 'docker' no encontrado (revise PATH del cron)"
+  exit 127
+fi
+
+if docker compose version >/dev/null 2>&1; then
+  DOCKER_COMPOSE=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  DOCKER_COMPOSE=(docker-compose)
+else
+  _log "ERROR: docker compose no disponible"
+  exit 127
+fi
+
+_running() {
+  docker inspect -f '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null | grep -qx true
+}
+
+if ! _running; then
+  _log "ERROR: contenedor $CONTAINER_NAME no esta en ejecucion"
+  "${DOCKER_COMPOSE[@]}" ps >> "$LOG" 2>&1 || true
   exit 1
 fi
 
 set +e
-docker compose exec -T bess \
+"${DOCKER_COMPOSE[@]}" exec -T bess \
   python scripts/sincronizar_perfiles.py --quiet --procesar >> "$LOG" 2>&1
 RC=$?
 set -e

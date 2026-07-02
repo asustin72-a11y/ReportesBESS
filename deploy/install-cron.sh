@@ -19,6 +19,7 @@ mkdir -p "$ROOT/logs"
 CRON_BODY="*/15 * * * * $SYNC_SCRIPT"
 CRON_BLOCK=$(
   cat <<EOF
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 CRON_TZ=America/Mexico_City
 $CRON_BODY
 EOF
@@ -26,7 +27,7 @@ EOF
 
 TMP="$(mktemp)"
 {
-  crontab -l 2>/dev/null | grep -v "$MARKER" | grep -v '^CRON_TZ=' || true
+  crontab -l 2>/dev/null | grep -v "$MARKER" | grep -v '^CRON_TZ=' | grep -v '^PATH=' || true
   echo "$CRON_BLOCK"
 } > "$TMP"
 crontab "$TMP"
