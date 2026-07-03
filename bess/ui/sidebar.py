@@ -179,6 +179,7 @@ def sidebar_admin(*, mostrar_mantenimiento_db: bool = False):
                 if not encontrados:
                     st.info("No hay archivos fuente")
 
+        progreso_sync = st.empty()
         with st.expander("🔄 Sincronizar perfiles", expanded=False):
             if st.button("Sincronizar ahora", use_container_width=True, key="sync_perfiles"):
                 try:
@@ -192,12 +193,14 @@ def sidebar_admin(*, mostrar_mantenimiento_db: bool = False):
 
                     root = Path(__file__).resolve().parents[2]
                     script = root / "scripts" / "sincronizar_perfiles.py"
-                    rc, stdout, stderr = ejecutar_subprocess_con_progreso(
-                        [sys.executable, str(script), "--quiet", "--ui-progress"],
-                        cwd=str(root),
-                        timeout=600,
-                        titulo="Sincronizando perfiles…",
-                    )
+                    with progreso_sync.container():
+                        rc, stdout, stderr = ejecutar_subprocess_con_progreso(
+                            [sys.executable, "-u", str(script), "--quiet", "--ui-progress"],
+                            cwd=str(root),
+                            timeout=600,
+                            titulo="Sincronizando perfiles…",
+                        )
+                    progreso_sync.empty()
                     salida = (stdout or "").strip()
                     ion_off = "Medidor ION no disponible." in salida or "ION: no disponible" in salida
                     if rc == 0:
@@ -238,6 +241,7 @@ def sidebar_admin(*, mostrar_mantenimiento_db: bool = False):
                 except Exception as e:
                     st.error(f"Error: {e}")
 
+        progreso_reportes = st.empty()
         with st.expander("⚙️ Procesar datos", expanded=False):
             col1, col2 = st.columns(2)
 
@@ -304,13 +308,15 @@ def sidebar_admin(*, mostrar_mantenimiento_db: bool = False):
                             script = root / "scripts" / "run_reporte_bess.py"
                             env = os.environ.copy()
                             env["BESS_UI_PROGRESS"] = "1"
-                            rc, stdout, stderr = ejecutar_subprocess_con_progreso(
-                                [sys.executable, str(script)],
-                                cwd=str(root),
-                                timeout=900,
-                                titulo="Generando reportes CSV…",
-                                env=env,
-                            )
+                            with progreso_reportes.container():
+                                rc, stdout, stderr = ejecutar_subprocess_con_progreso(
+                                    [sys.executable, "-u", str(script)],
+                                    cwd=str(root),
+                                    timeout=900,
+                                    titulo="Generando reportes CSV…",
+                                    env=env,
+                                )
+                            progreso_reportes.empty()
                             exito, mensajes = parse_reporte_subprocess(stdout, stderr, rc)
                             if "_error" in mensajes:
                                 st.error(f"❌ {mensajes['_error']}")

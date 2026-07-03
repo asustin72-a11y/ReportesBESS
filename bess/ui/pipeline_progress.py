@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 import threading
+import time
 from collections.abc import Callable, Sequence
 
 import streamlit as st
@@ -12,17 +14,25 @@ from bess.core.ui_progress import parse_ui_progress
 
 
 class BarraProgreso:
-    """Barra + leyenda actualizable."""
+    """Barra + leyenda actualizable (solo desde el hilo principal de Streamlit)."""
 
     def __init__(self, titulo: str):
         self._titulo = titulo
-        self._bar = st.progress(0.0, text=titulo)
+        try:
+            self._bar = st.progress(0.0, text=titulo)
+        except TypeError:
+            self._bar = st.progress(0.0)
         self._caption = st.empty()
 
     def actualizar(self, fraccion: float, mensaje: str = "") -> None:
         pct = max(0.0, min(float(fraccion), 1.0))
         texto = mensaje or self._titulo
-        self._bar.progress(pct, text=texto)
+        try:
+            self._bar.progress(pct, text=texto)
+        except TypeError:
+            self._bar.progress(pct)
+            self._caption.caption(texto)
+            return
         if mensaje:
             self._caption.caption(mensaje)
 
@@ -32,21 +42,18 @@ class BarraProgreso:
         self.actualizar(fraccion, mensaje)
 
     def completar(self, mensaje: str = "Completado") -> None:
-        self._bar.progress(1.0, text=mensaje)
+        try:
+            self._bar.progress(1.0, text=mensaje)
+        except TypeError:
+            self._bar.progress(1.0)
         self._caption.empty()
 
 
-def _leer_stream(
-    stream,
-    destino: list[str],
-    on_line: Callable[[str], None] | None,
-) -> None:
+def _leer_stream(stream, destino: list[str]) -> None:
     if stream is None:
         return
     for line in stream:
         destino.append(line)
-        if on_line:
-            on_line(line)
 
 
 def parse_reporte_subprocess(stdout: str, stderr: str, returncode: int) -> tuple[bool, dict]:
@@ -86,7 +93,7 @@ def ejecutar_subprocess_con_progreso(
     stdout_lines: list[str] = []
     stderr_lines: list[str] = []
 
-    def _on_stderr(line: str) -> None:
+    def _on_stderr_line(line: str) -> None:
         parsed = parse_ui_progress(line)
         if parsed:
             step, total, label = parsed
@@ -94,10 +101,12 @@ def ejecutar_subprocess_con_progreso(
             if on_progress:
                 on_progress(step, total, label)
 
+    run_env = {**os.environ, **(env or {}), "PYTHONUNBUFFERED": "1"}
+
     proc = subprocess.Popen(
         list(cmd),
         cwd=cwd,
-        env=env,
+        env=run_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
@@ -105,28 +114,38 @@ def ejecutar_subprocess_con_progreso(
         errors="replace",
         bufsize=1,
     )
+
     t_out = threading.Thread(
         target=_leer_stream,
-        args=(proc.stdout, stdout_lines, None),
-        daemon=True,
-    )
-    t_err = threading.Thread(
-        target=_leer_stream,
-        args=(proc.stderr, stderr_lines, _on_stderr),
+        args=(proc.stdout, stdout_lines),
         daemon=True,
     )
     t_out.start()
-    t_err.start()
+
+    deadline = time.monotonic() + timeout
     try:
-        rc = proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
-        barra.actualizar(1.0, "Tiempo agotado")
-        raise
+        while proc.poll() is None:
+            if time.monotonic() > deadline:
+                proc.kill()
+                proc.wait()
+                barra.actualizar(1.0, "Tiempo agotado")
+                raise subprocess.TimeoutExpired(list(cmd), timeout)
+
+            line = proc.stderr.readline() if proc.stderr else ""
+            if line:
+                stderr_lines.append(line)
+                _on_stderr_line(line)
+            else:
+                time.sleep(0.05)
+
+        if proc.stderr:
+            for line in proc.stderr:
+                stderr_lines.append(line)
+                _on_stderr_line(line)
+
+        rc = proc.returncode if proc.returncode is not None else 1
     finally:
-        t_out.join(timeout=2)
-        t_err.join(timeout=2)
+        t_out.join(timeout=5)
 
     if rc == 0:
         barra.completar()

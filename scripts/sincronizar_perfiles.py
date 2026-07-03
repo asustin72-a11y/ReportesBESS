@@ -212,6 +212,9 @@ def main(argv: list[str] | None = None) -> int:
     api_items: list = []
     granja_item: dict | None = None
 
+    if getattr(args, 'ui_progress', False):
+        emit_ui_progress(0, _SYNC_UI_TOTAL, 'Iniciando sincronización…')
+
     if not args.solo_export:
         if not args.sin_ion:
             _sync_ui_progress(args, 1, 'ION IUSA 1 (Modbus → SQLite)')
