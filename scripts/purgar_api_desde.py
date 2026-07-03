@@ -15,6 +15,7 @@ if str(ROOT) not in sys.path:
 from bess.config.paths import RUTA_BD_PERFILES
 from bess.config.subestaciones import aliases_sync_api
 from bess.data.ingest.ion import db
+from bess.data.sync_cursor import guardar_ultima_fecha
 
 MEDIDOR_GRANJA = db.MEDIDOR_GRANJA_IUSA2
 
@@ -74,6 +75,7 @@ def purgar(
         )
         if previo["mx"]:
             db.actualizar_sync_state(conn, medidor_id, previo["mx"])
+            guardar_ultima_fecha(medidor_id, previo["mx"])
         else:
             conn.execute("DELETE FROM sync_state WHERE medidor_id = ?", (medidor_id,))
         conn.commit()

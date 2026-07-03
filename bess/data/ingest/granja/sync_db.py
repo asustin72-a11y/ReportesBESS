@@ -17,6 +17,7 @@ from bess.data.ingest.iusasol import IusasolClient, cargar_config_iusasol
 from bess.data.ingest.iusasol.client import IusasolError
 from bess.data.ingest.iusasol.gaps import persistir_slots_medianoche_bd
 from bess.data.ingest.iusasol.sync_db import DIAS_SOLAPAMIENTO_API, fecha_fin_api
+from bess.data.sync_cursor import inicio_api_con_solapamiento, punto_sync_api, registrar_exito_sync
 
 FECHA_INICIO_DEFAULT = "2026-05-01"
 LOTE = 500
@@ -44,6 +45,14 @@ def _calcular_rango(
 
     if desde:
         inicio = date.fromisoformat(desde[:10])
+        return (inicio, fin) if inicio <= fin else None
+
+    cursor = punto_sync_api(medidor_id, ruta_bd)
+    if cursor.es_redescarga and cursor.desde_forzado:
+        inicio = cursor.desde_forzado.date()
+        return (inicio, fin) if inicio <= fin else None
+    if cursor.ultima_incremental:
+        inicio = date.fromisoformat(inicio_api_con_solapamiento(cursor.ultima_incremental))
         return (inicio, fin) if inicio <= fin else None
 
     db.init_db(ruta_bd)
@@ -151,6 +160,9 @@ def sincronizar_granja_iusa2(
         if registros:
             db.actualizar_sync_state(conn, medidor_id, registros[-1]["fecha"])
         conn.commit()
+
+    if registros:
+        registrar_exito_sync(medidor_id, ruta_bd)
 
     medianoche_persistidos = persistir_slots_medianoche_bd(medidor_id, ruta_bd)
     if medianoche_persistidos and not quiet:

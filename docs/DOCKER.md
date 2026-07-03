@@ -17,7 +17,7 @@ sudo usermod -aG docker $USER
 
 git clone https://github.com/asustin72-a11y/ReportesBESS.git
 cd ReportesBESS
-git checkout v5.6.5
+git checkout v5.6.6
 ```
 
 ## 2. Secretos y datos

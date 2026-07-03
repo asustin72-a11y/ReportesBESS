@@ -25,6 +25,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from bess.core.console import log as print
+from bess.core.ui_progress import emit_ui_progress
 from bess.config.paths import DIRECTORIO_FUENTE, RUTA_BD_PERFILES
 from bess.config.subestaciones import subestacion_por_id
 from bess.data.ingest.ion import db
@@ -50,6 +51,13 @@ from zoneinfo import ZoneInfo
 
 MSG_ION_NO_DISPONIBLE = 'Medidor ION no disponible.'
 MSG_ION_IUSA2_NO_DISPONIBLE = 'Medidor ION IUSA 2 no disponible.'
+
+_SYNC_UI_TOTAL = 6
+
+
+def _sync_ui_progress(args, step: int, label: str) -> None:
+    if getattr(args, 'ui_progress', False):
+        emit_ui_progress(step, _SYNC_UI_TOTAL, label)
 
 
 def _parametros_sync_ion(recarga_completa: bool, args, zona: ZoneInfo):
@@ -172,6 +180,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--solo-export', action='store_true', help='Solo exportar SQLite -> CSV.')
     parser.add_argument('--procesar', action='store_true', help='Verificar, filtrar y generar reportes al final.')
     parser.add_argument('--quiet', action='store_true', help='Salida resumida (sidebar).')
+    parser.add_argument(
+        '--ui-progress',
+        action='store_true',
+        help='Eventos de progreso en stderr (barra en la UI Streamlit).',
+    )
     parser.add_argument('--ip', default=MEDIDOR_IP_DEFAULT)
     parser.add_argument('--puerto', type=int, default=PUERTO_DEFAULT)
     args = parser.parse_args(argv)
@@ -201,6 +214,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if not args.solo_export:
         if not args.sin_ion:
+            _sync_ui_progress(args, 1, 'ION IUSA 1 (Modbus → SQLite)')
             if not args.quiet:
                 print(f'\n{"=" * 70}')
                 print('1/5 - ION IUSA 1 (Modbus -> SQLite)')
@@ -229,6 +243,7 @@ def main(argv: list[str] | None = None) -> int:
                     print('  Se exportara el perfil ION ya guardado en la base de datos.')
 
         if not args.sin_ion_iusa2:
+            _sync_ui_progress(args, 2, 'ION IUSA 2 (Modbus → SQLite)')
             sub_iusa2 = subestacion_por_id('IUSA_2')
             ip_iusa2 = (sub_iusa2.modbus_ip if sub_iusa2 else None) or '172.16.205.203'
             if not args.quiet:
@@ -259,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
                     print('  Se exportara el perfil ION_IUSA2 ya guardado en la base de datos.')
 
         if not args.sin_api:
+            _sync_ui_progress(args, 3, 'BESS y medidores (API → SQLite)')
             if not args.quiet:
                 print(f'\n{"=" * 70}')
                 print('3/5 - BESS + Banco 1 (API IUSASOL -> SQLite)')
@@ -302,6 +318,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
 
         if not args.sin_granja:
+            _sync_ui_progress(args, 4, 'Granja IUSA 2 (API → SQLite)')
             if not args.quiet:
                 print(f'\n{"=" * 70}')
                 print('4/5 - Granja IUSA 2 (20 MEGA · API Farm -> SQLite)')
@@ -344,6 +361,7 @@ def main(argv: list[str] | None = None) -> int:
 
     export_ok = True
     if not args.sin_export:
+        _sync_ui_progress(args, 5, 'Exportar perfiles a ArchivosFuente')
         if not args.quiet:
             print(f'\n{"=" * 70}')
             print('5/5 - SQLite -> ArchivosFuente')
@@ -362,6 +380,7 @@ def main(argv: list[str] | None = None) -> int:
 
     validacion = ResultadoValidacionSync(True, "")
     if not args.sin_export and not args.solo_export:
+        _sync_ui_progress(args, 6, 'Validar medidores sincronizados')
         validacion = aplicar_validacion_post_sync(
         ion_no_disponible=ion_no_disponible,
         ion_iusa2_no_disponible=ion_iusa2_no_disponible,

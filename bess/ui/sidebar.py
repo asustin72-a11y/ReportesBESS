@@ -181,65 +181,62 @@ def sidebar_admin(*, mostrar_mantenimiento_db: bool = False):
 
         with st.expander("🔄 Sincronizar perfiles", expanded=False):
             if st.button("Sincronizar ahora", use_container_width=True, key="sync_perfiles"):
-                with st.spinner("Sincronizando..."):
-                    try:
-                        import subprocess
-                        import sys
-                        from pathlib import Path
+                try:
+                    import subprocess
+                    import sys
+                    from pathlib import Path
 
-                        from bess.data.sync_resumen import html_resumen_sidebar
-                        from bess.config.catalog import invalidar_cache_catalogo
+                    from bess.data.sync_resumen import html_resumen_sidebar
+                    from bess.config.catalog import invalidar_cache_catalogo
+                    from bess.ui.pipeline_progress import ejecutar_subprocess_con_progreso
 
-                        root = Path(__file__).resolve().parents[2]
-                        script = root / "scripts" / "sincronizar_perfiles.py"
-                        proc = subprocess.run(
-                            [sys.executable, str(script), "--quiet"],
-                            cwd=str(root),
-                            capture_output=True,
-                            text=True,
-                            encoding='utf-8',
-                            errors='replace',
-                            timeout=600,
-                        )
-                        salida = (proc.stdout or "").strip()
-                        ion_off = "Medidor ION no disponible." in salida or "ION: no disponible" in salida
-                        if proc.returncode == 0:
-                            invalidar_cache_catalogo()
-                            pendientes = medidores_pendientes_validacion()
-                            if ion_off:
-                                st.warning(
-                                    "Medidor ION (IUSA 1) no disponible. "
-                                    "Sync API/export completados; ION sigue sin validar."
-                                )
-                            elif pendientes:
-                                st.warning(
-                                    f"Sync completada. Pendientes de validar: "
-                                    f"{', '.join(pendientes[:6])}"
-                                    f"{'…' if len(pendientes) > 6 else ''}"
-                                )
-                            else:
-                                st.success(
-                                    "Sync completada y medidores validados. "
-                                    "Siguiente: **Procesar todo**."
-                                )
-                            st.session_state["verificado"] = False
-                            lineas = [ln.strip() for ln in salida.splitlines() if ln.strip()]
-                            if lineas:
-                                st.markdown(html_resumen_sidebar(lineas), unsafe_allow_html=True)
+                    root = Path(__file__).resolve().parents[2]
+                    script = root / "scripts" / "sincronizar_perfiles.py"
+                    rc, stdout, stderr = ejecutar_subprocess_con_progreso(
+                        [sys.executable, str(script), "--quiet", "--ui-progress"],
+                        cwd=str(root),
+                        timeout=600,
+                        titulo="Sincronizando perfiles…",
+                    )
+                    salida = (stdout or "").strip()
+                    ion_off = "Medidor ION no disponible." in salida or "ION: no disponible" in salida
+                    if rc == 0:
+                        invalidar_cache_catalogo()
+                        pendientes = medidores_pendientes_validacion()
+                        if ion_off:
+                            st.warning(
+                                "Medidor ION (IUSA 1) no disponible. "
+                                "Sync API/export completados; ION sigue sin validar."
+                            )
+                        elif pendientes:
+                            st.warning(
+                                f"Sync completada. Pendientes de validar: "
+                                f"{', '.join(pendientes[:6])}"
+                                f"{'…' if len(pendientes) > 6 else ''}"
+                            )
                         else:
-                            st.error("La sincronizacion fallo.")
-                            if salida:
-                                st.markdown(
-                                    html_resumen_sidebar(salida.splitlines()[:6]),
-                                    unsafe_allow_html=True,
-                                )
-                            err = (proc.stderr or "").strip()
-                            if err:
-                                st.caption(err[:500])
-                    except subprocess.TimeoutExpired:
-                        st.error("Tiempo agotado (>10 min). Ejecute el script en consola.")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+                            st.success(
+                                "Sync completada y medidores validados. "
+                                "Siguiente: **Procesar todo**."
+                            )
+                        st.session_state["verificado"] = False
+                        lineas = [ln.strip() for ln in salida.splitlines() if ln.strip()]
+                        if lineas:
+                            st.markdown(html_resumen_sidebar(lineas), unsafe_allow_html=True)
+                    else:
+                        st.error("La sincronizacion fallo.")
+                        if salida:
+                            st.markdown(
+                                html_resumen_sidebar(salida.splitlines()[:6]),
+                                unsafe_allow_html=True,
+                            )
+                        err = (stderr or "").strip()
+                        if err:
+                            st.caption(err[:500])
+                except subprocess.TimeoutExpired:
+                    st.error("Tiempo agotado (>10 min). Ejecute el script en consola.")
+                except Exception as e:
+                    st.error(f"Error: {e}")
 
         with st.expander("⚙️ Procesar datos", expanded=False):
             col1, col2 = st.columns(2)
@@ -292,44 +289,65 @@ def sidebar_admin(*, mostrar_mantenimiento_db: bool = False):
                             "Ejecute **Filtrar** antes de generar reportes."
                         )
                     else:
-                        with st.spinner("Generando reportes..."):
-                            try:
-                                from bess_core import ejecutar_reporte_bess
-                                exito, mensajes = ejecutar_reporte_bess()
-                                if "_error" in mensajes:
-                                    st.error(f"❌ {mensajes['_error']}")
-                                    if mensajes.get("_traceback"):
-                                        with st.expander("Detalle del error"):
-                                            st.code(mensajes["_traceback"])
-                                elif exito:
-                                    st.success("✅ Reportes generados exitosamente")
-                                    for sub in SUBESTACIONES:
-                                        for med in sub.medidores_consumo:
-                                            msg = mensajes.get(med.prefijo, "")
-                                            if msg:
-                                                st.success(
-                                                    f"   {sub.nombre} · {med.etiqueta}: {msg}"
-                                                )
-                                    st.session_state['reportes_generados'] = True
-                                else:
-                                    st.warning("⚠️ Procesamiento parcial")
-                                    for sub in SUBESTACIONES:
-                                        for med in sub.medidores_consumo:
-                                            msg = mensajes.get(med.prefijo, "")
-                                            if msg:
-                                                st.warning(
-                                                    f"   {sub.nombre} · {med.etiqueta}: {msg}"
-                                                )
-                            except OSError as e:
-                                st.error(
-                                    f"❌ Error al escribir archivos de reporte: {e}. "
-                                    "Cierre Excel u otros programas con CSV abiertos en ArchivosReporte."
-                                )
-                            except Exception as e:
-                                import traceback
-                                st.error(f"❌ Error: {e}")
-                                with st.expander("Detalle del error"):
-                                    st.code(traceback.format_exc())
+                        try:
+                            import os
+                            import subprocess
+                            import sys
+                            from pathlib import Path
+
+                            from bess.ui.pipeline_progress import (
+                                ejecutar_subprocess_con_progreso,
+                                parse_reporte_subprocess,
+                            )
+
+                            root = Path(__file__).resolve().parents[2]
+                            script = root / "scripts" / "run_reporte_bess.py"
+                            env = os.environ.copy()
+                            env["BESS_UI_PROGRESS"] = "1"
+                            rc, stdout, stderr = ejecutar_subprocess_con_progreso(
+                                [sys.executable, str(script)],
+                                cwd=str(root),
+                                timeout=900,
+                                titulo="Generando reportes CSV…",
+                                env=env,
+                            )
+                            exito, mensajes = parse_reporte_subprocess(stdout, stderr, rc)
+                            if "_error" in mensajes:
+                                st.error(f"❌ {mensajes['_error']}")
+                                if mensajes.get("_traceback"):
+                                    with st.expander("Detalle del error"):
+                                        st.code(mensajes["_traceback"])
+                            elif exito:
+                                st.success("✅ Reportes generados exitosamente")
+                                for sub in SUBESTACIONES:
+                                    for med in sub.medidores_consumo:
+                                        msg = mensajes.get(med.prefijo, "")
+                                        if msg:
+                                            st.success(
+                                                f"   {sub.nombre} · {med.etiqueta}: {msg}"
+                                            )
+                                st.session_state['reportes_generados'] = True
+                            else:
+                                st.warning("⚠️ Procesamiento parcial")
+                                for sub in SUBESTACIONES:
+                                    for med in sub.medidores_consumo:
+                                        msg = mensajes.get(med.prefijo, "")
+                                        if msg:
+                                            st.warning(
+                                                f"   {sub.nombre} · {med.etiqueta}: {msg}"
+                                            )
+                        except subprocess.TimeoutExpired:
+                            st.error("Tiempo agotado (>15 min). Ejecute el proceso en consola.")
+                        except OSError as e:
+                            st.error(
+                                f"❌ Error al escribir archivos de reporte: {e}. "
+                                "Cierre Excel u otros programas con CSV abiertos en ArchivosReporte."
+                            )
+                        except Exception as e:
+                            import traceback
+                            st.error(f"❌ Error: {e}")
+                            with st.expander("Detalle del error"):
+                                st.code(traceback.format_exc())
 
             if st.button("Procesar todo", use_container_width=True):
                 ok_val, msg_val = puede_generar_reportes()

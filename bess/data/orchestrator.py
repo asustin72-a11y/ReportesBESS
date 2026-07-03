@@ -12,6 +12,7 @@ from bess.config.subestaciones import (
     ruta_combinado_por_prefijo,
 )
 from bess.core.consumo import usa_consumo_neto
+from bess.core.ui_progress import emit_ui_progress, ui_progress_habilitado
 from bess.data.aggregates.accumulated import generar_acumulados
 from bess.data.aggregates.bess_daily import generar_bess_diario_subestacion
 from bess.data.aggregates.combined import generar_combinado_por_minuto
@@ -22,6 +23,18 @@ from bess.data.ingest.readers import leer_sin_agrupar
 from bess.core.console import log
 
 print = log
+
+
+def _reporte_ui_total() -> int:
+    n_grupos = sum(len(s.medidores_consumo) for s in SUBESTACIONES)
+    n_gen = sum(1 for s in SUBESTACIONES if recurso_generacion_subestacion(s.id))
+    # validar + grupos + BESS diario + generación + cierre
+    return 2 + n_grupos + n_gen
+
+
+def _reporte_ui(step: int, total: int, label: str) -> None:
+    if ui_progress_habilitado():
+        emit_ui_progress(step, total, label)
 
 
 def procesar_grupo(ruta_bess, ruta_medidor, prefijo, nombre_medidor):
@@ -92,10 +105,15 @@ def _validar_archivos_filtrados():
 
 def reporte_bess():
     """Genera reportes CSV para todas las subestaciones."""
+    total = _reporte_ui_total()
+    paso = 0
+
     print("=" * 60)
     print("PROCESAMIENTO DE DATOS DE ENERGIA - SUBESTACIONES IUSA")
     print("=" * 60)
 
+    paso += 1
+    _reporte_ui(paso, total, "Validar archivos filtrados")
     ok, msg = _validar_archivos_filtrados()
     if not ok:
         print(f"ERROR: {msg}")
@@ -107,6 +125,12 @@ def reporte_bess():
     for sub in SUBESTACIONES:
         ruta_bess = str(sub.ruta_bess_lectura(filtrado=True))
         for med in sub.medidores_consumo:
+            paso += 1
+            _reporte_ui(
+                paso,
+                total,
+                f"Combinado y energía · {sub.nombre} · {med.etiqueta}",
+            )
             ruta_consumo = str(med.ruta_consumo_lectura(filtrado=True))
             exito, mensaje = procesar_grupo(
                 ruta_bess,
@@ -117,6 +141,8 @@ def reporte_bess():
             mensajes[med.prefijo] = mensaje
             resultados.append(exito)
 
+    paso += 1
+    _reporte_ui(paso, total, "Energía BESS por día")
     print("\n" + "=" * 60)
     print("GENERANDO ARCHIVOS DIARIOS DEL BESS")
     print("=" * 60)
@@ -136,6 +162,8 @@ def reporte_bess():
         recurso = recurso_generacion_subestacion(sub.id)
         if recurso is None:
             continue
+        paso += 1
+        _reporte_ui(paso, total, f"Generación · {sub.nombre}")
         if recurso.tipo == "granja":
             ruta_gen = str(sub.ruta_generacion_lectura(filtrado=True))
         else:
@@ -150,6 +178,8 @@ def reporte_bess():
         else:
             print(f"⚠️ {sub.nombre}: sin {recurso.csv_filtrado} (omitido)")
 
+    paso += 1
+    _reporte_ui(paso, total, "Finalizando reportes")
     print("\n" + "=" * 60)
     print("RESUMEN DEL PROCESO")
     print("=" * 60)

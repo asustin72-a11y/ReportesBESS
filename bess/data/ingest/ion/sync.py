@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from bess.data.ingest.ion import db
+from bess.data.sync_cursor import punto_sync_ion, registrar_exito_sync
 from bess.data.ingest.ion.modbus import (
     DATA_RECORDER_MODULE,
     MEDIDOR_IP_DEFAULT,
@@ -83,9 +84,20 @@ def sincronizar(
     stats = {'leidos': 0, 'insertados': 0, 'actualizados': 0, 'ultima': None, 'mensaje': ''}
     db.init_db(ruta_bd)
 
+    desde_efectivo = desde_forzado
+    ultima: datetime | None = None
+    if desde_efectivo is None:
+        cursor = punto_sync_ion(medidor_id, ruta_bd, zona, reiniciar=reiniciar)
+        if cursor.desde_forzado is not None:
+            desde_efectivo = cursor.desde_forzado
+        elif cursor.ultima_incremental is not None:
+            ultima = cursor.ultima_incremental
+        elif not reiniciar:
+            with db.conectar_bd(ruta_bd) as conn:
+                ultima = db.get_ultima_fecha(conn, medidor_id, zona)
+
     with db.conectar_bd(ruta_bd) as conn:
-        ultima = None if reiniciar else db.get_ultima_fecha(conn, medidor_id, zona)
-        rango = calcular_rango_sync(ultima, 5, zona, desde_forzado, hasta_forzado)
+        rango = calcular_rango_sync(ultima, 5, zona, desde_efectivo, hasta_forzado)
         if rango is None:
             if not quiet:
                 print('Sin registros nuevos que descargar.')
@@ -188,6 +200,9 @@ def sincronizar(
                 db.actualizar_sync_state(conn, medidor_id, ultima_guardada)
             db.cerrar_sync_log(conn, log_id, 'ok', leidos, insertados, actualizados)
             conn.commit()
+
+        if leidos > 0:
+            registrar_exito_sync(medidor_id, ruta_bd)
 
         stats.update(
             leidos=leidos,

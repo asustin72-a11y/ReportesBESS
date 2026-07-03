@@ -29,6 +29,11 @@ ZONA_API = ZoneInfo('America/Mexico_City')
 DIAS_SOLAPAMIENTO_API = 1
 
 from bess.data.ingest.medidor_ids import resolver_medidor_bd_desde_api
+from bess.data.sync_cursor import (
+    inicio_api_con_solapamiento,
+    punto_sync_api,
+    registrar_exito_sync,
+)
 
 
 def _resolver_medidor_bd(medidor: str) -> str:
@@ -119,6 +124,14 @@ def _calcular_rango_fechas(
         return desde[:10], fin_explicito
 
     if not desde and not hasta:
+        cursor = punto_sync_api(medidor_bd, ruta_bd)
+        if cursor.es_redescarga and cursor.desde_forzado:
+            inicio = cursor.desde_forzado.date().isoformat()
+            return inicio, fin_default
+        if cursor.ultima_incremental:
+            inicio = inicio_api_con_solapamiento(cursor.ultima_incremental)
+            return inicio, fin_default
+
         db.init_db(ruta_bd)
         with db.conectar_bd(ruta_bd) as conn:
             row = conn.execute(
@@ -217,6 +230,9 @@ def sincronizar_medidor_api(
             ultima_guardada = row['mx'] if row and row['mx'] else registros[-1]['fecha']
             db.actualizar_sync_state(conn, medidor_bd, ultima_guardada)
         conn.commit()
+
+    if registros:
+        registrar_exito_sync(medidor_bd, ruta_bd)
 
     medianoche_persistidos = persistir_slots_medianoche_bd(medidor_bd, ruta_bd)
     if medianoche_persistidos and not quiet:
