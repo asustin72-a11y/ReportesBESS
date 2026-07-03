@@ -22,9 +22,7 @@ def _timedatectl(prop: str) -> str | None:
             text=True,
             timeout=10,
         )
-    except FileNotFoundError:
-        return None
-    except OSError:
+    except (FileNotFoundError, OSError):
         return None
     if proc.returncode != 0:
         return None
@@ -49,42 +47,56 @@ def _reloj_sincronizado() -> bool | None:
     return "System clock synchronized: yes" in (proc.stdout or "")
 
 
-def verificar_reloj_host() -> list[str]:
-    """Lista de advertencias; vacía si el host cumple zona y NTP."""
+def verificar_reloj_host() -> tuple[list[str], list[str]]:
+    """
+    Devuelve (bloqueantes, advertencias).
+
+    Bloquea el cron solo con zona incorrecta o NTP explícitamente desincronizado.
+    Si no se puede confirmar NTP (común en VMs Hyper-V), avisa pero no bloquea.
+    """
+    bloqueantes: list[str] = []
     advertencias: list[str] = []
 
     zona = _timedatectl("Timezone")
     if zona is None:
         advertencias.append(
             "No se pudo verificar el reloj del host (timedatectl no disponible). "
-            "Confirme zona America/Mexico_City y NTP antes de sincronizar."
+            "Confirme zona America/Mexico_City y NTP."
         )
-        return advertencias
+        return bloqueantes, advertencias
 
     if zona != ZONA_ESPERADA:
-        advertencias.append(
+        bloqueantes.append(
             f"Zona horaria del host: {zona} (esperada: {ZONA_ESPERADA}). "
             f"Ejecute: sudo timedatectl set-timezone {ZONA_ESPERADA}"
         )
 
     sync = _reloj_sincronizado()
     if sync is False:
-        advertencias.append(
+        bloqueantes.append(
             "Reloj del host sin sincronizar (NTP). "
             "Revise: timedatectl status · Hyper-V sincronización de hora."
         )
     elif sync is None:
         advertencias.append(
-            "No se pudo confirmar si el reloj del host está sincronizado (NTP)."
+            "No se pudo confirmar NTP del host (el sync automático sigue habilitado). "
+            "Revise: timedatectl status"
         )
 
-    return advertencias
+    return bloqueantes, advertencias
 
 
-def escribir_estado(ruta: Path, advertencias: list[str]) -> dict:
+def escribir_estado(
+    ruta: Path,
+    bloqueantes: list[str],
+    advertencias: list[str],
+) -> dict:
+    bloquea_sync = bool(bloqueantes)
     payload = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
-        "ok": not advertencias,
+        "ok": not bloquea_sync,
+        "bloquea_sync": bloquea_sync,
+        "bloqueantes": bloqueantes,
         "advertencias": advertencias,
     }
     ruta.parent.mkdir(parents=True, exist_ok=True)
@@ -95,13 +107,20 @@ def escribir_estado(ruta: Path, advertencias: list[str]) -> dict:
 def main(argv: list[str] | None = None) -> int:
     args = argv if argv is not None else sys.argv[1:]
     ruta = Path(args[0]) if args else RUTA_DEFAULT
-    advertencias = verificar_reloj_host()
-    escribir_estado(ruta, advertencias)
-    if advertencias:
-        for msg in advertencias:
-            print(f"ADVERTENCIA: {msg}", file=sys.stderr)
+    bloqueantes, advertencias = verificar_reloj_host()
+    escribir_estado(ruta, bloqueantes, advertencias)
+
+    for msg in advertencias:
+        print(f"ADVERTENCIA: {msg}", file=sys.stderr)
+    for msg in bloqueantes:
+        print(f"BLOQUEO: {msg}", file=sys.stderr)
+
+    if bloqueantes:
         return 1
-    print("OK: reloj y zona horaria del host verificados.")
+    if advertencias:
+        print("OK con advertencias: sync automatico permitido.")
+    else:
+        print("OK: reloj y zona horaria del host verificados.")
     return 0
 
 

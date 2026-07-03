@@ -13,11 +13,12 @@ CONTAINER_NAME="bess-app"
 mkdir -p "$LOG_DIR"
 
 LOG="$LOG_DIR/sync-$(date +%Y%m%d).log"
-TS="$(date '+%Y-%m-%d %H:%M:%S')"
 
 _log() {
-  echo "[$TS] $*" >> "$LOG"
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG"
 }
+
+_log "CRON invocado (pid=$$, usuario=$(whoami), shell=$0)"
 
 exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
@@ -25,13 +26,13 @@ if ! flock -n 9; then
   exit 0
 fi
 
-_log "Inicio sync + procesar (usuario=$(whoami), pwd=$ROOT)"
+_log "Inicio sync + procesar (pwd=$ROOT)"
 
 cd "$ROOT"
 
 PREFLIGHT_JSON="$ROOT/data/sync_preflight.json"
 if ! python3 "$ROOT/scripts/preflight_reloj.py" "$PREFLIGHT_JSON"; then
-  _log "ADVERTENCIA: preflight reloj/zona — sync automatico omitido (ver data/sync_preflight.json)"
+  _log "BLOQUEO: preflight reloj/zona — sync automatico omitido (ver data/sync_preflight.json)"
   exit 1
 fi
 
@@ -65,10 +66,9 @@ set +e
 RC=$?
 set -e
 
-TS_END="$(date '+%Y-%m-%d %H:%M:%S')"
 if [ "$RC" -eq 0 ]; then
-  echo "[$TS_END] OK" >> "$LOG"
+  _log "OK"
 else
-  echo "[$TS_END] ERROR (codigo $RC)" >> "$LOG"
+  _log "ERROR (codigo $RC)"
   exit "$RC"
 fi

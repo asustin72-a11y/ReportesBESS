@@ -17,7 +17,7 @@ sudo usermod -aG docker $USER
 
 git clone https://github.com/asustin72-a11y/ReportesBESS.git
 cd ReportesBESS
-git checkout v5.6.3
+git checkout v5.6.5
 ```
 
 ## 2. Secretos y datos
@@ -150,6 +150,8 @@ Errores frecuentes en el log:
 | Mensaje en log | Causa | Acción |
 |----------------|-------|--------|
 | `docker no encontrado` | Cron sin PATH | `bash deploy/install-cron.sh` (v5.6.2+) |
+| `BLOQUEO: preflight reloj/zona` | Zona distinta a `America/Mexico_City` o NTP desincronizado | `timedatectl status` · `cat data/sync_preflight.json` |
+| Cron dispara pero no hay líneas nuevas en el log | Shebang con CRLF (`\r`) o script no ejecutable | `file scripts/cron_sincronizar.sh` · `sed -i 's/\r$//' scripts/cron_sincronizar.sh` · `bash deploy/install-cron.sh` |
 | `contenedor bess-app no esta en ejecucion` | Docker caído | `docker compose up -d` |
 | `ERROR (codigo N)` | Fallo sync/procesar | Ver líneas anteriores en el mismo log |
 | `Omitido: otra sincronizacion en curso` | Corrida anterior aún activa | Normal si tarda >15 min |

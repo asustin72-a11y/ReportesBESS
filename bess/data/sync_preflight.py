@@ -21,6 +21,23 @@ def leer_estado_preflight() -> dict | None:
 
 def advertencias_sidebar() -> list[str]:
     estado = leer_estado_preflight()
-    if not estado or estado.get("ok"):
+    if not estado:
         return []
-    return [str(a) for a in estado.get("advertencias") or [] if str(a).strip()]
+
+    mensajes: list[str] = []
+    for msg in estado.get("bloqueantes") or []:
+        texto = str(msg).strip()
+        if texto:
+            mensajes.append(f"Sync automático bloqueado: {texto}")
+    for msg in estado.get("advertencias") or []:
+        texto = str(msg).strip()
+        if texto:
+            mensajes.append(texto)
+
+    # Formato anterior (v5.6.4): solo "advertencias" bloqueaba todo
+    if not mensajes and not estado.get("ok"):
+        for msg in estado.get("advertencias") or []:
+            texto = str(msg).strip()
+            if texto:
+                mensajes.append(texto)
+    return mensajes

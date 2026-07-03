@@ -16,7 +16,7 @@ fi
 chmod +x "$SYNC_SCRIPT"
 mkdir -p "$ROOT/logs"
 
-CRON_BODY="*/15 * * * * $SYNC_SCRIPT"
+CRON_BODY="*/15 * * * * /usr/bin/env bash $SYNC_SCRIPT"
 CRON_BLOCK=$(
   cat <<EOF
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
