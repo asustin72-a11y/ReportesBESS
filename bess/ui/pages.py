@@ -1340,6 +1340,10 @@ def _bloque_reporteador(prefijo, medidor):
     """Navegación + contenido principal."""
     if not st.session_state.get('autenticado', False):
         return
+
+    from streamlit_autorefresh import st_autorefresh
+    st_autorefresh(interval=15 * 60 * 1000, key="autorefresh_datos")
+
     ruta_p = ruta_combinado_por_prefijo(prefijo)
     if not ruta_p or not ruta_p.exists():
         st.warning(f"No hay datos para {etiqueta_medidor_consumo(medidor)}")
