@@ -21,35 +21,59 @@ def _requiere_superadmin():
 
 
 def _cabecera():
+    ruta = service.ruta_bd()
+    existe = ruta.is_file()
+    tamanio = f"{ruta.stat().st_size / (1024 * 1024):.2f} MB" if existe else "—"
+    estado_color = "#27ae60" if existe else "#e74c3c"
+    estado_texto = "Disponible" if existe else "No existe"
+
     st.markdown(
-        """
-        <div class="section-container">
-            <p class="section-title">Herramientas Base de Datos</p>
-            <p class="section-desc">
-                Mantenimiento de <code>bess_perfiles.db</code> (perfiles minuto a minuto).
-                Importar, exportar, purgar y migrar sin ejecutar verificar, filtrar ni reportes.
-            </p>
+        f"""
+        <div style="background:linear-gradient(135deg,#1a5276 0%,#2e86c1 100%);
+                    border-radius:12px;padding:20px 24px;margin-bottom:16px;color:#fff;">
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+                <span style="font-size:1.8rem;">🗄️</span>
+                <div>
+                    <h2 style="margin:0;font-size:1.4rem;font-weight:700;color:#fff;">
+                        Mantenimiento Base de Datos
+                    </h2>
+                    <p style="margin:2px 0 0;font-size:0.85rem;opacity:0.85;">
+                        Gestión de <code style="background:rgba(255,255,255,0.15);padding:1px 5px;
+                        border-radius:3px;font-size:1.1rem;color:#000;font-weight:700;">{ruta.name}</code>
+                        — perfiles minuto a minuto
+                    </p>
+                </div>
+            </div>
+            <div style="display:flex;gap:24px;flex-wrap:wrap;">
+                <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:8px 16px;">
+                    <span style="font-size:0.7rem;text-transform:uppercase;opacity:0.7;">Estado</span>
+                    <p style="margin:2px 0 0;font-weight:600;font-size:0.95rem;">
+                        <span style="display:inline-block;width:8px;height:8px;border-radius:50%;
+                                     background:{estado_color};margin-right:6px;"></span>
+                        {estado_texto}
+                    </p>
+                </div>
+                <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:8px 16px;">
+                    <span style="font-size:0.7rem;text-transform:uppercase;opacity:0.7;">Tamaño</span>
+                    <p style="margin:2px 0 0;font-weight:600;font-size:0.95rem;">{tamanio}</p>
+                </div>
+                <div style="background:rgba(255,255,255,0.1);border-radius:8px;padding:8px 16px;">
+                    <span style="font-size:0.7rem;text-transform:uppercase;opacity:0.7;">Archivo</span>
+                    <p style="margin:2px 0 0;font-weight:600;font-size:0.95rem;">{ruta.name}</p>
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    ruta = service.ruta_bd()
-    existe = ruta.is_file()
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Base de datos", ruta.name)
-    c2.metric("Estado", "Disponible" if existe else "No existe")
-    if existe:
-        c3.metric("Tamaño", f"{ruta.stat().st_size / (1024 * 1024):.2f} MB")
-    else:
-        c3.metric("Tamaño", "—")
 
 
 def _tab_resumen():
-    st.markdown('<p class="section-title-sm">Resumen por medidor</p>', unsafe_allow_html=True)
     if not RUTA_BD_PERFILES.is_file():
         st.warning(f"No existe {RUTA_BD_PERFILES.name}. Use **Avanzado → Inicializar BD**.")
         return
 
+    st.markdown("##### 📋 Medidores registrados")
     filas = service.resumen_medidores()
     if not filas:
         st.info("Catálogo de medidores vacío. Inicialice la BD.")
@@ -59,7 +83,7 @@ def _tab_resumen():
         [
             {
                 "Medidor": r.medidor_id,
-                "Registros": r.registros,
+                "Registros": f"{r.registros:,}",
                 "Desde": r.fecha_min or "—",
                 "Hasta": r.fecha_max or "—",
                 "Última sync": r.ultima_sync or "—",
@@ -70,7 +94,7 @@ def _tab_resumen():
     )
     st.dataframe(df, use_container_width=True, hide_index=True)
 
-    st.markdown('<p class="section-title-sm">Últimas sincronizaciones (sync_log)</p>', unsafe_allow_html=True)
+    st.markdown("##### 📝 Últimas sincronizaciones")
     logs = service.ultimos_sync_log()
     if logs:
         st.dataframe(pd.DataFrame(logs), use_container_width=True, hide_index=True)
@@ -81,45 +105,51 @@ def _tab_resumen():
 def _tab_importar():
     from bess.data.ingest.ion.import_csv import MEDIDORES_IMPORTABLES
 
-    st.markdown(
-        '<p class="section-desc">Suba un CSV con columnas Fecha, KWH_REC, KWH_ENT, KVARH_Q1…Q4.</p>',
-        unsafe_allow_html=True,
-    )
+    st.markdown("##### 📥 Importar CSV a SQLite")
+    st.caption("Suba un archivo con columnas Fecha, KWH_REC, KWH_ENT, KVARH_Q1…Q4.")
+
     medidor = st.selectbox("Medidor destino", list(MEDIDORES_IMPORTABLES), key="imp_medidor")
 
     c1, c2 = st.columns(2)
     solo_faltantes = c1.checkbox(
-        "Solo timestamps faltantes (no actualizar existentes)",
+        "Solo timestamps faltantes",
         value=False,
         key="imp_solo_faltantes",
+        help="No actualiza registros existentes, solo inserta nuevos.",
     )
     sin_filtro_dia = c2.checkbox(
-        "Sin filtro 00:05 del primer registro del día",
+        "Sin filtro 00:05 del primer registro",
         value=False,
         key="imp_sin_filtro_dia",
+        help="Desactiva el filtro que descarta el registro de las 00:05.",
     )
 
     archivo = st.file_uploader("Archivo CSV", type=["csv"], key="imp_archivo")
-    if st.button("Importar a SQLite", type="primary", disabled=archivo is None, key="imp_btn"):
-        codigo, log = service.importar_desde_bytes(
-            archivo.getvalue(),
-            archivo.name,
-            medidor,
-            solo_faltantes=solo_faltantes,
-            sin_filtro_dia=sin_filtro_dia,
-        )
+    if st.button("⬆️ Importar a SQLite", type="primary", disabled=archivo is None, key="imp_btn"):
+        with st.spinner("Importando..."):
+            codigo, log = service.importar_desde_bytes(
+                archivo.getvalue(),
+                archivo.name,
+                medidor,
+                solo_faltantes=solo_faltantes,
+                sin_filtro_dia=sin_filtro_dia,
+            )
         if codigo == 0:
-            st.success("Importación completada.")
+            st.success("✅ Importación completada.")
         else:
-            st.error("La importación terminó con errores.")
-        st.code(log)
+            st.error("❌ La importación terminó con errores.")
+        with st.expander("Ver log completo", expanded=codigo != 0):
+            st.code(log)
 
 
 def _tab_exportar():
     from bess.data.ingest.medidor_ids import destinos_export_bd
 
+    st.markdown("##### 📤 Exportar desde SQLite")
+
     medidores = [m for m, _ in destinos_export_bd(RUTA_BD_PERFILES)]
     medidor = st.selectbox("Medidor", medidores, key="exp_medidor")
+
     hoy = date.today()
     c1, c2 = st.columns(2)
     usar_desde = c1.checkbox("Filtrar desde", value=False, key="exp_desde_on")
@@ -142,36 +172,43 @@ def _tab_exportar():
     desde_d = desde if usar_desde else None
     hasta_d = hasta if usar_hasta else None
 
-    if st.button("Descargar CSV desde BD", type="primary", key="exp_btn_descarga"):
-        ok, data, log = service.exportar_medidor_a_bytes(medidor, desde=desde_d, hasta=hasta_d)
+    if st.button("⬇️ Descargar CSV", type="primary", key="exp_btn_descarga"):
+        with st.spinner("Exportando..."):
+            ok, data, log = service.exportar_medidor_a_bytes(medidor, desde=desde_d, hasta=hasta_d)
         if ok and data:
             st.download_button(
-                "Guardar archivo",
+                "💾 Guardar archivo",
                 data=data,
                 file_name=f"{medidor}_export.csv",
                 mime="text/csv",
                 key="exp_btn_guardar",
             )
             if log.strip():
-                st.code(log)
+                with st.expander("Ver log"):
+                    st.code(log)
         else:
-            st.warning(log or "Sin datos.")
+            st.warning(log or "Sin datos para el rango seleccionado.")
 
     st.divider()
-    st.markdown("**Exportar todos los medidores** a `ArchivosFuente/` (misma lógica que `export_perfiles.py`).")
+    st.markdown("##### 📦 Exportación masiva")
+    st.caption("Exporta todos los medidores a `ArchivosFuente/` (misma lógica que `export_perfiles.py`).")
     if st.button("Exportar todos a ArchivosFuente", key="exp_btn_todos"):
-        codigo, log = service.exportar_todos_a_fuente()
+        with st.spinner("Exportando todos los medidores..."):
+            codigo, log = service.exportar_todos_a_fuente()
         if codigo == 0:
-            st.success("Exportación masiva completada.")
+            st.success("✅ Exportación masiva completada.")
         else:
-            st.warning("Algunos medidores no tenían registros.")
-        st.code(log)
+            st.warning("⚠️ Algunos medidores no tenían registros.")
+        with st.expander("Ver log completo"):
+            st.code(log)
 
 
 def _tab_purgar():
+    st.markdown("##### 🗑️ Purgar registros")
+
     medidores = service.lista_medidores_catalogo()
     seleccion = st.multiselect(
-        "Medidores",
+        "Medidores a purgar",
         medidores,
         default=medidores[:1] if medidores else [],
         key="pur_medidores",
@@ -180,7 +217,7 @@ def _tab_purgar():
     modo = st.radio(
         "Modo de borrado",
         ["Rango de fechas (desde / hasta)", "Desde una fecha hasta el final (sync incremental)"],
-        horizontal=False,
+        horizontal=True,
         key="pur_modo",
     )
 
@@ -200,63 +237,90 @@ def _tab_purgar():
         key="pur_hasta",
     )
 
-    ejecutar = st.checkbox(
-        "Confirmo que deseo borrar los registros mostrados en la vista previa",
-        key="pur_confirmar",
-    )
+    col_prev, col_exec = st.columns(2)
 
-    if st.button("Vista previa", type="secondary", key="pur_btn_preview"):
-        if not seleccion:
-            st.warning("Seleccione al menos un medidor.")
-            return
-        for med in seleccion:
-            if modo.startswith("Rango"):
-                info = service.preview_borrar_rango(med, fecha_desde, fecha_hasta)
+    with col_prev:
+        if st.button("👁️ Vista previa", type="secondary", key="pur_btn_preview", use_container_width=True):
+            if not seleccion:
+                st.warning("Seleccione al menos un medidor.")
             else:
-                corte = f"{fecha_desde.isoformat()} 00:00:00"
-                info = service.purgar_desde_fecha(med, corte, ejecutar=False)
-            st.json(info)
+                for med in seleccion:
+                    if modo.startswith("Rango"):
+                        info = service.preview_borrar_rango(med, fecha_desde, fecha_hasta)
+                    else:
+                        corte = f"{fecha_desde.isoformat()} 00:00:00"
+                        info = service.purgar_desde_fecha(med, corte, ejecutar=False)
+                    st.json(info)
 
-    if st.button("Ejecutar borrado", type="primary", disabled=not ejecutar, key="pur_btn_ejecutar"):
-        if not seleccion:
-            st.warning("Seleccione al menos un medidor.")
-            return
-        for med in seleccion:
-            if modo.startswith("Rango"):
-                info = service.ejecutar_borrar_rango(med, fecha_desde, fecha_hasta)
+    with col_exec:
+        ejecutar = st.checkbox(
+            "Confirmo el borrado",
+            key="pur_confirmar",
+        )
+        if st.button(
+            "🗑️ Ejecutar borrado",
+            type="primary",
+            disabled=not ejecutar,
+            key="pur_btn_ejecutar",
+            use_container_width=True,
+        ):
+            if not seleccion:
+                st.warning("Seleccione al menos un medidor.")
             else:
-                corte = f"{fecha_desde.isoformat()} 00:00:00"
-                info = service.purgar_desde_fecha(med, corte, ejecutar=True)
-            st.success(f"{med}: eliminados {info.get('eliminar', 0)} registros.")
-            if info.get("registros_restantes") is not None:
-                st.caption(f"Registros restantes en BD: {info['registros_restantes']}")
+                for med in seleccion:
+                    if modo.startswith("Rango"):
+                        info = service.ejecutar_borrar_rango(med, fecha_desde, fecha_hasta)
+                    else:
+                        corte = f"{fecha_desde.isoformat()} 00:00:00"
+                        info = service.purgar_desde_fecha(med, corte, ejecutar=True)
+                    st.success(f"**{med}**: eliminados {info.get('eliminar', 0):,} registros.")
+                    if info.get("registros_restantes") is not None:
+                        st.caption(f"Registros restantes: {info['registros_restantes']:,}")
 
 
 def _tab_avanzado():
-    st.warning("Operaciones destructivas o de una sola vez. Use vista previa cuando exista.")
+    st.markdown("##### ⚙️ Operaciones avanzadas")
+    st.caption("Operaciones destructivas o de una sola vez. Use con precaución.")
 
-    with st.expander("Inicializar esquema y catálogo de medidores", expanded=False):
-        st.caption("Crea tablas si no existen y actualiza el catálogo desde Medidores.csv.")
-        if st.button("Inicializar BD", key="adv_btn_init"):
-            service.inicializar_bd()
-            st.success("BD inicializada.")
+    with st.expander("🏗️ Inicializar esquema y catálogo", expanded=False):
+        st.markdown("Crea tablas si no existen y actualiza el catálogo desde `Medidores.csv`.")
+        if st.button("Inicializar BD", key="adv_btn_init", type="primary"):
+            with st.spinner("Inicializando..."):
+                service.inicializar_bd()
+            st.success("✅ BD inicializada correctamente.")
 
-    with st.expander("Migrar IDs legacy → nombres del catálogo", expanded=False):
+    with st.expander("🔄 Migrar IDs legacy → nombres del catálogo", expanded=False):
+        st.markdown("Renombra IDs antiguos en la tabla de perfiles según el catálogo actual.")
         dry = st.checkbox("Solo vista previa (dry-run)", value=True, key="migrar_dry")
-        if st.button("Ejecutar migración de IDs", key="adv_btn_migrar"):
-            codigo, log = service.migrar_ids_legacy(dry_run=dry)
+        if st.button("Ejecutar migración", key="adv_btn_migrar", type="primary"):
+            with st.spinner("Migrando..."):
+                codigo, log = service.migrar_ids_legacy(dry_run=dry)
             if codigo == 0:
-                st.success("Migración completada." if not dry else "Vista previa lista.")
+                st.success("✅ " + ("Vista previa lista." if dry else "Migración completada."))
             else:
-                st.error("La migración reportó errores.")
-            st.code(log)
+                st.error("❌ La migración reportó errores.")
+            with st.expander("Ver log", expanded=codigo != 0):
+                st.code(log)
 
-    with st.expander("Vaciar todos los perfiles", expanded=False):
-        st.caption("Borra perfil_carga y sync_state. Conserva el catálogo de medidores.")
-        confirm = st.text_input('Escriba VACIAR para confirmar', key="vaciar_confirm")
-        if st.button("Vaciar perfiles", type="primary", disabled=confirm != "VACIAR", key="adv_btn_vaciar"):
-            n = service.vaciar_perfiles_bd()
-            st.success(f"Eliminados {n:,} registros de perfil_carga.")
+    with st.expander("⚠️ Vaciar todos los perfiles", expanded=False):
+        st.markdown(
+            "Borra **todos** los registros de `perfil_carga` y `sync_state`. "
+            "Conserva el catálogo de medidores."
+        )
+        confirm = st.text_input(
+            "Escriba **VACIAR** para confirmar:",
+            key="vaciar_confirm",
+            placeholder="VACIAR",
+        )
+        if st.button(
+            "🗑️ Vaciar perfiles",
+            type="primary",
+            disabled=confirm != "VACIAR",
+            key="adv_btn_vaciar",
+        ):
+            with st.spinner("Vaciando..."):
+                n = service.vaciar_perfiles_bd()
+            st.success(f"✅ Eliminados {n:,} registros de perfil_carga.")
 
 
 def main():
@@ -265,7 +329,7 @@ def main():
     _cabecera()
 
     tab_resumen, tab_import, tab_export, tab_purge, tab_adv = st.tabs(
-        ["Resumen", "Importar CSV", "Exportar", "Purgar rango", "Avanzado"]
+        ["📋 Resumen", "📥 Importar", "📤 Exportar", "🗑️ Purgar", "⚙️ Avanzado"]
     )
     with tab_resumen:
         _tab_resumen()

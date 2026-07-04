@@ -448,6 +448,24 @@ def aplicar_estilos():
         .bess-nav-bar {
             margin-bottom: 4px;
         }
+        /* Nav container: scroll horizontal en móvil */
+        @media (max-width: 768px) {
+            [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .bess-nav-col-marker) {
+                overflow-x: auto !important;
+                flex-wrap: nowrap !important;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                padding-bottom: 4px;
+            }
+            [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .bess-nav-col-marker)::-webkit-scrollbar {
+                display: none;
+            }
+            [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .bess-nav-col-marker) > [data-testid="column"] {
+                flex: 0 0 auto !important;
+                min-width: fit-content !important;
+                width: auto !important;
+            }
+        }
         #bess-nav-tooltip-root {
             position: fixed;
             top: 0;
@@ -648,6 +666,119 @@ def aplicar_estilos():
             border-radius: 8px;
             margin-bottom: 8px;
         }
+
+        /* ====== RESPONSIVE MOBILE ====== */
+        @media (max-width: 768px) {
+            /* Header: reducir título y ocultar logo */
+            .app-header {
+                gap: 8px !important;
+                flex-wrap: wrap;
+            }
+            .app-header > div:first-child {
+                display: none !important;
+            }
+            .app-header-title {
+                font-size: 1.1rem !important;
+                white-space: nowrap;
+            }
+            .app-header-sub {
+                font-size: 0.75rem !important;
+            }
+
+            /* Navegación: botones más compactos */
+            div[data-testid="column"]:has(.bess-nav-col-marker) [data-testid="stButton"] button {
+                font-size: 0.7rem !important;
+                padding: 0.5rem 0.3rem !important;
+                min-height: 44px !important;
+                line-height: 1.2 !important;
+            }
+
+            /* Métricas: colapsar 4 cols a grid de 2 */
+            [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .metric-card) {
+                flex-wrap: wrap !important;
+            }
+            [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .metric-card) > [data-testid="column"] {
+                flex: 0 0 48% !important;
+                min-width: 48% !important;
+                max-width: 48% !important;
+                margin-bottom: 8px;
+            }
+
+            /* Métricas: reducir fuentes */
+            .metric-card .value { font-size: 18px !important; }
+            .metric-card .label { font-size: 11px !important; }
+            .metric-card .sub { font-size: 11px !important; }
+            .metric-card { padding: 10px 12px !important; }
+
+            /* Card total */
+            .metric-card-total { padding: 14px 12px !important; }
+            .metric-card-total .total-item .value { font-size: 22px !important; }
+            .metric-card-total .total-item .item-label { font-size: 14px !important; }
+            .metric-card-total .total-item { padding: 0.4rem 0.8rem !important; }
+
+            /* Secciones */
+            .section-container { padding: 12px 10px !important; }
+            .resumen-diario { padding: 10px !important; }
+
+            /* Arbitraje */
+            .arbitraje-card .valor { font-size: 16px !important; }
+            .arbitraje-card { padding: 10px !important; }
+
+            /* Sidebar */
+            section[data-testid="stSidebar"] { min-width: 240px !important; }
+
+            /* Ocultar tooltips (no funcionan en touch) */
+            .bess-floating-tip { display: none !important; }
+            #bess-nav-tooltip-root { display: none !important; }
+
+            /* Reducir padding general */
+            .block-container { padding: 1rem 0.5rem !important; }
+
+            /* Panel medidor: más compacto */
+            .panel-medidor { padding: 6px 10px !important; margin-top: 4px !important; }
+            .panel-medidor-label { font-size: 0.7rem !important; }
+        }
+
+        @media (max-width: 480px) {
+            /* Header: título abreviado */
+            .app-header-title {
+                font-size: 0.95rem !important;
+            }
+
+            /* Navegación ultra-compacta: solo iconos */
+            div[data-testid="column"]:has(.bess-nav-col-marker) [data-testid="stButton"] button {
+                font-size: 0.92rem !important;
+                padding: 0.5rem 0.2rem !important;
+                overflow: hidden;
+            }
+
+            /* Métricas: una sola columna */
+            [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .metric-card) > [data-testid="column"] {
+                flex: 0 0 100% !important;
+                min-width: 100% !important;
+                max-width: 100% !important;
+            }
+
+            /* Total card: stack vertical */
+            .metric-card-total .total-grid {
+                flex-direction: column !important;
+                gap: 0.8rem !important;
+            }
+            .metric-card-total .total-item-mxn {
+                border-left: none !important;
+                border-top: 1px solid #e2e8f0 !important;
+                padding-top: 0.8rem !important;
+            }
+
+            /* Selectores de fecha: más espacio vertical */
+            [data-testid="stDateInput"] { margin-bottom: 4px; }
+        }
+
+        /* Touch devices: ocultar tooltips hover */
+        @media (hover: none) {
+            .bess-floating-tip { display: none !important; }
+            #bess-nav-tooltip-root { display: none !important; }
+        }
     </style>
     """, unsafe_allow_html=True)
 
@@ -693,6 +824,19 @@ def aplicar_estilos_login():
             pointer-events: none !important;
             position: absolute !important;
             left: -9999px !important;
+        }
+        #bess-nav-tooltip-root,
+        .bess-floating-tip {
+            display: none !important;
+            visibility: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+            position: fixed !important;
+            left: -9999px !important;
+            top: -9999px !important;
+            width: 0 !important;
+            height: 0 !important;
+            overflow: hidden !important;
         }
         body.bess-login-mode [data-testid="stAppViewContainer"] > .main,
         [data-testid="stAppViewContainer"]:has(.login-page-marker) > .main {

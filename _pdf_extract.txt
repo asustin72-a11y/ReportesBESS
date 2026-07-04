@@ -1,0 +1,205 @@
+  
+ 
+ 
+Página 1 de 4 
+Industrias Unidas, S. A. de C. V. 
+Carretera Panamericana México Querétaro S/N km. 109, Pastejé, Jocotitlán, Estado de México 
+ 
+ 
+Industrias Unidas, S. A. de C. V. 
+km. 109 Carretera Panamericana México-Querétaro   
+Pastejé, Jocotitlán, C. P. 50734 
+Estado de México  
+RFC: IUN390731NH9 
+Metodología para Asignación de Capacidad al 
+Sistema de Cogeneración y Almacenamiento 
+de Energía Eléctrica – SE IUSA 1 
+ 
+1. Objetivo 
+La presente met odología tiene co mo objeti vo asig nar de manera 
+independiente el beneficio por ca pacidad y el correspondiente ahorro 
+económico generado por el Sistema de  Cogeneración y de  
+Almacenamiento de Energía (BESS) en la SE IUSA 1. 
+ 
+La metodología permite identificar qué parte de la reducción de costos 
+corresponde al BESS y cuál a la cogeneración, evitando sobreestimar los 
+beneficios de cualquiera de las dos tecnologías. 
+ 
+1.1. Principio de Análisis 
+La reducción de la capacidad (demanda facturable) registrada por el 
+medidor de CFE es resultado de la contribución conjunta de: 
+ 
+• La cogeneración, que suministra energía internamente durante el 
+período punta, 
+• El BESS, que descarga energía almacenada durante las hor as 
+correspondiente al período punta, 
+ 
+Dado que ambas tecnologías actúan simultáneamente, el ahorro total 
+debe desagregarse mediante un análisis comparativo de escenarios 
+operativos. 
+ 
+2. Escenarios evaluados 
+Partiendo de los perfiles  cincominutales del medidor ION (CFE),  del 
+sistema de cogeneración y BESS,  se reconstruyen los si guientes cuatro 
+escenarios o situaciones: 
+ 
+2.1. Sin recursos energéticos (100% suministro CFE) 
+Representa el comportamiento natural d el consumo eléctri co de la SE 
+IUSA 1 sin cogeneración ni BESS . De este escenario se establece la 
+demanda máxima que hubiera facturado CFE. 
+ 
+  
+ 
+ 
+Página 2 de 4 
+Industrias Unidas, S. A. de C. V. 
+Carretera Panamericana México Querétaro S/N km. 109, Pastejé, Jocotitlán, Estado de México 
+ 
+ 
+Industrias Unidas, S. A. de C. V. 
+km. 109 Carretera Panamericana México-Querétaro   
+Pastejé, Jocotitlán, C. P. 50734 
+Estado de México  
+RFC: IUN390731NH9 
+2.2. Operación con cogeneración únicamente. 
+Representa el comportamiento IUSA 1  considerando únicamente la 
+aportación de la cogeneración. La finalidad de este escenario consiste en 
+determinar el beneficio atribuible a la generación  interna por el sistema 
+de cogeneración.  
+ 
+2.3. Operación con BESS únicamente. 
+Representa el comportamiento de la instalación considerando 
+exclusivamente la operación del sistema de almacenamiento.  En este  
+escenario se determinará el beneficio atribuible al BESS. 
+ 
+2.4. Operación real. 
+Considera la operación simultánea de la cogeneración y del BESS. En esta 
+situación se determinará el beneficio económico total observado, así como 
+la facturación final que emitirá CFE en su recibo. 
+ 
+3. Método de Shapley (Teoría de Juegos) 
+El valor de Shapley es un método matemático dentro de la teoría de juegos 
+cooperativos diseñado para distribuir equitativamente ganancias, costos o 
+riesgos totales entre un grupo de actores que colaboran.  
+ 
+Este método garantiza que cada participante reciba una recompensa 
+proporcional exacta a su aportación marginal. 
+ 
+Para lograr una repartición justa, el valor calcula la contribución marginal 
+promedio de cada jugador. Esto significa que se evalúa cuánto valor 
+adicional aporta un jugador específico a cada posible combinación de los 
+demás participantes. 
+ 
+Partimos de los 4 escenarios descritos anteriormente: 
+ 
+Escenario Cogeneración BESS 
+Base (sin recursos) No No 
+Sólo Cogeneración Sí No 
+Sólo BESS No Sí 
+Actual (con recursos) Sí Sí 
+ 
+  
+ 
+ 
+Página 3 de 4 
+Industrias Unidas, S. A. de C. V. 
+Carretera Panamericana México Querétaro S/N km. 109, Pastejé, Jocotitlán, Estado de México 
+ 
+ 
+Industrias Unidas, S. A. de C. V. 
+km. 109 Carretera Panamericana México-Querétaro   
+Pastejé, Jocotitlán, C. P. 50734 
+Estado de México  
+RFC: IUN390731NH9 
+Dónde  
+ 
+D0 = Demanda punta sin recursos 
+DC = Demanda punta con sólo cogeneración 
+DB = Demanda punta con sólo BESS 
+DCB = Demanda punta con cogeneración y BESS 
+ 
+Con dos recursos  energéticos (Cogeneración y BESS) , que reducen la 
+demanda en período punta, sólo existen dos secuencias: 
+ 
+Orden 1 
+Base → Cogeneración → BESS 
+ 
+Aporte cogeneración:   𝐷0 − 𝐷𝐶 
+Aporte BES:    𝐷𝐶 − 𝐷𝐶𝐵 
+ 
+Orden 2 
+Base → BESS → Cogeneración 
+ 
+Aporte BESS:    𝐷0 − 𝐷𝐵 
+Aporte cogeneración:   𝐷𝐵 − 𝐷𝐶𝐵 
+ 
+Valor Shapley de la Cogeneración (Asignación Cogeneración) 
+ 
+𝑆𝐶 = (𝐷0 − 𝐷𝐶) + (𝐷𝐵 − 𝐷𝐶𝐵)
+2  
+ 
+Valor Shapley del BESS (Asignación BESS) 
+ 
+𝑆𝐵 = (𝐷0 − 𝐷𝐵) + (𝐷𝐶 − 𝐷𝐶𝐵)
+2  
+ 
+Por lo anterior, siempre se cumple: 
+ 
+𝑆𝐶 + 𝑆𝐵 = 𝐷0 − 𝐷𝐶𝐵 
+ 
+Por lo que la  asignación de l ahorro total de  capacidad (demanda 
+facturable) queda repartido exactamente entre ambas tecnologías. 
+ 
+ 
+ 
+  
+ 
+ 
+Página 4 de 4 
+Industrias Unidas, S. A. de C. V. 
+Carretera Panamericana México Querétaro S/N km. 109, Pastejé, Jocotitlán, Estado de México 
+ 
+ 
+Industrias Unidas, S. A. de C. V. 
+km. 109 Carretera Panamericana México-Querétaro   
+Pastejé, Jocotitlán, C. P. 50734 
+Estado de México  
+RFC: IUN390731NH9 
+Ejemplo: 
+ 
+Escenario Demanda punta 
+Base (sin recursos) 5.0 MW 
+Sólo Cogeneración 3.8 MW 
+Sólo BESS 4.4 MW 
+Actual (con recursos) 3.3 MW 
+ 
+Reducción total en demanda punta:  
+ 
+𝐷0 − 𝐷𝐶𝐵 = 5.0 − 3.3 = 1.7 𝑀𝑊 
+ 
+Valor Shapley de la Cogeneración: 
+ 
+𝑆𝐶 =
+(𝐷0 − 𝐷𝐶) + (𝐷𝐵 − 𝐷𝐶𝐵)
+2 =
+(5.0 − 3.8) + (4.4 − 3.3)
+2 = 1.2 + 1.1
+2 = 2.3
+2 = 1.15 
+ 
+Valor Shapley del BESS: 
+ 
+𝑆𝐵 = (𝐷0 − 𝐷𝐵) + (𝐷𝐶 − 𝐷𝐶𝐵)
+2 = (5 − 4.4) + (3.8 − 3.3)
+2 = 0.6 + 0.5
+2 = 1.1
+2 = 0.55 
+ 
+Comprobación: 
+ 
+𝑆𝐶 + 𝑆𝐵 = 𝐷0 − 𝐷𝐶𝐵 
+1.15 + 0.55 = 5 − 3.3 
+1.7 𝑀𝑊 = 1.7 𝑀𝑊 
+ 
+ 
+ 

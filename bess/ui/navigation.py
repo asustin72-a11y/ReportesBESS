@@ -57,6 +57,18 @@ SECCIONES = [
         ],
     },
     {
+        "key": "generacion",
+        "pill": "Generación",
+        "titulo": "Generación",
+        "icono": "☀️",
+        "resumen": "Energía generada por cogeneración (IUSA 1) y granja solar (IUSA 2).",
+        "capacidades": [
+            "Generación por periodo",
+            "Acumulado mensual",
+            "Gráfica diaria",
+        ],
+    },
+    {
         "key": "reportes",
         "pill": "Reportes",
         "titulo": "Reportes",

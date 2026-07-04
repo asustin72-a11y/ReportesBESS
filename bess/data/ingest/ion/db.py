@@ -278,12 +278,13 @@ def upsert_registros(
         )
     }
 
+    ahora_mx = datetime.now(ZoneInfo("America/Mexico_City")).isoformat(timespec='seconds')
     conn.executemany(
         """
         INSERT INTO perfil_carga (
             medidor_id, fecha, kwh_rec, kwh_ent,
-            kvarh_q1, kvarh_q2, kvarh_q3, kvarh_q4, fuente
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            kvarh_q1, kvarh_q2, kvarh_q3, kvarh_q4, fuente, ingested_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(medidor_id, fecha) DO UPDATE SET
             kwh_rec = excluded.kwh_rec,
             kwh_ent = excluded.kwh_ent,
@@ -292,7 +293,7 @@ def upsert_registros(
             kvarh_q3 = excluded.kvarh_q3,
             kvarh_q4 = excluded.kvarh_q4,
             fuente = excluded.fuente,
-            ingested_at = datetime('now')
+            ingested_at = excluded.ingested_at
         """,
         [
             (
@@ -305,6 +306,7 @@ def upsert_registros(
                 r['kvarh_q3'],
                 r['kvarh_q4'],
                 fuente,
+                ahora_mx,
             )
             for r in registros
         ],
@@ -324,7 +326,7 @@ def actualizar_sync_state(
     medidor_id: str,
     ultima_fecha: str,
 ) -> None:
-    ahora = datetime.now().isoformat(timespec='seconds')
+    ahora = datetime.now(ZoneInfo("America/Mexico_City")).isoformat(timespec='seconds')
     conn.execute(
         """
         INSERT INTO sync_state (medidor_id, ultima_fecha, ultima_sync_ok)
@@ -341,9 +343,9 @@ def iniciar_sync_log(conn: sqlite3.Connection, medidor_id: str, desde: str, hast
     cur = conn.execute(
         """
         INSERT INTO sync_log (medidor_id, started_at, desde, hasta, status)
-        VALUES (?, datetime('now'), ?, ?, 'running')
+        VALUES (?, ?, ?, ?, 'running')
         """,
-        (medidor_id, desde, hasta),
+        (medidor_id, datetime.now(ZoneInfo("America/Mexico_City")).isoformat(timespec='seconds'), desde, hasta),
     )
     return int(cur.lastrowid)
 
@@ -357,10 +359,11 @@ def cerrar_sync_log(
     actualizados: int,
     error: str | None = None,
 ) -> None:
+    ahora_mx = datetime.now(ZoneInfo("America/Mexico_City")).isoformat(timespec='seconds')
     conn.execute(
         """
         UPDATE sync_log SET
-            finished_at = datetime('now'),
+            finished_at = ?,
             status = ?,
             registros_leidos = ?,
             registros_insertados = ?,
@@ -368,7 +371,7 @@ def cerrar_sync_log(
             error_message = ?
         WHERE id = ?
         """,
-        (status, leidos, insertados, actualizados, error, log_id),
+        (ahora_mx, status, leidos, insertados, actualizados, error, log_id),
     )
 
 

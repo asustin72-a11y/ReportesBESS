@@ -117,6 +117,7 @@ def _sidebar_mantenimiento_db():
         etiqueta = "Volver al reporteador" if en_bd else "Abrir herramientas BD"
         if st.button(etiqueta, use_container_width=True, key="toggle_mantenimiento_db"):
             st.session_state["modo_vista"] = "reporteador" if en_bd else "mantenimiento_db"
+            st.rerun()
 
 
 def sidebar_admin(*, mostrar_mantenimiento_db: bool = False):

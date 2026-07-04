@@ -84,6 +84,7 @@ from bess.ui.components import (
 from bess.ui.downloads import render_boton_descarga
 from bess.ui.chart_view import render_grafica_plotly
 from bess.ui.participacion_tab import tab_participacion_capacidad
+from bess.ui.generacion_tab import tab_generacion
 from bess.ui.reportes_tab import tab_reportes
 from bess.ui.receipt_tab import tab_recibo as _tab_recibo_core
 from bess.ui.sidebar import _ajustar_sidebar_por_rol, sidebar_admin, sidebar_user
@@ -135,6 +136,7 @@ def mostrar_aviso_sin_bess(estado):
         return True
     return False
 
+
 def render_barra_superior(rol: str | None):
     """Logo, título y cierre de sesión."""
     logo_html = obtener_logo_html(288)
@@ -159,7 +161,8 @@ def render_barra_superior(rol: str | None):
     with c2:
         st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
         if st.button("Cerrar sesión", use_container_width=True, key="btn_logout"):
-            logout()
+            st.session_state["_logout_pendiente"] = True
+            st.rerun()
 
 def render_selector_rango(df, prefijo, key_suffix, medidor=None):
     """Selector de rango de fechas y resumen del periodo."""
@@ -1333,9 +1336,18 @@ def tab_tendencia(df, prefijo):
             """, unsafe_allow_html=True)
 
 # ========== MAIN ==========
-@st.fragment
-def _bloque_reporteador(df, prefijo, medidor):
-    """Navegación + contenido (rerun parcial, sin parpadeo de login)."""
+def _bloque_reporteador(prefijo, medidor):
+    """Navegación + contenido principal."""
+    if not st.session_state.get('autenticado', False):
+        return
+    ruta_p = ruta_combinado_por_prefijo(prefijo)
+    if not ruta_p or not ruta_p.exists():
+        st.warning(f"No hay datos para {etiqueta_medidor_consumo(medidor)}")
+        return
+
+    df = pd.read_csv(ruta_p)
+    df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
+
     with st.container(border=True):
         seccion = render_navegacion_principal()
 
@@ -1348,6 +1360,9 @@ def _bloque_reporteador(df, prefijo, medidor):
         tab_participacion_capacidad(df, sub_id)
     elif seccion == "tendencia":
         tab_tendencia(df, prefijo)
+    elif seccion == "generacion":
+        sub_id = st.session_state.get("subestacion_principal", "")
+        tab_generacion(sub_id)
     elif seccion in ("reporte", "reportes"):
         tab_reportes(df, prefijo, tab_reporte)
     elif seccion == "recibo":
@@ -1364,6 +1379,16 @@ def _al_cambiar_subestacion():
 
 def main():
     init_session()
+
+    if st.session_state.pop("_logout_pendiente", False):
+        st.cache_data.clear()
+        st.session_state.autenticado = False
+        st.session_state.usuario = None
+        st.session_state.rol = None
+        st.session_state.pop("seccion_activa", None)
+        st.session_state.pop("modo_vista", None)
+        st.session_state.pop("sidebar_inicial_aplicada", None)
+        st.rerun()
 
     if not st.session_state.get('autenticado', False):
         preparar_ui_login()
@@ -1454,16 +1479,7 @@ def main():
         )
 
     prefijo = medidor
-    ruta_p = ruta_combinado_por_prefijo(prefijo)
-
-    if not ruta_p or not ruta_p.exists():
-        st.warning(f"No hay datos para {etiqueta_medidor_consumo(medidor)}")
-        return
-
-    df = pd.read_csv(ruta_p)
-    df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
-
-    _bloque_reporteador(df, prefijo, medidor)
+    _bloque_reporteador(prefijo, medidor)
 
 if __name__ == "__main__":
     main()
