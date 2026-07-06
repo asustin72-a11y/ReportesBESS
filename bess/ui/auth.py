@@ -5,9 +5,8 @@ from __future__ import annotations
 import streamlit as st
 
 from bess.config.users import (
-    cargar_usuarios_desde_env,
-    parse_usuarios_json,
-    parse_usuarios_mapping,
+    ERROR_SIN_USUARIOS,
+    cargar_usuarios_fuente_externa,
     verificar_password,
 )
 import streamlit.components.v1 as components
@@ -15,42 +14,21 @@ import streamlit.components.v1 as components
 from bess.ui.components import obtener_logo_html
 from bess.ui.styles import aplicar_estilos_login
 
-_ERROR_SIN_USUARIOS = (
-    'No hay usuarios configurados. Defina `[users]` en `.streamlit/secrets.toml` '
-    'o la variable de entorno `BESS_USERS` (JSON). '
-    'Vea `.streamlit/secrets.toml.example`.'
-)
+_ERROR_SIN_USUARIOS = ERROR_SIN_USUARIOS
 
 
 @st.cache_resource(show_spinner=False)
 def get_usuarios() -> dict:
-    """Usuarios desde secrets de Streamlit o variable BESS_USERS."""
-    usuarios = _cargar_desde_streamlit_secrets()
-    if usuarios is None:
-        usuarios = cargar_usuarios_desde_env()
+    """Usuarios desde SQLite; bootstrap secrets/env si la tabla estaba vacía."""
+    from bess.data.users_db import ensure_usuarios_listo, leer_usuarios_dict
+
+    ensure_usuarios_listo()
+    usuarios = leer_usuarios_dict(solo_activos=True)
+    if not usuarios:
+        usuarios = cargar_usuarios_fuente_externa() or {}
     if not usuarios:
         raise RuntimeError(_ERROR_SIN_USUARIOS)
     return usuarios
-
-
-def _cargar_desde_streamlit_secrets() -> dict | None:
-    from streamlit.errors import StreamlitSecretNotFoundError
-
-    try:
-        secrets = st.secrets
-    except StreamlitSecretNotFoundError:
-        return None
-
-    try:
-        users = secrets['users']
-        return parse_usuarios_mapping({k: dict(v) for k, v in users.items()})
-    except (StreamlitSecretNotFoundError, KeyError):
-        pass
-
-    try:
-        return parse_usuarios_json(str(secrets['BESS_USERS']))
-    except (StreamlitSecretNotFoundError, KeyError):
-        return None
 
 
 def init_session():
@@ -144,18 +122,21 @@ def _inyectar_limpieza_ui_sesion():
     _emitir_script_ui(f"<script>{js}</script>")
 
 
-def _inyectar_salir_modo_login():
-    """Restaura sidebar normal tras autenticarse."""
-    js = r"""
-    (function () {
+def _inyectar_salir_modo_login(*, restaurar_sidebar: bool = True):
+    """Quita modo login; opcionalmente restaura la sidebar (solo admin/superadmin)."""
+    restaurar_js = "true" if restaurar_sidebar else "false"
+    js = f"""
+    (function () {{
+        const RESTAURAR_SIDEBAR = {restaurar_js};
         const d = window.parent && window.parent.document ? window.parent.document : document;
         d.body.classList.remove('bess-login-mode');
-        if (d.__bessLoginCleanerObs) {
-            try { d.__bessLoginCleanerObs.disconnect(); } catch (e) {}
+        if (d.__bessLoginCleanerObs) {{
+            try {{ d.__bessLoginCleanerObs.disconnect(); }} catch (e) {{}}
             d.__bessLoginCleanerObs = null;
-        }
+        }}
+        if (!RESTAURAR_SIDEBAR) return;
         const sidebar = d.querySelector('section[data-testid="stSidebar"]');
-        if (sidebar) {
+        if (sidebar) {{
             sidebar.style.removeProperty('display');
             sidebar.style.removeProperty('visibility');
             sidebar.style.removeProperty('width');
@@ -163,15 +144,15 @@ def _inyectar_salir_modo_login():
             sidebar.style.removeProperty('max-width');
             sidebar.style.removeProperty('overflow');
             sidebar.removeAttribute('aria-hidden');
-        }
+        }}
         d.querySelectorAll(
             '[data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"],'
             + '[data-testid="stExpandSidebarButton"]'
-        ).forEach(function (el) {
+        ).forEach(function (el) {{
             el.style.removeProperty('display');
             el.style.removeProperty('visibility');
-        });
-    })();
+        }});
+    }})();
     """
     _emitir_script_ui(f"<script>{js}</script>")
 
@@ -203,9 +184,9 @@ def preparar_ui_login():
     _inyectar_limpieza_ui_sesion()
 
 
-def restaurar_ui_app():
+def restaurar_ui_app(*, restaurar_sidebar: bool = True):
     """Quita el modo login del DOM tras autenticarse."""
-    _inyectar_salir_modo_login()
+    _inyectar_salir_modo_login(restaurar_sidebar=restaurar_sidebar)
 
 
 def login():

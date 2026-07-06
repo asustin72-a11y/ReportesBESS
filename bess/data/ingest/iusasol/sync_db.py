@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 from bess.config.paths import RUTA_BD_PERFILES
 from bess.core.console import log as print
-from bess.config.subestaciones import aliases_sync_api
+from bess.config.subestaciones import medidores_sync_api_isol
 from bess.data.ingest.ion import db
 from bess.data.ingest.iusasol import IusasolClient, cargar_config_iusasol
 from bess.data.ingest.iusasol.client import IusasolError
@@ -166,6 +166,7 @@ def sincronizar_medidor_api(
     hasta: str | None = None,
     client: IusasolClient | None = None,
     quiet: bool = False,
+    numero_serie: str | None = None,
 ) -> dict[str, Any]:
     medidor_bd = _resolver_medidor_bd(medidor)
     db.init_db(ruta_bd)
@@ -198,7 +199,7 @@ def sincronizar_medidor_api(
     cfg = cargar_config_iusasol()
     api = client or IusasolClient(cfg)
     medidores_api = api.listar_medidores()
-    meter_id = resolver_id_medidor(medidor, medidores_api)
+    meter_id = resolver_id_medidor(medidor, medidores_api, numero_serie=numero_serie)
 
     perfil = api.obtener_perfil(
         meter_id,
@@ -255,36 +256,32 @@ def sincronizar_api(
     desde: str | None = None,
     hasta: str | None = None,
     quiet: bool = False,
-    solo_aliases: tuple[str, ...] | None = None,
+    solo_medidores: tuple[str, ...] | None = None,
 ) -> list[dict[str, Any]]:
     cfg = cargar_config_iusasol()
     client = IusasolClient(cfg)
     resumen: list[dict[str, Any]] = []
-    vistos: set[str] = set()
-    aliases_permitidos = (
-        {a.lower() for a in solo_aliases} if solo_aliases is not None else None
+    permitidos = (
+        {m.lower() for m in solo_medidores} if solo_medidores is not None else None
     )
-    for alias, medidor_bd in aliases_sync_api():
-        if medidor_bd in vistos:
+    for med in medidores_sync_api_isol():
+        if permitidos is not None and med.nombre.lower() not in permitidos:
             continue
-        if aliases_permitidos is not None:
-            if alias.lower() not in aliases_permitidos and medidor_bd.lower() not in aliases_permitidos:
-                continue
-        vistos.add(medidor_bd)
         try:
             resumen.append(
                 sincronizar_medidor_api(
-                    alias,
+                    med.nombre,
                     ruta_bd=ruta_bd,
                     desde=desde,
                     hasta=hasta,
                     client=client,
                     quiet=quiet,
+                    numero_serie=med.numero_serie,
                 )
             )
         except (IusasolError, ValueError) as exc:
             resumen.append({
-                'medidor': medidor_bd,
+                'medidor': med.nombre,
                 'error': str(exc),
             })
             return resumen
@@ -304,7 +301,7 @@ def sincronizar_bess_iusa2(
         desde=desde,
         hasta=hasta,
         quiet=quiet,
-        solo_aliases=('bess_iusa2', 'BESS_IUSA2'),
+        solo_medidores=("BESS_SUR",),
     )
     if not items:
         return {'medidor': db.MEDIDOR_BESS_IUSA2, 'error': 'Sin configuración API para IUSA 2'}

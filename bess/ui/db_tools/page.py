@@ -283,7 +283,7 @@ def _tab_avanzado():
     st.caption("Operaciones destructivas o de una sola vez. Use con precaución.")
 
     with st.expander("🏗️ Inicializar esquema y catálogo", expanded=False):
-        st.markdown("Crea tablas si no existen y actualiza el catálogo desde `Medidores.csv`.")
+        st.markdown("Crea tablas si no existen y sincroniza medidores desde el catálogo en BD.")
         if st.button("Inicializar BD", key="adv_btn_init", type="primary"):
             with st.spinner("Inicializando..."):
                 service.inicializar_bd()

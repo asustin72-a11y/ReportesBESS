@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import shutil
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
@@ -14,15 +15,38 @@ ARCHIVO_SUBESTACIONES = "Subestaciones.csv"
 ARCHIVO_MEDIDORES = "Medidores.csv"
 ARCHIVO_TIPO_MEDIDOR = "Tipo_Medidor.csv"
 
+CAMPOS_TIPO_MEDIDOR = ("Tipo", "Descripcion", "Neteo", "Invertir", "Reactivos")
+CAMPOS_SUBESTACIONES = ("Numero", "Nombre", "Generacion")
+CAMPOS_MEDIDORES = (
+    "Nombre",
+    "Numero_Serie",
+    "Subestacion",
+    "Tipo_Medidor",
+    "Descarga",
+    "IP",
+    "Puerto",
+    "Grupo_Generacion",
+    "Validado",
+)
+
 FORMATO_VALIDADO = "%d/%m/%Y %H:%M"
 PUERTO_MODBUS_DEFAULT = 502
 TIPO_FACTURACION = 1
 TIPO_TESTIGO = 2
 TIPO_BESS = 3
-TIPO_GENERACION = 4
-TIPO_COGENERACION = 5
+TIPO_GENERACION_MULTIPLE = 4
+TIPO_GENERACION_INDIVIDUAL = 5
+# Alias legacy (mismo número de tipo)
+TIPO_GENERACION = TIPO_GENERACION_MULTIPLE
+TIPO_COGENERACION = TIPO_GENERACION_INDIVIDUAL
 DESCARGAS_VALIDAS = frozenset({"ION", "API"})
 REACTIVOS_VALIDOS = frozenset({0, 1, 2})
+
+# Subestaciones.csv columna Generacion
+GENERACION_NINGUNA = 0
+GENERACION_GRUPO = 1
+GENERACION_INDIVIDUAL = 2
+MODOS_GENERACION_VALIDOS = frozenset({GENERACION_NINGUNA, GENERACION_GRUPO, GENERACION_INDIVIDUAL})
 
 
 class CatalogError(Exception):
@@ -46,7 +70,19 @@ class ReglasTipoMedidor:
 class SubestacionCatalogo:
     numero: int
     nombre: str
-    generacion: bool
+    generacion: int
+
+    @property
+    def tiene_generacion(self) -> bool:
+        return self.generacion in (GENERACION_GRUPO, GENERACION_INDIVIDUAL)
+
+    @property
+    def generacion_grupo(self) -> bool:
+        return self.generacion == GENERACION_GRUPO
+
+    @property
+    def generacion_individual(self) -> bool:
+        return self.generacion == GENERACION_INDIVIDUAL
 
 
 @dataclass(frozen=True)
@@ -75,12 +111,20 @@ class MedidorCatalogo:
         return self.tipo_medidor == TIPO_BESS
 
     @property
+    def es_generacion_multiple(self) -> bool:
+        return self.tipo_medidor == TIPO_GENERACION_MULTIPLE
+
+    @property
+    def es_generacion_individual(self) -> bool:
+        return self.tipo_medidor == TIPO_GENERACION_INDIVIDUAL
+
+    @property
     def es_generacion(self) -> bool:
-        return self.tipo_medidor == TIPO_GENERACION
+        return self.es_generacion_multiple
 
     @property
     def es_cogeneracion(self) -> bool:
-        return self.tipo_medidor == TIPO_COGENERACION
+        return self.es_generacion_individual
 
     @property
     def validado_ok(self) -> bool:
@@ -150,6 +194,24 @@ def _bool_csv(valor: str) -> bool:
     return str(valor or "").strip() in {"1", "true", "True", "SI", "si", "Sí"}
 
 
+def _modo_generacion_csv(valor: str, *, fila: str) -> int:
+    """Generacion en Subestaciones.csv: 0=ninguna, 1=grupo (tipo 4), 2=individual (tipo 5)."""
+    texto = str(valor or "").strip()
+    if not texto:
+        return GENERACION_NINGUNA
+    try:
+        modo = int(texto)
+    except ValueError as exc:
+        raise CatalogError(
+            [f'Subestación "{fila}": Generacion debe ser 0, 1 o 2 (recibido: {texto!r}).']
+        ) from exc
+    if modo not in MODOS_GENERACION_VALIDOS:
+        raise CatalogError(
+            [f'Subestación "{fila}": Generacion debe ser 0, 1 o 2 (recibido: {modo}).']
+        )
+    return modo
+
+
 def _int_csv(valor: str, *, campo: str, fila: str) -> int:
     texto = str(valor or "").strip()
     if not texto:
@@ -181,8 +243,14 @@ def _parse_puerto(valor: str, descarga: str) -> int:
     return _int_csv(texto, campo="Puerto", fila="Medidor")
 
 
-def _cargar_tipos(directorio: Path) -> tuple[ReglasTipoMedidor, ...]:
-    filas = _leer_csv(directorio / ARCHIVO_TIPO_MEDIDOR)
+def _cargar_tipos(
+    directorio: Path | None = None,
+    *,
+    filas: list[dict[str, str]] | None = None,
+) -> tuple[ReglasTipoMedidor, ...]:
+    if filas is None:
+        base = Path(directorio or DIRECTORIO_TARIFAS)
+        filas = _leer_csv(base / ARCHIVO_TIPO_MEDIDOR)
     if not filas:
         raise CatalogError([f"{ARCHIVO_TIPO_MEDIDOR} está vacío."])
     tipos: list[ReglasTipoMedidor] = []
@@ -207,8 +275,14 @@ def _cargar_tipos(directorio: Path) -> tuple[ReglasTipoMedidor, ...]:
     return tuple(tipos)
 
 
-def _cargar_subestaciones(directorio: Path) -> tuple[SubestacionCatalogo, ...]:
-    filas = _leer_csv(directorio / ARCHIVO_SUBESTACIONES)
+def _cargar_subestaciones(
+    directorio: Path | None = None,
+    *,
+    filas: list[dict[str, str]] | None = None,
+) -> tuple[SubestacionCatalogo, ...]:
+    if filas is None:
+        base = Path(directorio or DIRECTORIO_TARIFAS)
+        filas = _leer_csv(base / ARCHIVO_SUBESTACIONES)
     if not filas:
         raise CatalogError([f"{ARCHIVO_SUBESTACIONES} está vacío."])
     subs: list[SubestacionCatalogo] = []
@@ -229,18 +303,22 @@ def _cargar_subestaciones(directorio: Path) -> tuple[SubestacionCatalogo, ...]:
             SubestacionCatalogo(
                 numero=numero,
                 nombre=nombre,
-                generacion=_bool_csv(fila.get("Generacion", "")),
+                generacion=_modo_generacion_csv(fila.get("Generacion", ""), fila=nombre),
             )
         )
     return tuple(subs)
 
 
 def _cargar_medidores(
-    directorio: Path,
     subs: tuple[SubestacionCatalogo, ...],
     tipos: tuple[ReglasTipoMedidor, ...],
+    directorio: Path | None = None,
+    *,
+    filas: list[dict[str, str]] | None = None,
 ) -> tuple[MedidorCatalogo, ...]:
-    filas = _leer_csv(directorio / ARCHIVO_MEDIDORES)
+    if filas is None:
+        base = Path(directorio or DIRECTORIO_TARIFAS)
+        filas = _leer_csv(base / ARCHIVO_MEDIDORES)
     if not filas:
         raise CatalogError([f"{ARCHIVO_MEDIDORES} está vacío."])
     sub_por_numero = {s.numero: s for s in subs}
@@ -313,8 +391,8 @@ def _validar_reglas_negocio(catalogo: Catalogo) -> list[str]:
         facturacion = [m for m in meds if m.tipo_medidor == TIPO_FACTURACION]
         testigos = [m for m in meds if m.tipo_medidor == TIPO_TESTIGO]
         bess = [m for m in meds if m.tipo_medidor == TIPO_BESS]
-        generacion = [m for m in meds if m.tipo_medidor == TIPO_GENERACION]
-        cogeneracion = [m for m in meds if m.tipo_medidor == TIPO_COGENERACION]
+        generacion_multiple = [m for m in meds if m.tipo_medidor == TIPO_GENERACION_MULTIPLE]
+        generacion_individual = [m for m in meds if m.tipo_medidor == TIPO_GENERACION_INDIVIDUAL]
 
         if len(facturacion) != 1:
             errores.append(
@@ -325,29 +403,51 @@ def _validar_reglas_negocio(catalogo: Catalogo) -> list[str]:
             errores.append(
                 f'Subestación "{sub.nombre}": requiere al menos 1 medidor tipo 3 (BESS).'
             )
-        if generacion and not sub.generacion:
+        if generacion_multiple and sub.generacion == GENERACION_NINGUNA:
             errores.append(
-                f'Subestación "{sub.nombre}": hay medidores tipo 4 pero Generacion=0.'
+                f'Subestación "{sub.nombre}": hay medidores tipo 4 (GeneracionMultiple) '
+                f"pero Generacion=0."
             )
-        if sub.generacion:
-            if not generacion:
+        if sub.generacion == GENERACION_GRUPO:
+            if not generacion_multiple:
                 errores.append(
-                    f'Subestación "{sub.nombre}": Generacion=1 pero no hay medidores tipo 4.'
+                    f'Subestación "{sub.nombre}": Generacion=1 (grupo) requiere medidores '
+                    f"tipo 4 (GeneracionMultiple)."
                 )
-            sin_grupo = [m.nombre for m in generacion if not m.grupo_generacion]
+            sin_grupo = [m.nombre for m in generacion_multiple if not m.grupo_generacion]
             if sin_grupo:
                 errores.append(
-                    f'Subestación "{sub.nombre}": medidores tipo 4 sin Grupo_Generacion: '
-                    f"{', '.join(sin_grupo)}."
+                    f'Subestación "{sub.nombre}": medidores GeneracionMultiple sin '
+                    f"Grupo_Generacion: {', '.join(sin_grupo)}."
                 )
-        if len(cogeneracion) > 1:
+            if generacion_individual:
+                errores.append(
+                    f'Subestación "{sub.nombre}": Generacion=1 (grupo) no admite medidor '
+                    f"tipo 5 (GeneracionIndividual)."
+                )
+        if sub.generacion == GENERACION_INDIVIDUAL:
+            if not generacion_individual:
+                errores.append(
+                    f'Subestación "{sub.nombre}": Generacion=2 (individual) requiere 1 medidor '
+                    f"tipo 5 (GeneracionIndividual)."
+                )
+            if len(generacion_individual) > 1:
+                errores.append(
+                    f'Subestación "{sub.nombre}": Generacion=2 permite solo 1 medidor '
+                    f"GeneracionIndividual."
+                )
+            if generacion_multiple:
+                errores.append(
+                    f'Subestación "{sub.nombre}": Generacion=2 (individual) no admite medidores '
+                    f"GeneracionMultiple."
+                )
+        if sub.generacion == GENERACION_NINGUNA and generacion_individual:
             errores.append(
-                f'Subestación "{sub.nombre}": solo se permite 1 medidor tipo 5 (Cogeneración).'
+                f'Subestación "{sub.nombre}": medidor GeneracionIndividual con Generacion=0.'
             )
-        if cogeneracion and sub.generacion:
+        if len(generacion_individual) > 1 and sub.generacion != GENERACION_INDIVIDUAL:
             errores.append(
-                f'Subestación "{sub.nombre}": tipo 5 (Cogeneración) y granja (tipo 4) '
-                "no pueden coexistir."
+                f'Subestación "{sub.nombre}": solo se permite 1 medidor GeneracionIndividual.'
             )
 
         _ = testigos  # varios permitidos
@@ -366,11 +466,14 @@ def _validar_reglas_negocio(catalogo: Catalogo) -> list[str]:
 
 
 def cargar_catalogo(directorio: Path | None = None) -> Catalogo:
-    """Lee y valida el catálogo. Lanza CatalogError si hay problemas."""
-    base = Path(directorio or DIRECTORIO_TARIFAS)
-    tipos = _cargar_tipos(base)
-    subs = _cargar_subestaciones(base)
-    medidores = _cargar_medidores(base, subs, tipos)
+    """Lee y valida el catálogo desde SQLite. Lanza CatalogError si hay problemas."""
+    from bess.data.catalog_db import ensure_catalog_listo, leer_filas_catalogo_bd
+
+    ensure_catalog_listo(directorio)
+    filas_tipos, filas_subs, filas_meds = leer_filas_catalogo_bd()
+    tipos = _cargar_tipos(filas=filas_tipos)
+    subs = _cargar_subestaciones(filas=filas_subs)
+    medidores = _cargar_medidores(subs, tipos, filas=filas_meds)
     catalogo = Catalogo(subestaciones=subs, medidores=medidores, tipos=tipos)
     errores = _validar_reglas_negocio(catalogo)
     if errores:
@@ -392,37 +495,66 @@ def ruta_medidores_csv() -> Path:
     return DIRECTORIO_TARIFAS / ARCHIVO_MEDIDORES
 
 
-def _escribir_filas_medidores(filas: list[dict[str, str]], fieldnames: list[str]) -> None:
-    ruta = ruta_medidores_csv()
-    with ruta.open("w", encoding="utf-8-sig", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(filas)
+def catalogo_desde_filas(
+    filas_tipos: list[dict[str, str]],
+    filas_subestaciones: list[dict[str, str]],
+    filas_medidores: list[dict[str, str]],
+    *,
+    validar_negocio: bool = True,
+) -> Catalogo:
+    """Construye y valida un catálogo a partir de filas CSV (sin leer disco)."""
+    tipos = _cargar_tipos(filas=filas_tipos)
+    subs = _cargar_subestaciones(filas=filas_subestaciones)
+    medidores = _cargar_medidores(subs, tipos, filas=filas_medidores)
+    catalogo = Catalogo(subestaciones=subs, medidores=medidores, tipos=tipos)
+    if validar_negocio:
+        errores = _validar_reglas_negocio(catalogo)
+        if errores:
+            raise CatalogError(errores)
+    return catalogo
 
 
-def marcar_medidores_validados(
-    nombres: list[str],
-    cuando: datetime | None = None,
+def validar_filas_catalogo(
+    filas_tipos: list[dict[str, str]],
+    filas_subestaciones: list[dict[str, str]],
+    filas_medidores: list[dict[str, str]],
 ) -> list[str]:
-    """Escribe fecha Validado en Medidores.csv para los nombres indicados."""
-    if not nombres:
+    """Devuelve lista de errores de validación (vacía si el catálogo es válido)."""
+    try:
+        catalogo_desde_filas(filas_tipos, filas_subestaciones, filas_medidores)
         return []
-    cuando = cuando or datetime.now()
-    texto = cuando.strftime(FORMATO_VALIDADO)
-    filas = _leer_csv(ruta_medidores_csv())
-    if not filas:
-        return []
-    fieldnames = list(filas[0].keys())
-    if "Validado" not in fieldnames:
-        fieldnames.append("Validado")
-    pendientes = {n.strip() for n in nombres if n.strip()}
-    marcados: list[str] = []
-    for fila in filas:
-        nombre = (fila.get("Nombre") or "").strip()
-        if nombre in pendientes:
-            fila["Validado"] = texto
-            marcados.append(nombre)
-    _escribir_filas_medidores(filas, fieldnames)
+    except CatalogError as exc:
+        return list(exc.errores)
+
+
+def leer_filas_catalogo(directorio: Path | None = None) -> tuple[
+    list[dict[str, str]],
+    list[dict[str, str]],
+    list[dict[str, str]],
+]:
+    """Lee las tres tablas del catálogo desde SQLite (sin validar reglas de negocio)."""
+    from bess.data.catalog_db import ensure_catalog_listo, leer_filas_catalogo_bd
+
+    ensure_catalog_listo(directorio)
+    return leer_filas_catalogo_bd()
+
+
+def _respaldar_csv(ruta: Path) -> None:
+    if ruta.is_file():
+        shutil.copy2(ruta, ruta.with_suffix(".csv.bak"))
+
+
+def _escribir_csv(ruta: Path, fieldnames: tuple[str, ...], filas: list[dict[str, str]]) -> None:
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    _respaldar_csv(ruta)
+    with ruta.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(fieldnames), extrasaction="ignore")
+        writer.writeheader()
+        for fila in filas:
+            writer.writerow({campo: fila.get(campo, "") for campo in fieldnames})
+
+
+def _invalidar_caches_catalogo() -> None:
     invalidar_cache_catalogo()
     try:
         from bess.config.subestaciones import invalidar_cache_subestaciones
@@ -430,6 +562,51 @@ def marcar_medidores_validados(
         invalidar_cache_subestaciones()
     except Exception:
         pass
+
+
+def guardar_filas_catalogo(
+    filas_tipos: list[dict[str, str]],
+    filas_subestaciones: list[dict[str, str]],
+    filas_medidores: list[dict[str, str]],
+    directorio: Path | None = None,
+) -> None:
+    """Valida y persiste el catálogo en SQLite."""
+    from bess.data.catalog_db import guardar_filas_catalogo_bd
+
+    _ = directorio  # legacy; el catálogo vive en BD
+    catalogo_desde_filas(filas_tipos, filas_subestaciones, filas_medidores)
+    guardar_filas_catalogo_bd(filas_tipos, filas_subestaciones, filas_medidores)
+    _invalidar_caches_catalogo()
+    from bess.data.ingest.ion.db import _registrar_catalogo_medidores, conectar_bd
+
+    with conectar_bd() as conn:
+        _registrar_catalogo_medidores(conn)
+        conn.commit()
+
+
+def ruta_subestaciones_csv() -> Path:
+    return DIRECTORIO_TARIFAS / ARCHIVO_SUBESTACIONES
+
+
+def ruta_tipos_medidor_csv() -> Path:
+    return DIRECTORIO_TARIFAS / ARCHIVO_TIPO_MEDIDOR
+
+
+def _escribir_filas_medidores(filas: list[dict[str, str]], fieldnames: list[str]) -> None:
+    _escribir_csv(ruta_medidores_csv(), tuple(fieldnames), filas)
+    _invalidar_caches_catalogo()
+
+
+def marcar_medidores_validados(
+    nombres: list[str],
+    cuando: datetime | None = None,
+) -> list[str]:
+    """Escribe fecha Validado en el catálogo SQLite para los nombres indicados."""
+    from bess.data.catalog_db import marcar_medidores_validados_bd
+
+    marcados = marcar_medidores_validados_bd(nombres, cuando=cuando)
+    if marcados:
+        _invalidar_caches_catalogo()
     return marcados
 
 
@@ -438,7 +615,7 @@ def marcar_medidor_validado(nombre: str, cuando: datetime | None = None) -> bool
 
 
 def marcar_grupo_generacion_validado(grupo: str, cuando: datetime | None = None) -> list[str]:
-    """Marca Validado en todos los medidores tipo 4 del mismo Grupo_Generacion."""
+    """Marca Validado en todos los medidores GeneracionMultiple del mismo Grupo_Generacion."""
     cat = cargar_catalogo()
     nombres = [m.nombre for m in cat.medidores if m.grupo_generacion == grupo]
     return marcar_medidores_validados(nombres, cuando=cuando)

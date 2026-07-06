@@ -11,7 +11,11 @@ from bess.core.dates import serie_fecha_operativa
 
 from bess.charts.layout import _titulo_y_leyenda_externos
 from bess.config import rutas as rutas_mod
-from bess.config.subestaciones import etiqueta_medidor_consumo, subestacion_por_prefijo
+from bess.config.subestaciones import (
+    etiqueta_medidor_consumo,
+    recurso_generacion_subestacion,
+    subestacion_por_prefijo,
+)
 from bess.config.theme import COLORES
 from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
 
@@ -39,23 +43,32 @@ def _preparar_df_perfil(df: pd.DataFrame, prefijo: str) -> tuple[pd.DataFrame, b
     return df, True
 
 
-def _unir_granja_perfil(df: pd.DataFrame, prefijo: str) -> pd.DataFrame:
-    """Une generación granja (kWh) y calcula KW_GRANJA = KWH_REC × 12."""
+def _unir_generacion_perfil(df: pd.DataFrame, prefijo: str) -> pd.DataFrame:
+    """Une generación (granja o individual) y calcula KW_GENERACION = KWH_REC × 12."""
     sub = subestacion_por_prefijo(prefijo)
-    if not sub or not sub.granja_bd:
+    if not sub:
         return df
-    prefijo_gen = sub.granja_bd or rutas_mod.nombre_generacion_subestacion(sub.id).replace(".csv", "")
-    ruta = rutas_mod.ruta_reporte(sub.id, f"COMBINADO_POR_MINUTO_{prefijo_gen}.csv")
+    recurso = recurso_generacion_subestacion(sub.id)
+    if not recurso:
+        return df
+    ruta = rutas_mod.ruta_reporte(
+        sub.id, f"COMBINADO_POR_MINUTO_{recurso.prefijo_reporte}.csv"
+    )
     if not ruta.exists():
         return df
-    df_granja = pd.read_csv(ruta, encoding="utf-8-sig")
-    if "FECHA_HORA" not in df_granja.columns or "KWH_REC" not in df_granja.columns:
+    df_gen = pd.read_csv(ruta, encoding="utf-8-sig")
+    if "FECHA_HORA" not in df_gen.columns or "KWH_REC" not in df_gen.columns:
         return df
-    df_granja = df_granja[["FECHA_HORA", "KWH_REC"]].rename(columns={"KWH_REC": "KWH_GRANJA"})
-    out = df.merge(df_granja, on="FECHA_HORA", how="left")
-    out["KWH_GRANJA"] = pd.to_numeric(out["KWH_GRANJA"], errors="coerce").fillna(0)
-    out["KW_GRANJA"] = out["KWH_GRANJA"] * 12
+    df_gen = df_gen[["FECHA_HORA", "KWH_REC"]].rename(columns={"KWH_REC": "KWH_GENERACION"})
+    out = df.merge(df_gen, on="FECHA_HORA", how="left")
+    out["KWH_GENERACION"] = pd.to_numeric(out["KWH_GENERACION"], errors="coerce").fillna(0)
+    out["KW_GENERACION"] = out["KWH_GENERACION"] * 12
     return out
+
+
+def _unir_granja_perfil(df: pd.DataFrame, prefijo: str) -> pd.DataFrame:
+    """Alias legacy — usar _unir_generacion_perfil."""
+    return _unir_generacion_perfil(df, prefijo)
 
 
 def _max_columna(df_plot: pd.DataFrame, columna: str) -> float:
@@ -71,8 +84,8 @@ def _rango_y_perfil(
 ) -> list[float] | None:
     """Reserva espacio bajo el eje cero para que la descarga BESS sea visible."""
     pos_cols: list[str] = ['BESS_REC_kW']
-    if 'KW_GRANJA' in df_plot.columns:
-        pos_cols = ['KW_GRANJA', *pos_cols]
+    if 'KW_GENERACION' in df_plot.columns:
+        pos_cols = ['KW_GENERACION', *pos_cols]
     if perfil_rec_ent:
         pos_cols = ['KW_REC_ION', *pos_cols]
     elif col_con in df_plot.columns:
@@ -92,15 +105,21 @@ def _rango_y_perfil(
     return [y_min - pad_inf, y_max + pad_sup]
 
 
-def graficar_perfil(df, prefijo, titulo):
+def graficar_perfil(df, prefijo, titulo, *, incluir_generacion: bool = True):
     """Grafica el perfil de carga. Un día: eje X por hora. Varios días: eje X por día (máx. diario)."""
     df = df.copy()
     if 'DATETIME' not in df.columns:
         df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
 
     df, perfil_rec_ent = _preparar_df_perfil(df, prefijo)
-    df = _unir_granja_perfil(df, prefijo)
-    tiene_granja = 'KW_GRANJA' in df.columns
+    if incluir_generacion:
+        df = _unir_generacion_perfil(df, prefijo)
+    tiene_generacion = incluir_generacion and 'KW_GENERACION' in df.columns
+    sub = subestacion_por_prefijo(prefijo)
+    recurso_gen = recurso_generacion_subestacion(sub.id) if sub else None
+    etiqueta_generacion = (
+        f'kW generación ({recurso_gen.etiqueta})' if recurso_gen else 'kW generación'
+    )
     etiqueta_ion = etiqueta_medidor_consumo(prefijo)
 
     col_con = f'IUSA_CON_BESS_{prefijo}_kW'
@@ -114,8 +133,8 @@ def graficar_perfil(df, prefijo, titulo):
 
     if multidia:
         agg_cols = [c for c in ['BESS_REC_kW', 'BESS_ENT_kW'] if c in df.columns]
-        if tiene_granja:
-            agg_cols = ['KW_GRANJA'] + agg_cols
+        if tiene_generacion:
+            agg_cols = ['KW_GENERACION'] + agg_cols
         if perfil_rec_ent:
             agg_cols = ['KW_REC_ION'] + agg_cols
         elif col_con in df.columns:
@@ -164,11 +183,11 @@ def graficar_perfil(df, prefijo, titulo):
             fillcolor='rgba(26,82,118,0.12)'
         ))
 
-    if tiene_granja and 'KW_GRANJA' in df_plot.columns:
+    if tiene_generacion and 'KW_GENERACION' in df_plot.columns:
         fig.add_trace(go.Scatter(
             x=x_vals,
-            y=df_plot['KW_GRANJA'],
-            name='kW generación (Granja)',
+            y=df_plot['KW_GENERACION'],
+            name=etiqueta_generacion,
             mode=trace_mode,
             line=dict(color=COLORES['warning'], width=2),
             marker=dict(size=marker_size, color=COLORES['warning']),

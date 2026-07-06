@@ -12,13 +12,13 @@ from bess.data.ingest.iusasol.to_csv import COLUMNAS_PERFIL
 
 from bess.data.ingest.medidor_ids import (
     FUENTE_MEDIANOCHE_API,
-    MEDIDORES_RELLENAR_MEDIANOCHE_API,
     medidor_id_canonico,
+    medidores_rellenar_medianoche_api,
 )
 
 
 def medidor_rellena_medianoche_api(medidor_id: str) -> bool:
-    return medidor_id_canonico(medidor_id) in MEDIDORES_RELLENAR_MEDIANOCHE_API
+    return medidor_id_canonico(medidor_id) in medidores_rellenar_medianoche_api()
 
 
 def fuente_medianoche_medidor(medidor_id: str) -> str:

@@ -667,6 +667,34 @@ def aplicar_estilos():
             margin-bottom: 8px;
         }
 
+        /* Visualizador (user): barra lateral oculta */
+        body.bess-rol-user-mode section[data-testid="stSidebar"],
+        body:has(.bess-rol-user) section[data-testid="stSidebar"] {
+            display: none !important;
+            visibility: hidden !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            max-width: 0 !important;
+            overflow: hidden !important;
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        body.bess-rol-user-mode [data-testid="stSidebarCollapsedControl"],
+        body.bess-rol-user-mode [data-testid="collapsedControl"],
+        body.bess-rol-user-mode [data-testid="stExpandSidebarButton"],
+        body:has(.bess-rol-user) [data-testid="stSidebarCollapsedControl"],
+        body:has(.bess-rol-user) [data-testid="collapsedControl"],
+        body:has(.bess-rol-user) [data-testid="stExpandSidebarButton"] {
+            display: none !important;
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+        body.bess-rol-user-mode [data-testid="stAppViewContainer"] > .main,
+        body:has(.bess-rol-user) [data-testid="stAppViewContainer"] > .main {
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+        }
+
         /* ====== RESPONSIVE MOBILE ====== */
         @media (max-width: 768px) {
             /* Header: reducir título y ocultar logo */

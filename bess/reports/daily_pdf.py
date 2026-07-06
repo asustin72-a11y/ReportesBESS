@@ -175,7 +175,15 @@ def _pdf_encabezado(story, styles, logo_path, fecha_espanol, archivos_temp):
     story.append(linea)
     story.append(Spacer(1, 0.06 * inch))
 
-def _pdf_grafica_perfil(df_dia, prefijo, fecha_dt, archivos_temp, *, titulo: str | None = None):
+def _pdf_grafica_perfil(
+    df_dia,
+    prefijo,
+    fecha_dt,
+    archivos_temp,
+    *,
+    titulo: str | None = None,
+    incluir_generacion: bool = True,
+):
     """Genera gráfica de perfil de carga con estilo alineado al dashboard."""
     import matplotlib
     matplotlib.use('Agg')
@@ -184,12 +192,18 @@ def _pdf_grafica_perfil(df_dia, prefijo, fecha_dt, archivos_temp, *, titulo: str
     from reportlab.platypus import Image
     from reportlab.lib.units import inch
 
-    from bess.charts.profile import _preparar_df_perfil, _unir_granja_perfil
-    from bess.config.subestaciones import etiqueta_medidor_consumo
+    from bess.charts.profile import _preparar_df_perfil, _unir_generacion_perfil
+    from bess.config.subestaciones import etiqueta_medidor_consumo, recurso_generacion_subestacion, subestacion_por_prefijo
 
     df_dia, perfil_rec_ent = _preparar_df_perfil(df_dia, prefijo)
-    df_dia = _unir_granja_perfil(df_dia, prefijo)
-    tiene_granja = 'KW_GRANJA' in df_dia.columns
+    if incluir_generacion:
+        df_dia = _unir_generacion_perfil(df_dia, prefijo)
+    tiene_generacion = incluir_generacion and 'KW_GENERACION' in df_dia.columns
+    sub = subestacion_por_prefijo(prefijo)
+    recurso_gen = recurso_generacion_subestacion(sub.id) if sub else None
+    etiqueta_generacion = (
+        f'kW generación ({recurso_gen.etiqueta})' if recurso_gen else 'kW generación'
+    )
     horas = df_dia['DATETIME'].values
     bess_rec = df_dia['BESS_REC_kW'].values
     bess_ent = -df_dia['BESS_ENT_kW'].values
@@ -209,10 +223,10 @@ def _pdf_grafica_perfil(df_dia, prefijo, fecha_dt, archivos_temp, *, titulo: str
         ax.plot(horas, iusa_con, color=_PDF['iusa'], linewidth=1.8, label='Demanda con BESS')
         ncol = 3
 
-    if tiene_granja:
-        granja_kw = df_dia['KW_GRANJA'].values
-        ax.fill_between(horas, 0, granja_kw, alpha=0.12, color=_PDF['intermedio'])
-        ax.plot(horas, granja_kw, color=_PDF['intermedio'], linewidth=1.5, label='kW generación (Granja)')
+    if tiene_generacion:
+        gen_kw = df_dia['KW_GENERACION'].values
+        ax.fill_between(horas, 0, gen_kw, alpha=0.12, color=_PDF['intermedio'])
+        ax.plot(horas, gen_kw, color=_PDF['intermedio'], linewidth=1.5, label=etiqueta_generacion)
         ncol += 1
 
     ax.fill_between(horas, 0, bess_rec, alpha=0.15, color=_PDF['carga'])
@@ -342,7 +356,7 @@ def _pdf_dibujar_pie(canvas, doc):
     canvas.drawCentredString(cx, y_text, linea2)
     canvas.restoreState()
 
-def generar_reporte_pdf(fecha_str, medidor):
+def generar_reporte_pdf(fecha_str, medidor, *, incluir_generacion: bool = True):
     """Genera un reporte PDF para una fecha específica"""
     try:
         from reportlab.lib.pagesizes import letter, landscape
@@ -394,7 +408,9 @@ def generar_reporte_pdf(fecha_str, medidor):
         fecha_espanol = formatear_fecha_espanol(fecha_dt)
         _pdf_encabezado(story, styles, logo_path, fecha_espanol, archivos_temp)
 
-        story.append(_pdf_grafica_perfil(df_dia, prefijo, fecha_dt, archivos_temp))
+        story.append(_pdf_grafica_perfil(
+            df_dia, prefijo, fecha_dt, archivos_temp, incluir_generacion=incluir_generacion
+        ))
         story.append(Spacer(1, _PDF['gap_chart_table_in'] * inch))
 
         _pdf_titulo_seccion(

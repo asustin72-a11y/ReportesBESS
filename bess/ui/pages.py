@@ -15,7 +15,6 @@ import io
 import hashlib
 import base64
 import html
-import shutil
 import subprocess
 import sys
 from decimal import Decimal, ROUND_HALF_UP
@@ -24,11 +23,12 @@ import streamlit.components.v1 as components
 warnings.filterwarnings('ignore')
 
 # ========== CONSTANTES (bess.config) ==========
-from bess.config.constants import ARCHIVO_TARIFAS, TIPOS_TARIFA, VERSION
+from bess.config.constants import VERSION
 from bess.config.subestaciones import (
     SUBESTACIONES,
     etiqueta_medidor_consumo,
     medidores_facturacion_subestacion,
+    recurso_generacion_subestacion,
     ruta_acumulados_por_prefijo,
     ruta_combinado_por_prefijo,
     ruta_energia_dia_por_prefijo,
@@ -87,7 +87,7 @@ from bess.ui.participacion_tab import tab_participacion_capacidad
 from bess.ui.generacion_tab import tab_generacion
 from bess.ui.reportes_tab import tab_reportes
 from bess.ui.receipt_tab import tab_recibo as _tab_recibo_core
-from bess.ui.sidebar import _ajustar_sidebar_por_rol, sidebar_admin, sidebar_user
+from bess.ui.sidebar import _ajustar_sidebar_por_rol, sidebar_admin
 from bess.ui.styles import aplicar_estilos
 from bess.ui.navigation import render_navegacion_principal
 from bess.charts import (
@@ -549,136 +549,6 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
         'rango_label': rango_label,
     }
 
-def _tarifas_vacias():
-    return {t: {i: 0 for i in range(1, 13)} for t in TIPOS_TARIFA}
-
-def ruta_archivo_tarifas():
-    return os.path.join(DIRECTORIO_TARIFAS, ARCHIVO_TARIFAS)
-
-def _df_tarifas_plantilla():
-    filas = []
-    for tipo in TIPOS_TARIFA:
-        fila = {'Tarifa': tipo}
-        for mes in range(1, 13):
-            fila[str(mes)] = 0.0
-        filas.append(fila)
-    return pd.DataFrame(filas)
-
-def leer_df_tarifas():
-    """Lee Tarifas_2026.csv como DataFrame editable (4 filas × 12 meses)."""
-    ruta = ruta_archivo_tarifas()
-    if not os.path.exists(ruta):
-        return _df_tarifas_plantilla()
-    try:
-        df = pd.read_csv(ruta, encoding='utf-8-sig')
-        df.columns = [str(c).strip() for c in df.columns]
-        if 'Tarifa' not in df.columns:
-            return _df_tarifas_plantilla()
-        df['Tarifa'] = df['Tarifa'].astype(str).str.strip()
-        tipos_map = {t.lower(): t for t in TIPOS_TARIFA}
-        tipos_map.update({
-            'distribución': 'Distribucion',
-            'transmisión': 'Transmision',
-            'cargo fijo': 'CargoFijo',
-            'servicios auxiliares': 'ServiciosAuxiliares',
-        })
-        df['Tarifa'] = df['Tarifa'].str.lower().map(tipos_map).fillna(df['Tarifa'])
-        for mes in range(1, 13):
-            col = str(mes)
-            if col not in df.columns:
-                df[col] = 0.0
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0.0)
-        df = df[df['Tarifa'].isin(TIPOS_TARIFA)].copy()
-        presentes = set(df['Tarifa'])
-        for tipo in TIPOS_TARIFA:
-            if tipo not in presentes:
-                fila = {'Tarifa': tipo}
-                for mes in range(1, 13):
-                    fila[str(mes)] = 0.0
-                df = pd.concat([df, pd.DataFrame([fila])], ignore_index=True)
-        df = df.set_index('Tarifa').reindex(TIPOS_TARIFA).reset_index()
-        return df[['Tarifa'] + [str(m) for m in range(1, 13)]]
-    except Exception:
-        return _df_tarifas_plantilla()
-
-def validar_df_tarifas(df):
-    columnas_mes = [str(m) for m in range(1, 13)]
-    if df is None or df.empty:
-        return 'No hay datos de tarifas.'
-    if 'Tarifa' not in df.columns:
-        return 'Falta la columna Tarifa.'
-    faltantes = [c for c in columnas_mes if c not in df.columns]
-    if faltantes:
-        return f'Faltan columnas de mes: {", ".join(faltantes)}.'
-    tipos = [str(t).strip() for t in df['Tarifa'].tolist()]
-    if tipos != TIPOS_TARIFA:
-        return f'Se requieren exactamente las filas: {", ".join(TIPOS_TARIFA)}.'
-    for col in columnas_mes:
-        valores = pd.to_numeric(df[col], errors='coerce')
-        if valores.isna().any():
-            return f'Valores no numéricos en el mes {col}.'
-        if (valores < 0).any():
-            return f'Las tarifas del mes {col} no pueden ser negativas.'
-    return None
-
-def guardar_df_tarifas(df):
-    error = validar_df_tarifas(df)
-    if error:
-        return False, error
-    ruta = ruta_archivo_tarifas()
-    df_guardar = df.copy()
-    df_guardar['Tarifa'] = df_guardar['Tarifa'].astype(str).str.strip()
-    columnas = ['Tarifa'] + [str(m) for m in range(1, 13)]
-    for mes in range(1, 13):
-        col = str(mes)
-        df_guardar[col] = pd.to_numeric(df_guardar[col], errors='coerce').fillna(0.0).round(4)
-    df_guardar = df_guardar[columnas]
-    if os.path.exists(ruta):
-        marca = datetime.now().strftime('%Y%m%d_%H%M%S')
-        backup = ruta.replace('.csv', f'_backup_{marca}.csv')
-        shutil.copy2(ruta, backup)
-    df_guardar.to_csv(ruta, index=False, encoding='utf-8-sig')
-    return True, ARCHIVO_TARIFAS
-
-def _column_config_tarifas():
-    config = {
-        'Tarifa': st.column_config.TextColumn('Tarifa', disabled=True, width='small'),
-    }
-    for mes in range(1, 13):
-        config[str(mes)] = st.column_config.NumberColumn(
-            f'M{mes}',
-            min_value=0.0,
-            format='%.4f',
-            width='small',
-        )
-    return config
-
-def render_editor_tarifas_sidebar():
-    st.caption(f'Archivo: `{ARCHIVO_TARIFAS}` · valores en MXN')
-    df_base = leer_df_tarifas()
-    df_editado = st.data_editor(
-        df_base,
-        column_config=_column_config_tarifas(),
-        hide_index=True,
-        num_rows='fixed',
-        use_container_width=True,
-        key='editor_tarifas_csv',
-    )
-    col_guardar, col_recargar = st.columns(2)
-    with col_guardar:
-        if st.button('Guardar tarifas', use_container_width=True, type='primary', key='btn_guardar_tarifas'):
-            ok, msg = guardar_df_tarifas(df_editado)
-            if ok:
-                st.success(f'Tarifas guardadas en {msg}')
-                st.session_state.pop('editor_tarifas_csv', None)
-                st.rerun()
-            else:
-                st.error(msg)
-    with col_recargar:
-        if st.button('Descartar cambios', use_container_width=True, key='btn_recargar_tarifas'):
-            st.session_state.pop('editor_tarifas_csv', None)
-            st.rerun()
-
 def tab_dashboard(df, prefijo, medidor):
     with st.container(border=True):
         fecha_inicio, fecha_fin, df_filtrado = render_selector_rango(
@@ -975,9 +845,11 @@ def _mtime_fuente_reporte(prefijo):
     return ruta_p.stat().st_mtime if ruta_p and ruta_p.exists() else 0
 
 @st.cache_data(show_spinner="Generando reporte PDF...")
-def _pdf_bytes_descarga(fecha_str, prefijo, _mtime_fuente):
+def _pdf_bytes_descarga(fecha_str, prefijo, incluir_generacion, _mtime_fuente):
     from bess_core import generar_reporte_pdf
-    exito, ruta = generar_reporte_pdf(fecha_str, prefijo)
+    exito, ruta = generar_reporte_pdf(
+        fecha_str, prefijo, incluir_generacion=incluir_generacion
+    )
     if not exito:
         raise RuntimeError(ruta)
     with open(ruta, 'rb') as f:
@@ -1020,6 +892,16 @@ def tab_reporte(df, prefijo):
     if df_dia.empty:
         st.warning(f"No hay datos para la fecha {fecha_str}")
         return
+
+    sub = subestacion_por_prefijo(prefijo)
+    recurso_gen = recurso_generacion_subestacion(sub.id) if sub else None
+    incluir_generacion = True
+    if recurso_gen:
+        incluir_generacion = st.checkbox(
+            f"Incluir generación en el perfil del PDF ({recurso_gen.etiqueta})",
+            value=True,
+            key=f"pdf_incluir_generacion_{prefijo}",
+        )
 
     tarifas = cargar_tarifas()
     from bess_core import calcular_arbitraje_dia
@@ -1073,7 +955,9 @@ def tab_reporte(df, prefijo):
             'Gráfica y tabla con el mismo contenido que se exportará al reporte.',
             compact=True,
         )
-        fig_perfil = graficar_perfil(df_dia, prefijo, f'Perfil de carga · {fecha_str}')
+        fig_perfil = graficar_perfil(
+            df_dia, prefijo, f'Perfil de carga · {fecha_str}', incluir_generacion=incluir_generacion
+        )
         render_grafica_plotly(
             fig_perfil,
             f'reporte_perfil_{prefijo}_{fecha_seleccionada:%Y%m%d}.png',
@@ -1103,7 +987,7 @@ def tab_reporte(df, prefijo):
 
     try:
         pdf_bytes, pdf_name = _pdf_bytes_descarga(
-            fecha_str, prefijo, _mtime_fuente_reporte(prefijo)
+            fecha_str, prefijo, incluir_generacion, _mtime_fuente_reporte(prefijo)
         )
         _render_boton_descarga_pdf(pdf_bytes, pdf_name)
     except RuntimeError as e:
@@ -1403,21 +1287,21 @@ def main():
             return
         login_placeholder.empty()
 
-    restaurar_ui_app()
-    aplicar_estilos()
     rol = st.session_state.get('rol')
     es_operador = rol_es_operador(rol)
     es_superadmin = rol_es_superadmin(rol)
+    restaurar_ui_app(restaurar_sidebar=es_operador)
+    aplicar_estilos()
     if not es_operador:
         st.markdown('<div class="bess-rol-user" aria-hidden="true"></div>', unsafe_allow_html=True)
 
     if es_operador:
-        sidebar_admin(mostrar_mantenimiento_db=es_superadmin)
-    else:
-        sidebar_user()
+        sidebar_admin(mostrar_superadmin=es_superadmin)
     _ajustar_sidebar_por_rol(es_operador)
 
-    if st.session_state.get("modo_vista") == "mantenimiento_db":
+    modo_vista = st.session_state.get("modo_vista")
+
+    if modo_vista == "mantenimiento_db":
         if not es_superadmin:
             st.session_state["modo_vista"] = "reporteador"
             st.warning("Acceso denegado a Mantenimiento DB.")
@@ -1427,6 +1311,18 @@ def main():
             from bess.ui.db_tools.page import main as db_tools_main
 
             db_tools_main()
+            return
+
+    if modo_vista == "admin_catalogo":
+        if not es_superadmin:
+            st.session_state["modo_vista"] = "reporteador"
+            st.warning("Acceso denegado a administración del catálogo.")
+        else:
+            with st.container(border=True):
+                render_barra_superior(rol)
+            from bess.ui.catalog_admin.page import main as catalog_admin_main
+
+            catalog_admin_main()
             return
     
     rutas_disponibles = [

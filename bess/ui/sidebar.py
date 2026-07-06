@@ -67,7 +67,66 @@ def _inyectar_script_sidebar(expandida: bool):
         }});
     }})();
     """
-    markup = f"<script>{js}</script>"
+    _emitir_script_sidebar(f"<script>{js}</script>")
+
+
+def _inyectar_ocultar_sidebar_visualizador():
+    """Oculta por completo la barra lateral para el rol user (visualizador)."""
+    js = r"""
+    (function () {
+        function doc() {
+            return window.parent && window.parent.document ? window.parent.document : document;
+        }
+
+        function ocultar() {
+            const d = doc();
+            d.body.classList.add('bess-rol-user-mode');
+
+            const sidebar = d.querySelector('section[data-testid="stSidebar"]');
+            if (sidebar) {
+                sidebar.style.setProperty('display', 'none', 'important');
+                sidebar.style.setProperty('visibility', 'hidden', 'important');
+                sidebar.style.setProperty('width', '0', 'important');
+                sidebar.style.setProperty('min-width', '0', 'important');
+                sidebar.style.setProperty('max-width', '0', 'important');
+                sidebar.style.setProperty('overflow', 'hidden', 'important');
+                sidebar.setAttribute('aria-hidden', 'true');
+            }
+
+            d.querySelectorAll(
+                '[data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"],'
+                + '[data-testid="stExpandSidebarButton"]'
+            ).forEach(function (el) {
+                el.style.setProperty('display', 'none', 'important');
+                el.style.setProperty('visibility', 'hidden', 'important');
+                el.style.setProperty('pointer-events', 'none', 'important');
+            });
+
+            const main = d.querySelector('[data-testid="stAppViewContainer"] > .main');
+            if (main) {
+                main.style.setProperty('margin-left', '0', 'important');
+                main.style.setProperty('padding-left', '0', 'important');
+            }
+        }
+
+        ocultar();
+        [0, 40, 120, 300, 700, 1500].forEach(function (ms) {
+            setTimeout(ocultar, ms);
+        });
+
+        const d = doc();
+        if (d.__bessUserSidebarObs) return;
+        const app = d.querySelector('[data-testid="stApp"]') || d.body;
+        d.__bessUserSidebarObs = new MutationObserver(function () {
+            if (d.body.classList.contains('bess-rol-user-mode')) ocultar();
+        });
+        d.__bessUserSidebarObs.observe(app, { childList: true, subtree: true });
+    })();
+    """
+    _emitir_script_sidebar(f"<script>{js}</script>")
+
+
+def _emitir_script_sidebar(markup: str):
     if hasattr(st, "html"):
         try:
             st.html(markup, height=0)
@@ -109,25 +168,44 @@ def html_flujo_trabajo_sidebar() -> str:
     """
 
 
+def _sidebar_admin_catalogo():
+    en_cat = st.session_state.get("modo_vista") == "admin_catalogo"
+    with st.expander("🏭 Catálogo", expanded=en_cat):
+        st.caption("Subestaciones, medidores, tarifas y usuarios.")
+        etiqueta = "Volver al reporteador" if en_cat else "Administrar catálogo"
+        if st.button(etiqueta, use_container_width=True, key="toggle_admin_catalogo"):
+            if en_cat:
+                st.session_state["modo_vista"] = "reporteador"
+            else:
+                st.session_state["modo_vista"] = "admin_catalogo"
+            st.session_state.pop("catalog_admin_cargado", None)
+            st.rerun()
+
+
 def _sidebar_mantenimiento_db():
-    st.divider()
     en_bd = st.session_state.get("modo_vista") == "mantenimiento_db"
     with st.expander("🗄️ Mantenimiento DB", expanded=en_bd):
         st.caption("SQLite: importar, exportar y purgar perfiles.")
         etiqueta = "Volver al reporteador" if en_bd else "Abrir herramientas BD"
         if st.button(etiqueta, use_container_width=True, key="toggle_mantenimiento_db"):
-            st.session_state["modo_vista"] = "reporteador" if en_bd else "mantenimiento_db"
+            if en_bd:
+                st.session_state["modo_vista"] = "reporteador"
+            else:
+                st.session_state["modo_vista"] = "mantenimiento_db"
+            st.session_state.pop("catalog_admin_cargado", None)
             st.rerun()
 
 
-def sidebar_admin(*, mostrar_mantenimiento_db: bool = False):
+def sidebar_admin(*, mostrar_superadmin: bool = False):
     with st.sidebar:
         sidebar_branding(es_admin=True)
 
         for aviso in advertencias_sidebar():
             st.warning(aviso)
 
-        if mostrar_mantenimiento_db:
+        if mostrar_superadmin:
+            st.divider()
+            _sidebar_admin_catalogo()
             _sidebar_mantenimiento_db()
 
         pendientes = medidores_pendientes_validacion()
@@ -415,12 +493,15 @@ def sidebar_admin(*, mostrar_mantenimiento_db: bool = False):
         _pie_sidebar()
 
 
-def _ajustar_sidebar_por_rol(es_admin):
-    """Colapsa o expande la sidebar solo al entrar (no en cada interacción)."""
-    if st.session_state.get("sidebar_inicial_aplicada"):
-        return
-    _inyectar_script_sidebar(expandida=es_admin)
-    st.session_state["sidebar_inicial_aplicada"] = True
+def _ajustar_sidebar_por_rol(es_operador: bool):
+    """Admin/superadmin: expande al entrar. Visualizador (user): barra oculta."""
+    if es_operador:
+        if st.session_state.get("sidebar_inicial_aplicada"):
+            return
+        _inyectar_script_sidebar(expandida=True)
+        st.session_state["sidebar_inicial_aplicada"] = True
+    else:
+        _inyectar_ocultar_sidebar_visualizador()
 
 
 def sidebar_user():

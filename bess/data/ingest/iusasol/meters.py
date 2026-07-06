@@ -30,8 +30,48 @@ def _es_idcode(valor: str) -> bool:
     return len(valor) >= 32 and ' ' not in valor
 
 
-def resolver_id_medidor(medidor_o_id: str, medidores_api: Any | None = None) -> str:
-    """Resuelve alias → idcode usando la lista ISOL/Meters si está disponible."""
+def serial_patron(numero_serie: str) -> str:
+    """Primer token del Numero_Serie del catálogo (ej. CS1980 de 'CS1980 VL2E 19NB')."""
+    texto = (numero_serie or "").strip().upper()
+    if not texto:
+        return ""
+    return texto.split()[0]
+
+
+def buscar_idcode_por_serie(numero_serie: str, medidores_api: Any) -> str | None:
+    """Busca idcode en ISOL/Meters por coincidencia con Numero_Serie del catálogo."""
+    patron = serial_patron(numero_serie)
+    if not patron:
+        return None
+
+    items = medidores_api.get("meters", []) if isinstance(medidores_api, dict) else medidores_api
+    if not isinstance(items, list):
+        return None
+
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        serial = str(item.get("serial", "")).upper()
+        idcode = item.get("idcode") or item.get("id")
+        if not idcode:
+            continue
+        if patron in serial:
+            return str(idcode)
+    return None
+
+
+def resolver_id_medidor(
+    medidor_o_id: str,
+    medidores_api: Any | None = None,
+    *,
+    numero_serie: str | None = None,
+) -> str:
+    """Resuelve nombre/alias/serial → idcode usando la lista ISOL/Meters."""
+    if numero_serie and medidores_api is not None:
+        idcode = buscar_idcode_por_serie(numero_serie, medidores_api)
+        if idcode:
+            return idcode
+
     clave = _normalizar_alias(medidor_o_id)
     if _es_idcode(clave):
         return clave
@@ -55,8 +95,10 @@ def resolver_id_medidor(medidor_o_id: str, medidores_api: Any | None = None) -> 
                 return idcode
 
     raise ValueError(
-        f'No se encontró idcode para "{medidor_o_id}". '
-        'Ejecute scripts/listar_medidores_iusasol.py --pretty y use el idcode del serial correcto.'
+        f'No se encontró idcode para "{medidor_o_id}"'
+        + (f' (serie {serial_patron(numero_serie)!r})' if numero_serie else "")
+        + ". Verifique Numero_Serie en Medidores.csv o ejecute "
+        "scripts/listar_medidores_iusasol.py --pretty."
     )
 
 

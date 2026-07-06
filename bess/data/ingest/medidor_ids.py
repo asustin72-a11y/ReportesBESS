@@ -36,6 +36,15 @@ MEDIDORES_RELLENAR_MEDIANOCHE_API = frozenset({
     MEDIDOR_COGENERACION,
 })
 
+
+def medidores_rellenar_medianoche_api() -> frozenset[str]:
+    """Medidores ISOL API que rellenan slots 00:00 (catálogo + agregado granja)."""
+    from bess.config.subestaciones import medidores_sync_api_isol
+
+    nombres = {m.nombre for m in medidores_sync_api_isol()}
+    nombres.add(MEDIDOR_GENERACION_IUSA2)
+    return frozenset(nombres)
+
 FUENTE_MEDIANOCHE_API: dict[str, str] = {
     MEDIDOR_GENERACION_IUSA2: "farm_api",
 }
@@ -78,8 +87,8 @@ def construir_medidores_catalogo_bd() -> tuple[tuple, ...]:
             tipo = "BESS"
             ip = None
             dr = None
-        elif m.es_cogeneracion:
-            tipo = "COGENERACION"
+        elif m.es_generacion_individual:
+            tipo = "GENERACION_INDIVIDUAL"
             ip = None
             dr = None
         else:
@@ -129,11 +138,15 @@ def destinos_export_bd(ruta_bd: Path | None = None) -> list[tuple[str, Path]]:
 
 def resolver_medidor_bd_desde_api(medidor: str) -> str:
     """Alias API o nombre de catálogo → medidor_id canónico en SQLite."""
-    from bess.config.subestaciones import aliases_sync_api
+    from bess.config.catalog import obtener_catalogo
+    from bess.config.subestaciones import medidores_sync_api_isol
 
     clave = (medidor or "").strip()
+    cat = obtener_catalogo()
+    if cat.medidor_por_nombre(clave):
+        return clave
     clave_lower = clave.lower()
-    for alias, nombre in aliases_sync_api():
-        if alias.lower() == clave_lower or nombre.lower() == clave_lower:
-            return nombre
+    for med in medidores_sync_api_isol():
+        if med.nombre.lower() == clave_lower:
+            return med.nombre
     return medidor_id_canonico(clave)

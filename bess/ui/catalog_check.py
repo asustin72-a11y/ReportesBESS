@@ -16,12 +16,11 @@ def validar_catalogo_al_arranque() -> bool:
         obtener_catalogo()
         return True
     except CatalogError as exc:
-        st.error("Configuración de medidores inválida (data/Tarifas/*.csv)")
+        st.error("Configuración de medidores inválida (catálogo en base de datos)")
         for msg in exc.errores:
             st.markdown(f"- {msg}")
         st.caption(
-            "Corrija los CSV en `data/Tarifas/` y recargue la aplicación. "
-            "Vea `Medidores.csv`, `Subestaciones.csv` y `Tipo_Medidor.csv`."
+            "Corrija el catálogo en **Administrar catálogo** (superadmin) y recargue la aplicación."
         )
         return False
 
@@ -44,7 +43,7 @@ def puede_generar_reportes() -> tuple[bool, str]:
     extra = f" (+{len(pendientes) - 8} más)" if len(pendientes) > 8 else ""
     return (
         False,
-        "Todos los medidores deben estar validados (columna Validado en Medidores.csv) "
+        "Todos los medidores deben estar validados (fecha Validado en catálogo BD) "
         f"antes de generar reportes. Pendientes: {lista}{extra}. "
         "Ejecute **Sincronizar** con validación exitosa.",
     )

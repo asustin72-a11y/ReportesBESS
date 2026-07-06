@@ -1,19 +1,16 @@
-"""Carga de tarifas desde CSV."""
+"""Carga de tarifas desde SQLite."""
 
 from __future__ import annotations
 
-import os
+from functools import lru_cache
 
-import pandas as pd
-
-from bess.config.constants import ARCHIVO_TARIFAS, TIPOS_TARIFA
-from bess.config.paths import DIRECTORIO_TARIFAS
+from bess.config.constants import TIPOS_TARIFA
 
 _ALIASES_TARIFA = {
-    'distribución': 'Distribucion',
-    'transmisión': 'Transmision',
-    'cargo fijo': 'CargoFijo',
-    'servicios auxiliares': 'ServiciosAuxiliares',
+    "distribución": "Distribucion",
+    "transmisión": "Transmision",
+    "cargo fijo": "CargoFijo",
+    "servicios auxiliares": "ServiciosAuxiliares",
 }
 
 
@@ -26,23 +23,16 @@ def _normalizar_tipo(tipo: str) -> str:
     return _ALIASES_TARIFA.get(limpio.lower(), limpio)
 
 
+@lru_cache(maxsize=1)
 def cargar_tarifas() -> dict[str, dict[int, float]]:
-    """Carga todas las tarifas del CSV (energía, MEM, capacidad, cargo fijo, etc.)."""
-    ruta = os.path.join(DIRECTORIO_TARIFAS, ARCHIVO_TARIFAS)
-    tarifas = _tarifas_vacias()
-    if not os.path.exists(ruta):
-        return tarifas
-
+    """Carga todas las tarifas desde la BD (energía, MEM, capacidad, cargo fijo, etc.)."""
     try:
-        df = pd.read_csv(ruta, encoding='utf-8-sig')
-        df.columns = [str(c).strip() for c in df.columns]
-        for _, row in df.iterrows():
-            tipo = _normalizar_tipo(row.get('Tarifa', ''))
-            if not tipo:
-                continue
-            tarifas.setdefault(tipo, {mes: 0.0 for mes in range(1, 13)})
-            for mes in range(1, 13):
-                tarifas[tipo][mes] = float(row.get(str(mes), 0) or 0)
-        return tarifas
+        from bess.data.tariffs_db import leer_tarifas_dict
+
+        return leer_tarifas_dict()
     except Exception:
         return _tarifas_vacias()
+
+
+def invalidar_cache_tarifas() -> None:
+    cargar_tarifas.cache_clear()

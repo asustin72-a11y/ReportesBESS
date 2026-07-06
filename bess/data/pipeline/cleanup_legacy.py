@@ -74,29 +74,13 @@ def listar_archivos_legacy() -> list[Path]:
 
 
 def limpiar_columna_validado() -> int:
-    """Vacía Validado en Medidores.csv (requiere nuevo sync antes de Generar reportes)."""
-    from bess.config.catalog import (
-        ARCHIVO_MEDIDORES,
-        _escribir_filas_medidores,
-        _leer_csv,
-        invalidar_cache_catalogo,
-        ruta_medidores_csv,
-    )
+    """Vacía Validado en el catálogo SQLite (requiere nuevo sync antes de Generar reportes)."""
+    from bess.config.catalog import invalidar_cache_catalogo
+    from bess.data.catalog_db import limpiar_validado_bd
 
-    filas = _leer_csv(ruta_medidores_csv())
-    if not filas:
-        return 0
-    fieldnames = list(filas[0].keys())
-    if "Validado" not in fieldnames:
-        fieldnames.append("Validado")
-    n = 0
-    for fila in filas:
-        if (fila.get("Validado") or "").strip():
-            fila["Validado"] = ""
-            n += 1
-    _escribir_filas_medidores(filas, fieldnames)
+    n = limpiar_validado_bd()
     invalidar_cache_catalogo()
-    print(f"Validado reiniciado en {ARCHIVO_MEDIDORES} ({n} medidor(es))")
+    print(f"Validado reiniciado en catálogo BD ({n} medidor(es))")
     return n
 
 

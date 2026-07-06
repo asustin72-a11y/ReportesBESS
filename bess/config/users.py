@@ -69,3 +69,34 @@ def cargar_usuarios_desde_env() -> dict | None:
     if not raw:
         return None
     return parse_usuarios_json(raw.strip())
+
+
+def cargar_usuarios_fuente_externa() -> dict | None:
+    """Secrets Streamlit o variable BESS_USERS (bootstrap si la BD está vacía)."""
+    try:
+        import streamlit as st
+        from streamlit.errors import StreamlitSecretNotFoundError
+
+        try:
+            secrets = st.secrets
+        except StreamlitSecretNotFoundError:
+            secrets = None
+        if secrets is not None:
+            try:
+                users = secrets['users']
+                return parse_usuarios_mapping({k: dict(v) for k, v in users.items()})
+            except (KeyError, StreamlitSecretNotFoundError, TypeError):
+                pass
+            try:
+                return parse_usuarios_json(str(secrets['BESS_USERS']))
+            except (KeyError, StreamlitSecretNotFoundError):
+                pass
+    except ImportError:
+        pass
+    return cargar_usuarios_desde_env()
+
+
+ERROR_SIN_USUARIOS = (
+    'No hay usuarios configurados. Use **Administrar catálogo → Usuarios** (superadmin), '
+    'o defina `[users]` en `.streamlit/secrets.toml` / `BESS_USERS`.'
+)

@@ -9,10 +9,10 @@ from pathlib import Path
 from bess.config import rutas as rutas_mod
 from bess.config.paths import DIRECTORIO_REPORTES
 from bess.config.catalog import (
+    GENERACION_GRUPO,
     TIPO_BESS,
-    TIPO_COGENERACION,
     TIPO_FACTURACION,
-    TIPO_GENERACION,
+    TIPO_GENERACION_INDIVIDUAL,
     TIPO_TESTIGO,
     MedidorCatalogo,
     obtener_catalogo,
@@ -196,17 +196,19 @@ def _construir_subestaciones() -> tuple[Subestacion, ...]:
         cogeneracion_csv = None
         cogeneracion_filtrado = None
         cogeneracion_nombre = None
-        if sub_c.generacion:
+        if sub_c.generacion_grupo:
             granja_csv = rutas_mod.nombre_generacion_subestacion(sub_c.nombre)
             granja_filtrado = rutas_mod.nombre_generacion_subestacion_filtrado(sub_c.nombre)
             granja_bd = granja_csv.replace(".csv", "")
 
-        cogeneracion_meds = [m for m in meds_sub if m.tipo_medidor == TIPO_COGENERACION]
-        if cogeneracion_meds:
-            cog = cogeneracion_meds[0]
-            cogeneracion_nombre = cog.nombre
-            cogeneracion_csv = rutas_mod.nombre_archivo_medidor(cog.nombre)
-            cogeneracion_filtrado = rutas_mod.nombre_archivo_filtrado(cog.nombre)
+        generacion_individual_meds = [
+            m for m in meds_sub if m.tipo_medidor == TIPO_GENERACION_INDIVIDUAL
+        ]
+        if generacion_individual_meds:
+            gen = generacion_individual_meds[0]
+            cogeneracion_nombre = gen.nombre
+            cogeneracion_csv = rutas_mod.nombre_archivo_medidor(gen.nombre)
+            cogeneracion_filtrado = rutas_mod.nombre_archivo_filtrado(gen.nombre)
 
         serial_bess = bess_meds[0].numero_serie.split()[0] if bess_meds else None
         cliente = consumo[0].prefijo if consumo else sub_c.nombre
@@ -319,16 +321,25 @@ def etiqueta_medidor_consumo(prefijo: str) -> str:
     return prefijo
 
 
+def medidores_sync_api_isol():
+    """
+    Medidores que sincronizan vía API ISOL (Profiles/Gral).
+
+    Incluye todos los del catálogo con Descarga=API excepto GeneracionMultiple (tipo 4),
+    que usa API Farm en sincronizar_granja_iusa2.
+    """
+    from bess.config.catalog import TIPO_GENERACION_MULTIPLE, obtener_catalogo
+
+    return [
+        m
+        for m in obtener_catalogo().medidores
+        if m.descarga == "API" and m.tipo_medidor != TIPO_GENERACION_MULTIPLE
+    ]
+
+
 def aliases_sync_api() -> list[tuple[str, str]]:
-    aliases: list[tuple[str, str]] = []
-    vistos: set[str] = set()
-    cat = obtener_catalogo()
-    for m in cat.medidores:
-        alias = _API_ALIAS.get(m.nombre)
-        if alias and m.nombre not in vistos:
-            aliases.append((alias, m.nombre))
-            vistos.add(m.nombre)
-    return aliases
+    """(clave_sync, nombre_bd) para medidores API ISOL del catálogo."""
+    return [(m.nombre, m.nombre) for m in medidores_sync_api_isol()]
 
 
 def archivos_fuente_subestacion(sub: Subestacion) -> list[str]:
@@ -336,7 +347,9 @@ def archivos_fuente_subestacion(sub: Subestacion) -> list[str]:
     cat = obtener_catalogo()
     nombres: list[str] = []
     for m in cat.medidores_subestacion(sub.id):
-        if m.tipo_medidor in (TIPO_BESS, TIPO_FACTURACION, TIPO_TESTIGO, TIPO_COGENERACION):
+        if m.tipo_medidor in (
+            TIPO_BESS, TIPO_FACTURACION, TIPO_TESTIGO, TIPO_GENERACION_INDIVIDUAL
+        ):
             nombres.append(rutas_mod.nombre_archivo_medidor(m.nombre))
     if sub.granja_csv:
         nombres.append(sub.granja_csv)
@@ -466,11 +479,17 @@ def recurso_generacion_subestacion(sub_id: str) -> RecursoGeneracion | None:
             csv_filtrado=sub.granja_filtrado,
         )
     if sub.cogeneracion_csv and sub.cogeneracion_filtrado and sub.cogeneracion_nombre:
+        nombre = sub.cogeneracion_nombre
+        etiqueta = (
+            "Cogeneración"
+            if "cogeneracion" in nombre.lower()
+            else "Generación"
+        )
         return RecursoGeneracion(
             tipo="cogeneracion",
-            prefijo_reporte=sub.cogeneracion_nombre,
+            prefijo_reporte=nombre,
             columna_kwh="KWH_ENT",
-            etiqueta="Cogeneración",
+            etiqueta=etiqueta,
             csv_procesado=sub.cogeneracion_csv,
             csv_filtrado=sub.cogeneracion_filtrado,
         )
