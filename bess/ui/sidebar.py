@@ -12,6 +12,7 @@ from bess.config.constants import VERSION
 from bess.config import rutas as rutas_mod
 from bess.config.subestaciones import SUBESTACIONES, archivos_fuente_requeridos
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
+from bess.config.esquema_tarifa import ESQUEMA_DIST, ESQUEMA_GDMTH
 from bess.tariffs.loader import cargar_tarifas
 from bess.ui.components import html_tarifas_sidebar, obtener_logo_html
 from bess.ui.catalog_check import medidores_pendientes_validacion, puede_generar_reportes
@@ -530,7 +531,12 @@ def sidebar_admin(*, mostrar_superadmin: bool = False):
             _ui_cargar_archivos_sidebar()
 
         with st.expander("💲 Consulta — Tarifas", expanded=False):
-            tarifas = cargar_tarifas()
+            esquema = st.selectbox(
+                "Esquema tarifario",
+                [ESQUEMA_DIST, ESQUEMA_GDMTH],
+                key="sidebar_tarifas_esquema",
+            )
+            tarifas = cargar_tarifas(esquema)
             mes = datetime.now().month
             nombres_mes = (
                 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',

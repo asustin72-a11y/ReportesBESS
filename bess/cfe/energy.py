@@ -8,6 +8,7 @@ from datetime import datetime
 from bess.config.subestaciones import ruta_energia_dia_por_prefijo
 from bess.core.numbers import a_num, kwh_para_calculo, redondear_mxn_energia
 from bess.cfe.daily_data import fila_por_fecha_csv
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo
 from bess.tariffs.loader import cargar_tarifas
 
 _PERIODOS_ENERGIA_KEYS = ("base", "intermedio", "punta")
@@ -32,7 +33,7 @@ def calcular_costo_energia_dia(
 ):
     """Costo de energía de un solo día: kWh redondeados × tarifa por periodo."""
     if tarifas is None:
-        tarifas = cargar_tarifas()
+        tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
     columnas = _COL_ENERGIA_CON if con_bess else _COL_ENERGIA_SIN
     ruta_p = ruta_energia_dia_por_prefijo(prefijo)
     if not ruta_p or not ruta_p.exists():

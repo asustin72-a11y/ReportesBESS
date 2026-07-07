@@ -60,6 +60,19 @@ DATOS_CLIENTE_RECIBO = {
         'carga_conectada_kw': None,
         'demanda_contratada_kw': None,
     },
+    'Consumo_Aragon': {
+        'razon_social': 'INDUSTRIAS UNIDAS SA DE CV',
+        'direccion': ('—',),
+        'no_servicio': '—',
+        'cuenta': '—',
+        'rmu': '—',
+        'tarifa': 'GDMTH',
+        'multiplicador': '—',
+        'no_hilos': '3',
+        'no_medidor': 'Consumo Aragón',
+        'carga_conectada_kw': None,
+        'demanda_contratada_kw': None,
+    },
 }
 
 _UNIDADES_ES = (

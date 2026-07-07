@@ -9,7 +9,8 @@ from datetime import datetime
 import pandas as pd
 
 from bess.config.subestaciones import medidor_consumo_por_prefijo
-from bess.cfe.periods import obtener_periodo_por_fecha_hora
+from bess.cfe.periods import periodo_por_fecha_hora
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo, normalizar_esquema_tarifa
 from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
 from bess.core.dates import agregar_fecha_operativa
 from bess.core.demand import demanda_rodante_15min_por_mes
@@ -20,7 +21,7 @@ from bess.core.console import log
 print = log
 
 
-def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo):
+def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo, esquema_tarifa_id=None):
     """Genera COMBINADO_POR_MINUTO.csv con resolución de 5 minutos"""
     print("\n" + "=" * 60)
     print(f"GENERANDO COMBINADO_POR_MINUTO_{prefijo}.csv")
@@ -68,6 +69,8 @@ def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo):
 
     print(f"  Registros combinados: {len(df_combinado)}")
 
+    esquema = normalizar_esquema_tarifa(esquema_tarifa_id or esquema_tarifa_prefijo(prefijo))
+
     horas = []
     for _, row in df_combinado.iterrows():
         dt = datetime.strptime(row["FECHA_HORA"], "%d/%m/%Y %H:%M")
@@ -79,7 +82,7 @@ def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo):
 
     periodos = []
     for _, row in df_combinado.iterrows():
-        periodo = obtener_periodo_por_fecha_hora(row["FECHA_HORA"])
+        periodo = periodo_por_fecha_hora(row["FECHA_HORA"], esquema)
         periodos.append(periodo)
     df_combinado["PERIODO"] = periodos
 

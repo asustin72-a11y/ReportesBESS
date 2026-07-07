@@ -13,7 +13,8 @@ from bess.config.subestaciones import (
     recurso_generacion_subestacion,
     subestacion_por_id,
 )
-from bess.cfe.periods import obtener_periodo_por_fecha_hora
+from bess.cfe.periods import periodo_por_fecha_hora
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo, esquema_tarifa_subestacion
 from bess.core.numbers import fmt_kwh, sumar_energia
 from bess.data.aggregates.generacion import ruta_energia_generacion_por_dia
 from bess.charts.layout import _titulo_y_leyenda_externos, color_periodo
@@ -85,9 +86,11 @@ def _grafica_barras_rango(df: pd.DataFrame, etiqueta: str) -> go.Figure:
     return graficar_energia_diaria_por_periodo(df, etiqueta)
 
 
-def _grafica_linea_dia(df_min: pd.DataFrame, etiqueta: str) -> go.Figure:
+def _grafica_linea_dia(df_min: pd.DataFrame, etiqueta: str, esquema_tarifa_id: str) -> go.Figure:
     """Perfil intradiario de generación (kW) con go.Scatter por periodo."""
-    periodos = df_min["FECHA_HORA"].apply(obtener_periodo_por_fecha_hora)
+    periodos = df_min["FECHA_HORA"].apply(
+        lambda fh: periodo_por_fecha_hora(fh, esquema_tarifa_id)
+    )
 
     fig = go.Figure()
     for periodo in ("Base", "Intermedio", "Punta"):
@@ -285,6 +288,7 @@ def tab_generacion(sub_id: str | None = None):
                     fig = _grafica_linea_dia(
                         df_min_dia,
                         f"{rec.etiqueta} — Perfil de generación (kW)",
+                        sub.esquema_tarifa_id,
                     )
                     render_grafica_plotly(
                         fig,

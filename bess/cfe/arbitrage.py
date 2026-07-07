@@ -28,6 +28,7 @@ from bess.cfe.energy_month import (
 
 )
 
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo
 from bess.tariffs.loader import cargar_tarifas
 
 
@@ -72,7 +73,7 @@ def calcular_arbitraje_rango(
 
     if tarifas is None:
 
-        tarifas = cargar_tarifas()
+        tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
 
     mes = fecha_fin.month
 
@@ -216,7 +217,7 @@ def calcular_arbitraje_dia(fecha_str: str, prefijo: str, tarifas: dict | None = 
 
     if tarifas is None:
 
-        tarifas = cargar_tarifas()
+        tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
 
     mes = datetime.strptime(fecha_str, "%d/%m/%Y").month
 

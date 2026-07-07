@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from bess.config.constants import TIPOS_TARIFA
+from bess.config.esquema_tarifa import ESQUEMA_DEFAULT, ESQUEMA_DIST, ESQUEMA_GDMTH, normalizar_esquema_tarifa
 from bess.data.tariffs_db import ensure_tarifas_listo, guardar_tarifas_dict, leer_tarifas_dict
 from bess.tariffs.loader import invalidar_cache_tarifas
 
@@ -20,10 +21,11 @@ def df_tarifas_plantilla() -> pd.DataFrame:
     return pd.DataFrame(filas)
 
 
-def leer_df_tarifas() -> pd.DataFrame:
+def leer_df_tarifas(esquema_id: str = ESQUEMA_DEFAULT) -> pd.DataFrame:
     """Tarifas como DataFrame editable (una fila por tipo × 12 meses)."""
+    esquema = normalizar_esquema_tarifa(esquema_id)
     ensure_tarifas_listo()
-    tarifas = leer_tarifas_dict()
+    tarifas = leer_tarifas_dict(esquema)
     filas = []
     for tipo in TIPOS_TARIFA:
         fila = {"Tarifa": tipo}
@@ -54,7 +56,11 @@ def validar_df_tarifas(df: pd.DataFrame | None) -> str | None:
     return None
 
 
-def guardar_df_tarifas(df: pd.DataFrame) -> tuple[bool, str]:
+def guardar_df_tarifas(
+    df: pd.DataFrame,
+    esquema_id: str = ESQUEMA_DEFAULT,
+) -> tuple[bool, str]:
+    esquema = normalizar_esquema_tarifa(esquema_id)
     error = validar_df_tarifas(df)
     if error:
         return False, error
@@ -66,9 +72,9 @@ def guardar_df_tarifas(df: pd.DataFrame) -> tuple[bool, str]:
             tarifas[tipo][mes] = round(
                 float(pd.to_numeric(row[str(mes)], errors="coerce") or 0), 4
             )
-    guardar_tarifas_dict(tarifas)
+    guardar_tarifas_dict(tarifas, esquema)
     invalidar_cache_tarifas()
-    return True, "base de datos"
+    return True, f"base de datos ({esquema})"
 
 
 def column_config_tarifas() -> dict:

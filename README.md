@@ -2,7 +2,7 @@
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
 
-**Versión actual:** 5.9.0 — Navegación por secciones, catálogo por nombre, gráficas unificadas y manuales actualizados.
+**Versión actual:** 5.10.0 — Esquema GDMTH para IUSA_ARAGON, recibo simulado y tarifas por esquema (DIST / GDMTH).
 
 ## Documentación
 

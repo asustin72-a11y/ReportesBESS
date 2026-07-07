@@ -6,6 +6,7 @@ import html
 
 from bess.cfe.receipt.build import _celda_mem
 from bess.cfe.receipt.css import _recibo_logo_ancho_px, css_recibo_cfe
+from bess.config.esquema_tarifa import ESQUEMA_GDMTH
 from bess.cfe.receipt.format import (
     _fmt_cargo_fp_recibo,
     _fmt_mxn_decimal,
@@ -31,6 +32,36 @@ def _html_fila_mem(concepto, celda, es_total=False):
         f'<td class="num">{imp}</td>'
         f'</tr>'
     )
+
+def _html_fila_desglose(concepto: str, importe: str) -> str:
+    return f'<tr><td>{concepto}</td><td class="num">{importe}</td></tr>'
+
+
+def _html_filas_desglose(datos, d: dict) -> str:
+    es_gdmth = datos.get('esquema_tarifa') == ESQUEMA_GDMTH
+    filas = [
+        _html_fila_desglose('Cargo Fijo', _fmt_mxn_decimal(d['cargo_fijo'])),
+        _html_fila_desglose('Energía', _fmt_mxn_decimal(d['energia'])),
+    ]
+    if es_gdmth:
+        filas.append(
+            _html_fila_desglose(
+                'Cargo factor de potencia',
+                _fmt_cargo_fp_recibo(d['cargo_fp']),
+            )
+        )
+    else:
+        filas.append(
+            _html_fila_desglose(
+                f"Capacidad ({datos['capacidad_kw']:,} kW · {datos['capacidad_criterio']})",
+                _fmt_mxn_decimal(d['capacidad']),
+            )
+        )
+        filas.append(
+            _html_fila_desglose('Cargo FP', _fmt_cargo_fp_recibo(d['cargo_fp']))
+        )
+    return ''.join(filas)
+
 
 def render_html_recibo_cfe(datos):
     """HTML del recibo con layout similar al aviso CFE."""
@@ -75,6 +106,17 @@ def render_html_recibo_cfe(datos):
     fila_serv_2 = ''.join(
         _html_servicio_celda(etq, val) for etq, val in campos_servicio[5:]
     )
+
+    es_gdmth = datos.get('esquema_tarifa') == ESQUEMA_GDMTH
+    if es_gdmth:
+        nota_mem = (
+            f'Distribución: {datos["distribucion_kw"]:,} kW ({datos["distribucion_criterio"]}) · '
+            f'Capacidad: {datos["capacidad_kw"]:,} kW ({datos["capacidad_criterio"]}). '
+            '(1) SCnMEM: servicios del Mercado.'
+        )
+    else:
+        nota_mem = '(1) SCnMEM: servicios del Mercado.'
+    filas_desglose = _html_filas_desglose(datos, d)
 
     return f"""
 <div class="cfe-recibo-wrap">
@@ -152,7 +194,7 @@ def render_html_recibo_cfe(datos):
           <tbody>{filas_mem}</tbody>
         </table>
         <div class="cfe-mem-nota">
-          (1) SCnMEM: servicios del Mercado.
+          {nota_mem}
         </div>
       </td>
     </tr>
@@ -161,10 +203,7 @@ def render_html_recibo_cfe(datos):
     <div class="cfe-panel-title">Desglose del importe a pagar</div>
     <table class="cfe-desglose-table">
       <tbody>
-        <tr><td>Cargo Fijo</td><td class="num">{_fmt_mxn_decimal(d['cargo_fijo'])}</td></tr>
-        <tr><td>Energía</td><td class="num">{_fmt_mxn_decimal(d['energia'])}</td></tr>
-        <tr><td>Capacidad ({datos['capacidad_kw']:,} kW · {datos['capacidad_criterio']})</td><td class="num">{_fmt_mxn_decimal(d['capacidad'])}</td></tr>
-        <tr><td>Cargo FP</td><td class="num">{_fmt_cargo_fp_recibo(d['cargo_fp'])}</td></tr>
+        {filas_desglose}
         <tr><td>Subtotal</td><td class="num">{_fmt_mxn_decimal(d['subtotal'])}</td></tr>
         <tr><td>IVA 16%</td><td class="num">{_fmt_mxn_decimal(d['iva'])}</td></tr>
         <tr class="cfe-desglose-total"><td>Facturación del periodo (simulada)</td><td class="num">{_fmt_mxn_decimal(d['total'])}</td></tr>

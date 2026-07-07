@@ -16,6 +16,7 @@ from bess.config.catalog import (
     MedidorCatalogo,
     obtener_catalogo,
 )
+from bess.config.esquema_tarifa import ESQUEMA_DEFAULT, normalizar_esquema_tarifa
 
 _API_ALIAS: dict[str, str] = {
     "Banco_1": "banco1",
@@ -85,6 +86,7 @@ class Subestacion:
     cogeneracion_csv: str | None = None
     cogeneracion_filtrado: str | None = None
     cogeneracion_nombre: str | None = None
+    esquema_tarifa_id: str = "DIST"
 
     @property
     def medidor_facturacion(self) -> MedidorConsumo | None:
@@ -240,6 +242,7 @@ def _construir_subestaciones() -> tuple[Subestacion, ...]:
                 cogeneracion_csv=cogeneracion_csv,
                 cogeneracion_filtrado=cogeneracion_filtrado,
                 cogeneracion_nombre=cogeneracion_nombre,
+                esquema_tarifa_id=normalizar_esquema_tarifa(sub_c.esquema_tarifa),
             )
         )
     return tuple(subs)

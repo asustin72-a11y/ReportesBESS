@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS catalog_tipo_medidor (
 CREATE TABLE IF NOT EXISTS catalog_subestaciones (
     numero          INTEGER PRIMARY KEY,
     nombre          TEXT NOT NULL UNIQUE,
-    generacion      INTEGER NOT NULL DEFAULT 0
+    generacion      INTEGER NOT NULL DEFAULT 0,
+    esquema_tarifa  TEXT NOT NULL DEFAULT 'DIST'
 );
 
 CREATE TABLE IF NOT EXISTS catalog_medidores (
@@ -58,6 +59,21 @@ CREATE TABLE IF NOT EXISTS catalog_medidores (
 
 def init_catalog_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(CATALOG_SCHEMA_SQL)
+    _migrar_esquema_tarifa_subestaciones(conn)
+
+
+def _migrar_esquema_tarifa_subestaciones(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(catalog_subestaciones)")}
+    if "esquema_tarifa" in cols:
+        return
+    conn.execute(
+        "ALTER TABLE catalog_subestaciones "
+        "ADD COLUMN esquema_tarifa TEXT NOT NULL DEFAULT 'DIST'"
+    )
+    conn.execute(
+        "UPDATE catalog_subestaciones SET esquema_tarifa = 'GDMTH' "
+        "WHERE UPPER(nombre) = 'IUSA_ARAGON'"
+    )
 
 
 def _catalog_vacio(conn: sqlite3.Connection) -> bool:
@@ -105,13 +121,14 @@ def _insertar_filas_en_bd(
     for fila in filas_subestaciones:
         conn.execute(
             """
-            INSERT INTO catalog_subestaciones (numero, nombre, generacion)
-            VALUES (?, ?, ?)
+            INSERT INTO catalog_subestaciones (numero, nombre, generacion, esquema_tarifa)
+            VALUES (?, ?, ?, ?)
             """,
             (
                 int(fila["Numero"]),
                 fila.get("Nombre", ""),
                 int(fila.get("Generacion") or 0),
+                (fila.get("Esquema_Tarifa") or "DIST").strip().upper() or "DIST",
             ),
         )
 
@@ -190,6 +207,7 @@ def leer_filas_catalogo_bd() -> tuple[
                 "Numero": str(row["numero"]),
                 "Nombre": row["nombre"],
                 "Generacion": str(row["generacion"]),
+                "Esquema_Tarifa": row["esquema_tarifa"] or "DIST",
             }
             for row in conn.execute(
                 "SELECT * FROM catalog_subestaciones ORDER BY numero"

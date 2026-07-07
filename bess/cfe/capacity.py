@@ -1,4 +1,18 @@
-"""Criterio de capacidad CFE (demanda punta vs factor de carga)."""
+"""Criterio de capacidad CFE (demanda punta vs factor de carga).
+
+Cargo **Capacidad** (DIST y GDMTH)
+----------------------------------
+  Criterio 1: demanda máxima **en horario punta** (rodada 15 min, PUNTA_DEM_*_MAX).
+  Criterio 2: DemandaCalculadaCFE = E / (f × 24 × d).
+  kW facturables = min(criterio1, criterio2) · tarifa Capacidad del mes.
+
+  f = 0,74 (DIST) · 0,57 (GDMTH).
+
+En GDMTH coexisten dos cargos en $/kW con bases de demanda distintas:
+  - **Capacidad** (este módulo): compara contra demanda **punta**.
+  - **Distribución** (distribution.py): compara contra demanda máxima en
+    **cualquier horario** (base, intermedio o punta).
+"""
 
 from __future__ import annotations
 
@@ -11,21 +25,28 @@ from bess.cfe.report_data import (
     obtener_energia_con_bess_mes,
     obtener_energia_sin_bess_mes,
 )
+from bess.config.esquema_tarifa import (
+    FACTOR_CFE_CAPACIDAD_DIST,
+    esquema_tarifa_prefijo,
+    factor_cfe_capacidad,
+)
 from bess.tariffs.loader import cargar_tarifas
 
-FACTOR_CFE_CAPACIDAD = 0.74
+FACTOR_CFE_CAPACIDAD = FACTOR_CFE_CAPACIDAD_DIST
 
 
-def calcular_criterio2_cfe_kw(energia_kwh, dias):
-    """Factor de carga CFE: energía total / (0.74 × 24 × días transcurridos)."""
-    divisor = FACTOR_CFE_CAPACIDAD * 24 * dias
+def calcular_criterio2_cfe_kw(energia_kwh, dias, *, esquema_tarifa_id: str | None = None):
+    """Factor de carga CFE: energía total / (factor × 24 × días transcurridos)."""
+    divisor = factor_cfe_capacidad(esquema_tarifa_id) * 24 * dias
     return energia_kwh / divisor if divisor > 0 else 0
 
 
 def calcular_criterio_cfe(fecha, prefijo, con_bess=True, tarifas=None):
     """
-    Criterio CFE: capacidad (kW) = min(demanda máx. punta, factor de carga).
-    Costo = capacidad × tarifa capacidad del mes.
+    Cargo por capacidad CFE al día de corte.
+
+    Usa demanda máxima en horario **punta** (no la máxima global del mes).
+    Válido para DIST y GDMTH; en GDMTH el cargo Distribución es aparte.
     """
     demanda_punta = obtener_demanda_rolada_punta(fecha, prefijo, con_bess=con_bess)
     if con_bess:
@@ -36,14 +57,17 @@ def calcular_criterio_cfe(fecha, prefijo, con_bess=True, tarifas=None):
         return None
 
     dias = dias_transcurridos_mes(fecha)
+    esquema = esquema_tarifa_prefijo(prefijo)
     energia_kwh = energia_info["total"]
     criterio1_kw = redondear_arriba_kw(demanda_punta)
-    criterio2_kw = redondear_arriba_kw(calcular_criterio2_cfe_kw(energia_kwh, dias))
+    criterio2_kw = redondear_arriba_kw(
+        calcular_criterio2_cfe_kw(energia_kwh, dias, esquema_tarifa_id=esquema)
+    )
     capacidad_kw = min(criterio1_kw, criterio2_kw)
     criterio_aplicado = "punta" if criterio1_kw <= criterio2_kw else "factor_carga"
 
     if tarifas is None:
-        tarifas = cargar_tarifas()
+        tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
     mes = fecha.month
     precio_cap = tarifas.get("Capacidad", {}).get(mes, 0)
 
@@ -55,6 +79,7 @@ def calcular_criterio_cfe(fecha, prefijo, con_bess=True, tarifas=None):
         "energia_kwh": energia_kwh,
         "energia_por_periodo": energia_info["por_periodo"],
         "dias_mes": dias,
+        "factor_carga": factor_cfe_capacidad(esquema),
         "precio_cap": precio_cap,
         "costo_mxn": redondear_arriba_mxn(capacidad_kw * precio_cap),
     }

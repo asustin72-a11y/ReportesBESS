@@ -9,6 +9,7 @@ from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
+from bess.config.esquema_tarifa import ESQUEMA_DEFAULT, normalizar_esquema_tarifa
 from bess.config.paths import DIRECTORIO_TARIFAS
 
 ARCHIVO_SUBESTACIONES = "Subestaciones.csv"
@@ -16,7 +17,7 @@ ARCHIVO_MEDIDORES = "Medidores.csv"
 ARCHIVO_TIPO_MEDIDOR = "Tipo_Medidor.csv"
 
 CAMPOS_TIPO_MEDIDOR = ("Tipo", "Descripcion", "Neteo", "Invertir", "Reactivos")
-CAMPOS_SUBESTACIONES = ("Numero", "Nombre", "Generacion")
+CAMPOS_SUBESTACIONES = ("Numero", "Nombre", "Generacion", "Esquema_Tarifa")
 CAMPOS_MEDIDORES = (
     "Nombre",
     "Numero_Serie",
@@ -71,6 +72,7 @@ class SubestacionCatalogo:
     numero: int
     nombre: str
     generacion: int
+    esquema_tarifa: str = ESQUEMA_DEFAULT
 
     @property
     def tiene_generacion(self) -> bool:
@@ -304,6 +306,7 @@ def _cargar_subestaciones(
                 numero=numero,
                 nombre=nombre,
                 generacion=_modo_generacion_csv(fila.get("Generacion", ""), fila=nombre),
+                esquema_tarifa=normalizar_esquema_tarifa(fila.get("Esquema_Tarifa", "")),
             )
         )
     return tuple(subs)

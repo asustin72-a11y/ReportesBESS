@@ -73,6 +73,7 @@ from bess.cfe.report_data import (
     dias_transcurridos_mes,
     obtener_demanda_rolada_punta,
 )
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo, esquema_tarifa_subestacion, factor_cfe_capacidad
 from bess.tariffs.loader import cargar_tarifas
 from bess.config.users import ETIQUETA_ROL, rol_es_operador, rol_es_superadmin
 from bess.ui.auth import get_usuarios, init_session, login, logout, preparar_ui_login, restaurar_ui_app
@@ -496,7 +497,7 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
     descarga_intermedio = sumar_energia(sums_bess['INTERMEDIO_ENT'])
     descarga_punta = sumar_energia(sums_bess['PUNTA_ENT'])
 
-    tarifas = cargar_tarifas()
+    tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
 
     arb = calcular_arbitraje_rango(
         fecha_inicio,
@@ -685,7 +686,7 @@ def tab_analisis(df, prefijo):
         st.warning(f"No hay datos para la fecha {fecha_str}")
         return
 
-    tarifas = cargar_tarifas()
+    tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
     mes_num = fecha_sel.month
     res_energia_con = calcular_costo_energia_mes(fecha_sel, prefijo, con_bess=True, tarifas=tarifas)
     res_energia_sin = (
@@ -781,10 +782,11 @@ def tab_analisis(df, prefijo):
                 )
 
     elif vista_analisis == "cfe":
+        factor_carga = factor_cfe_capacidad(esquema_tarifa_prefijo(prefijo))
         section_header(
             f"Capacidad CFE · {mes_label}",
             'Capacidad = min(demanda punta, DemandaCalculadaCFE). '
-            'DemandaCalculadaCFE = Energía / (0.74 × 24 × días transcurridos).',
+            f'DemandaCalculadaCFE = Energía / ({factor_carga} × 24 × días transcurridos).',
         )
         if res_cfe_con is None:
             st.warning(f"No hay datos para calcular capacidad al {fecha_str}")
@@ -906,7 +908,7 @@ def tab_reporte(df, prefijo):
             key=f"pdf_incluir_generacion_{prefijo}",
         )
 
-    tarifas = cargar_tarifas()
+    tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
     from bess_core import calcular_arbitraje_dia
 
     detalle = calcular_detalle_energia_periodo(fecha_seleccionada, fecha_seleccionada, prefijo)
@@ -1033,7 +1035,7 @@ def _cargar_bess_diaria_rango(fecha_inicio, fecha_fin, prefijo):
 def construir_serie_arbitraje_diaria(df_med, prefijo, tarifas=None):
     from bess_core import calcular_arbitraje_dia
     if tarifas is None:
-        tarifas = cargar_tarifas()
+        tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
     df = df_med.copy()
     df['ARBITRAJE_MXN'] = [
         calcular_arbitraje_dia(fecha, prefijo, tarifas)['total']
@@ -1065,7 +1067,7 @@ def tab_tendencia(df, prefijo):
     estado_bess = estado_datos_sin_bess(prefijo)
     mostrar_aviso_sin_bess(estado_bess)
 
-    tarifas = cargar_tarifas()
+    tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
     df_arb = construir_serie_arbitraje_diaria(df_med, prefijo, tarifas)
 
     total_con = sumar_energia(df_med['TOTAL_CON'])

@@ -24,6 +24,7 @@ from bess.core.numbers import a_num as _a_num, kwh_para_calculo, redondear_arrib
 from bess.cfe.arbitrage import calcular_arbitraje_dia
 from bess.cfe.daily_data import obtener_bess_energia_dia
 from bess.reports.assets import buscar_logo, formatear_fecha_espanol
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo
 from bess.tariffs.loader import cargar_tarifas
 
 print = log
@@ -417,7 +418,7 @@ def generar_reporte_pdf(fecha_str, medidor, *, incluir_generacion: bool = True):
             f'Acumulado mensual al {fecha_str} · Arbitraje del día {fecha_str}',
         )
 
-        tarifas = cargar_tarifas()
+        tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
 
         if ruta_acumulados and os.path.exists(ruta_acumulados):
             df_acum = pd.read_csv(ruta_acumulados)

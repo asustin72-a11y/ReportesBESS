@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from bess.config.catalog import DESCARGAS_VALIDAS, GENERACION_GRUPO, GENERACION_INDIVIDUAL, GENERACION_NINGUNA
+from bess.config.esquema_tarifa import ESQUEMA_DIST, ESQUEMA_GDMTH
 from bess.ui.catalog_admin import service
 from bess.ui.styles import aplicar_estilos
 
@@ -47,7 +48,7 @@ def _cabecera() -> None:
                         Catálogo, tarifas y usuarios
                     </h2>
                     <p style="margin:4px 0 0;font-size:0.85rem;opacity:0.9;">
-                        Subestaciones, medidores, tarifas CFE y cuentas de acceso en la base de datos
+                        Subestaciones, medidores, tarifas CFE, datos de cliente (recibo) y cuentas de acceso
                         (<code style="background:rgba(255,255,255,0.15);padding:1px 6px;border-radius:3px;color:#fff;">catalog_*</code>)
                         con validación de reglas de operación.
                     </p>
@@ -59,7 +60,7 @@ def _cabecera() -> None:
     )
     st.caption(
         f"Base de datos: `{service.ruta_almacenamiento()}` · "
-        "Tablas `catalog_*`, `catalog_tarifas` y `catalog_usuarios`."
+        "Tablas `catalog_*`, `catalog_tarifas`, `catalog_cliente_recibo` y `catalog_usuarios`."
     )
 
 
@@ -130,6 +131,12 @@ def _tab_subestaciones() -> None:
                 options=list(opciones_gen.keys()),
                 required=True,
                 width="large",
+            ),
+            "Esquema_Tarifa": st.column_config.SelectboxColumn(
+                "Esquema tarifa",
+                options=[ESQUEMA_DIST, ESQUEMA_GDMTH],
+                required=True,
+                width="medium",
             ),
         },
     )
@@ -267,29 +274,110 @@ def _tab_tarifas() -> None:
     from bess.tariffs.store import column_config_tarifas, guardar_df_tarifas, leer_df_tarifas
 
     st.markdown("##### Tarifas mensuales")
-    st.caption("Valores en MXN por tipo y mes (energía, capacidad, MEM, etc.). Se guardan en `catalog_tarifas`.")
-    df_base = leer_df_tarifas()
+    esquema = st.selectbox(
+        "Esquema tarifario",
+        [ESQUEMA_DIST, ESQUEMA_GDMTH],
+        key="cat_tarifas_esquema",
+        help="DIST: IUSA 1 e IUSA 2 · GDMTH: IUSA ARAGON (precios en ceros hasta cargar histórico).",
+    )
+    st.caption(
+        f"Valores en MXN por tipo y mes ({esquema}). Se guardan en `catalog_tarifas`."
+    )
+    df_base = leer_df_tarifas(esquema)
     df_editado = st.data_editor(
         df_base,
         column_config=column_config_tarifas(),
         hide_index=True,
         num_rows="fixed",
         use_container_width=True,
-        key="cat_editor_tarifas",
+        key=f"cat_editor_tarifas_{esquema}",
     )
     col_guardar, col_recargar = st.columns(2)
     with col_guardar:
-        if st.button("Guardar tarifas", use_container_width=True, type="primary", key="cat_btn_guardar_tarifas"):
-            ok, msg = guardar_df_tarifas(df_editado)
+        if st.button("Guardar tarifas", use_container_width=True, type="primary", key=f"cat_btn_guardar_tarifas_{esquema}"):
+            ok, msg = guardar_df_tarifas(df_editado, esquema)
             if ok:
                 st.success(f"Tarifas guardadas en {msg}.")
-                st.session_state.pop("cat_editor_tarifas", None)
+                st.session_state.pop(f"cat_editor_tarifas_{esquema}", None)
                 st.rerun()
             else:
                 st.error(msg)
     with col_recargar:
-        if st.button("Descartar cambios", use_container_width=True, key="cat_btn_descartar_tarifas"):
-            st.session_state.pop("cat_editor_tarifas", None)
+        if st.button("Descartar cambios", use_container_width=True, key=f"cat_btn_descartar_tarifas_{esquema}"):
+            st.session_state.pop(f"cat_editor_tarifas_{esquema}", None)
+            st.rerun()
+
+
+def _tab_cliente_recibo() -> None:
+    from bess.ui.catalog_admin import cliente_store
+
+    st.markdown("##### Cliente CFE (recibo)")
+    st.caption(
+        "Datos fiscales y de servicio por subestación. Tabla `catalog_cliente_recibo`."
+    )
+    with st.expander("Reglas", expanded=False):
+        st.markdown(cliente_store.REGLAS_CLIENTE)
+
+    df_base = cliente_store.cargar_dataframe_clientes()
+    df_editado = st.data_editor(
+        df_base,
+        num_rows="fixed",
+        use_container_width=True,
+        hide_index=True,
+        key="cat_editor_cliente_recibo",
+        column_config={
+            "Subestacion": st.column_config.TextColumn(
+                "Subestación", disabled=True, width="small"
+            ),
+            "Razon_social": st.column_config.TextColumn(
+                "Razón social", required=True, width="large"
+            ),
+            "Direccion": st.column_config.TextColumn(
+                "Dirección (un renglón por línea)",
+                width="large",
+                help="Cada línea del domicilio fiscal en una fila de texto (use Enter).",
+            ),
+            "No_servicio": st.column_config.TextColumn("No. servicio", width="medium"),
+            "Cuenta": st.column_config.TextColumn("Cuenta", width="medium"),
+            "RMU": st.column_config.TextColumn("RMU", width="large"),
+            "Tarifa": st.column_config.TextColumn(
+                "Tarifa (etiqueta)",
+                width="small",
+                help="DIST, GDMTH, etc. Vacío → esquema del catálogo.",
+            ),
+            "Multiplicador": st.column_config.TextColumn("Multiplicador", width="small"),
+            "No_hilos": st.column_config.TextColumn("No. hilos", width="small"),
+            "No_medidor": st.column_config.TextColumn("No. medidor CFE", width="medium"),
+            "Carga_conectada_kW": st.column_config.TextColumn(
+                "Carga conectada kW", width="small"
+            ),
+            "Demanda_contratada_kW": st.column_config.TextColumn(
+                "Demanda contratada kW", width="small"
+            ),
+        },
+    )
+    col_g, col_r = st.columns(2)
+    with col_g:
+        if st.button(
+            "Guardar datos cliente",
+            type="primary",
+            use_container_width=True,
+            key="cat_btn_guardar_cliente",
+        ):
+            try:
+                cliente_store.guardar_dataframe_clientes(df_editado)
+                st.success("Datos de cliente guardados en la base de datos.")
+                st.session_state.pop("cat_editor_cliente_recibo", None)
+                st.rerun()
+            except ValueError as exc:
+                st.error(str(exc))
+    with col_r:
+        if st.button(
+            "Descartar cambios",
+            use_container_width=True,
+            key="cat_btn_descartar_cliente",
+        ):
+            st.session_state.pop("cat_editor_cliente_recibo", None)
             st.rerun()
 
 
@@ -365,8 +453,16 @@ def main() -> None:
     _cabecera()
     _barra_acciones()
 
-    tab_subs, tab_tipos, tab_meds, tab_tar, tab_usr, tab_val = st.tabs(
-        ["🏭 Subestaciones", "📋 Tipos medidor", "⚡ Medidores", "💲 Tarifas", "👤 Usuarios", "✅ Validación"]
+    tab_subs, tab_tipos, tab_meds, tab_tar, tab_cli, tab_usr, tab_val = st.tabs(
+        [
+            "🏭 Subestaciones",
+            "📋 Tipos medidor",
+            "⚡ Medidores",
+            "💲 Tarifas",
+            "📄 Cliente recibo",
+            "👤 Usuarios",
+            "✅ Validación",
+        ]
     )
     with tab_subs:
         _tab_subestaciones()
@@ -376,6 +472,8 @@ def main() -> None:
         _tab_medidores()
     with tab_tar:
         _tab_tarifas()
+    with tab_cli:
+        _tab_cliente_recibo()
     with tab_usr:
         _tab_usuarios()
     with tab_val:

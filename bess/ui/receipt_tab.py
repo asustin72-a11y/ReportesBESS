@@ -18,6 +18,7 @@ from bess.cfe.receipt import (
 )
 from bess.cfe.report_data import acumulados_tiene_demanda_sin_bess
 from bess.cfe.receipt.css import css_recibo_cfe
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo
 from bess.tariffs.loader import cargar_tarifas
 from bess.ui.components import render_selector_fecha_unica, subnav_en_panel
 
@@ -86,7 +87,7 @@ def tab_recibo(df, prefijo, descargar_fn):
         key=f"fecha_recibo_{prefijo}",
     )
 
-    tarifas = cargar_tarifas()
+    tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
     vista = subnav_en_panel(
         "Escenario del recibo",
         [("sin", "Sin BESS"), ("con", "Con BESS")],

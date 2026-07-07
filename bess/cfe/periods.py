@@ -131,18 +131,34 @@ def obtener_periodo_por_hora(fecha, hora_archivo):
                 return 'Intermedio'
 
 
-def obtener_periodo_por_fecha_hora(fecha_hora_str):
-    """Determina el periodo según fecha y hora exacta"""
+def obtener_periodo_por_fecha_hora(fecha_hora_str, esquema_tarifa: str = "DIST"):
+    """Determina el periodo según fecha y hora exacta y esquema tarifario."""
+    return periodo_por_fecha_hora(fecha_hora_str, esquema_tarifa)
+
+
+def periodo_por_fecha_hora(fecha_hora_str: str, esquema_tarifa: str = "DIST") -> str:
+    """Enruta al horario DIST o GDMTH."""
+    from bess.config.esquema_tarifa import ESQUEMA_GDMTH, normalizar_esquema_tarifa
+
+    esquema = normalizar_esquema_tarifa(esquema_tarifa)
+    if esquema == ESQUEMA_GDMTH:
+        from bess.cfe.periods_gdmth import periodo_por_fecha_hora_gdmth
+        return periodo_por_fecha_hora_gdmth(fecha_hora_str)
+    return _periodo_por_fecha_hora_dist(fecha_hora_str)
+
+
+def _periodo_por_fecha_hora_dist(fecha_hora_str: str) -> str:
+    """Horario DIST / Región Central (comportamiento histórico)."""
     dt = datetime.strptime(fecha_hora_str, '%d/%m/%Y %H:%M')
     fecha = dt.date()
     hora = dt.hour
     minuto = dt.minute
-    
+
     hora_base = hora if minuto == 0 else hora + 1
     if hora_base == 24:
         hora_base = 0
         fecha = fecha + timedelta(days=1)
-    
+
     return obtener_periodo_por_hora(fecha, hora_base if hora_base > 0 else 24)
 
 

@@ -11,7 +11,8 @@ from bess.config.subestaciones import (
     ruta_combinado_por_prefijo,
 )
 from bess.core.consumo import kwh_neto_consumo
-from bess.cfe.periods import obtener_periodo_por_fecha_hora
+from bess.cfe.periods import periodo_por_fecha_hora
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo, normalizar_esquema_tarifa
 from bess.core.kvarh import (
     columnas_kvarh as _columnas_kvarh,
     kvarh_total as _kvarh_total,
@@ -70,14 +71,16 @@ def _pivot_por_periodo(
     return piv
 
 
-def _preparar_minuto(ruta_minuto: str, prefijo: str) -> pd.DataFrame | None:
+def _preparar_minuto(ruta_minuto: str, prefijo: str, esquema_tarifa_id: str) -> pd.DataFrame | None:
     df = pd.read_csv(ruta_minuto)
     if "FECHA_HORA" not in df.columns:
         print(f"ERROR: Falta FECHA_HORA en {os.path.basename(ruta_minuto)}")
         return None
 
     if "PERIODO" not in df.columns:
-        df["PERIODO"] = df["FECHA_HORA"].apply(obtener_periodo_por_fecha_hora)
+        df["PERIODO"] = df["FECHA_HORA"].apply(
+            lambda fh: periodo_por_fecha_hora(fh, esquema_tarifa_id)
+        )
     if "FECHA" not in df.columns:
         df = agregar_fecha_operativa(df, col_fecha_hora="FECHA_HORA")
 
@@ -94,7 +97,7 @@ def _preparar_minuto(ruta_minuto: str, prefijo: str) -> pd.DataFrame | None:
     return df
 
 
-def generar_diarios_con_demandas(prefijo):
+def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
     """Genera archivos diarios con demandas máximas."""
     print("\n" + "=" * 60)
     print(f"GENERANDO ARCHIVOS DIARIOS ({prefijo}) CON DEMANDAS MAXIMAS")
@@ -107,7 +110,8 @@ def generar_diarios_con_demandas(prefijo):
     ruta_minuto = str(ruta_p)
     nombre_combinado = ruta_p.name
 
-    df_minuto = _preparar_minuto(ruta_minuto, prefijo)
+    esquema = normalizar_esquema_tarifa(esquema_tarifa_id or esquema_tarifa_prefijo(prefijo))
+    df_minuto = _preparar_minuto(ruta_minuto, prefijo, esquema)
     if df_minuto is None:
         return None
 

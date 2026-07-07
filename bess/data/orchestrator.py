@@ -37,7 +37,7 @@ def _reporte_ui(step: int, total: int, label: str) -> None:
         emit_ui_progress(step, total, label)
 
 
-def procesar_grupo(ruta_bess, ruta_medidor, prefijo, nombre_medidor):
+def procesar_grupo(ruta_bess, ruta_medidor, prefijo, nombre_medidor, esquema_tarifa_id=None):
     """Procesa BESS + medidor: combinado 5 min → diario → acumulados."""
     med = medidor_consumo_por_prefijo(prefijo)
     sub = next(
@@ -71,11 +71,13 @@ def procesar_grupo(ruta_bess, ruta_medidor, prefijo, nombre_medidor):
 
     print(f"  BESS: {len(df_bess)} registros · {prefijo}: {len(df_medidor)} registros")
 
-    df_combinado = generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo)
+    df_combinado = generar_combinado_por_minuto(
+        ruta_bess, ruta_medidor, prefijo, esquema_tarifa_id=esquema_tarifa_id,
+    )
     if df_combinado is None or len(df_combinado) == 0:
         return False, f"No se genero combinado por minuto para {etiqueta}"
 
-    if generar_diarios_con_demandas(prefijo) is None:
+    if generar_diarios_con_demandas(prefijo, esquema_tarifa_id=esquema_tarifa_id) is None:
         return False, f"No se genero archivo diario para {etiqueta}"
 
     generar_acumulados(prefijo)
@@ -137,6 +139,7 @@ def reporte_bess():
                 ruta_consumo,
                 med.prefijo,
                 med.consumo_lectura,
+                esquema_tarifa_id=sub.esquema_tarifa_id,
             )
             mensajes[med.prefijo] = mensaje
             resultados.append(exito)
@@ -176,6 +179,7 @@ def reporte_bess():
                 sub.id,
                 recurso.prefijo_reporte,
                 columna_kwh=recurso.columna_kwh,
+                esquema_tarifa_id=sub.esquema_tarifa_id,
             )
         else:
             print(f"⚠️ {sub.nombre}: sin {recurso.csv_filtrado} (omitido)")

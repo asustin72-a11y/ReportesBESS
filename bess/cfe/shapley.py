@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from bess.cfe.capacity import FACTOR_CFE_CAPACIDAD, calcular_criterio2_cfe_kw
+from bess.config.esquema_tarifa import esquema_tarifa_subestacion, factor_cfe_capacidad
+from bess.cfe.capacity import calcular_criterio2_cfe_kw
 from bess.config.subestaciones import (
     Subestacion,
     medidor_testigo_subestacion,
@@ -104,9 +105,16 @@ def _energia_mes(calc: pd.DataFrame, col_e: str) -> float:
     return float(pd.to_numeric(calc[col_e], errors="coerce").fillna(0).sum())
 
 
-def _capacidad_cfe(punta_kw_raw: float, energia_kwh: float, dias: int) -> dict:
+def _capacidad_cfe(
+    punta_kw_raw: float,
+    energia_kwh: float,
+    dias: int,
+    esquema_tarifa_id: str,
+) -> dict:
     c1 = redondear_arriba_kw(punta_kw_raw)
-    c2 = redondear_arriba_kw(calcular_criterio2_cfe_kw(energia_kwh, dias))
+    c2 = redondear_arriba_kw(
+        calcular_criterio2_cfe_kw(energia_kwh, dias, esquema_tarifa_id=esquema_tarifa_id)
+    )
     cap = min(c1, c2)
     return {
         "demanda_punta_kw": c1,
@@ -148,7 +156,8 @@ def calcular_participacion_capacidad(
         )
 
     if tarifas is None:
-        tarifas = cargar_tarifas()
+        tarifas = cargar_tarifas(esquema_tarifa_subestacion(subestacion_id))
+    esquema = esquema_tarifa_subestacion(subestacion_id)
     tarifa_cap = redondear_mxn_energia(
         float(tarifas.get("Capacidad", {}).get(fecha_corte.month, 0))
     )
@@ -209,7 +218,7 @@ def calcular_participacion_capacidad(
     for clave, (col_p, col_e, _) in escenarios.items():
         punta_raw = _max_punta_rodada(calc, col_p)
         energia = _energia_mes(calc, col_e)
-        res = _capacidad_cfe(punta_raw, energia, dias)
+        res = _capacidad_cfe(punta_raw, energia, dias, esquema)
         res["costo_capacidad_mxn"] = redondear_mxn_energia(res["capacidad_kw"] * tarifa_cap)
         cfe[clave] = res
         punta_max[clave] = res["demanda_punta_kw"]
@@ -367,7 +376,7 @@ def calcular_participacion_capacidad(
                 f"Acumulado al {fecha_corte:%d/%m/%Y} ({dias} días)",
                 cfg.etiqueta_generacion,
                 "Capacidad = min(Demanda punta rodada, DemandaCalculadaCFE)",
-                f"DemandaCalculadaCFE = Energía / ({FACTOR_CFE_CAPACIDAD} × 24 × días)",
+                f"DemandaCalculadaCFE = Energía / ({factor_cfe_capacidad(esquema)} × 24 × días)",
                 "S_g = ((C0−Cc)+(Cb−Ccb))/2 ; S_b = ((C0−Cb)+(Cc−Ccb))/2 (costos MXN)",
                 "Equivalente en kW con tarifa del mes",
                 "15 min, reinicio mensual, 00:05/00:10 = 0",

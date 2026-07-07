@@ -12,6 +12,7 @@ from bess.core.numbers import (
     redondear_mxn_energia,
     sumar_energia,
 )
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo
 from bess.tariffs.loader import cargar_tarifas
 from bess.cfe.report_data import dias_transcurridos_mes
 
@@ -35,7 +36,7 @@ _COLUMNAS_ENERGIA_SIN = {
 def calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, con_bess=True, tarifas=None):
     """kWh por periodo en un rango de fechas × tarifa → costo MXN."""
     if tarifas is None:
-        tarifas = cargar_tarifas()
+        tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
     columnas = _COLUMNAS_ENERGIA_CON if con_bess else _COLUMNAS_ENERGIA_SIN
     ruta_p = ruta_energia_dia_por_prefijo(prefijo)
     if not ruta_p or not ruta_p.exists():

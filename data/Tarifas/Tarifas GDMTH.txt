@@ -1,0 +1,56 @@
+Julio 
+Fijo	$/mes	264.38
+Base	Variable (Energía)	$/kWh	0.9368
+Intermedia	Variable (Energía)	$/kWh	1.6485
+Punta	Variable (Energía)	$/kWh	1.8648
+Distribución	$/kW	221.09
+Capacidad	$/kW	350.89
+
+Junio
+Fijo	$/mes	264.38
+Base	Variable (Energía)	$/kWh	0.9519
+Intermedia	Variable (Energía)	$/kWh	1.6781
+Punta	Variable (Energía)	$/kWh	1.8989
+Distribución	$/kW	221.09
+Capacidad	$/kW	358.05
+
+Mayo
+Fijo	$/mes	264.38
+Base	Variable (Energía)	$/kWh	0.9595
+Intermedia	Variable (Energía)	$/kWh	1.6931
+Punta	Variable (Energía)	$/kWh	1.9161
+Distribución	$/kW	221.09
+Capacidad	$/kW	361.65
+
+Abril
+Fijo	$/mes	264.38
+Base	Variable (Energía)	$/kWh	0.9673
+Intermedia	Variable (Energía)	$/kWh	1.7082
+Punta	Variable (Energía)	$/kWh	1.9334
+Distribución	$/kW	221.09
+Capacidad	$/kW	365.30
+
+Marzo
+Fijo	$/mes	264.38
+Base	Variable (Energía)	$/kWh	0.9673
+Intermedia	Variable (Energía)	$/kWh	1.7082
+Punta	Variable (Energía)	$/kWh	1.9335
+Distribución	$/kW	221.09
+Capacidad	$/kW	365.31
+
+Febrero
+Fijo	$/mes	264.38
+Base	Variable (Energía)	$/kWh	0.9668
+Intermedia	Variable (Energía)	$/kWh	1.7073
+Punta	Variable (Energía)	$/kWh	1.9325
+Distribución	$/kW	221.09
+Capacidad	$/kW	365.09
+
+Enero
+Fijo	$/mes	264.38
+Base	Variable (Energía)	$/kWh	0.9664
+Intermedia	Variable (Energía)	$/kWh	1.7064
+Punta	Variable (Energía)	$/kWh	1.9314
+Distribución	$/kW	221.09
+Capacidad	$/kW	364.88
+

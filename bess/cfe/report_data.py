@@ -62,6 +62,14 @@ def obtener_demanda_kw_periodo_mes(fecha, prefijo, con_bess=True):
     return resultado
 
 
+def obtener_demanda_max_mes(fecha, prefijo, con_bess=True):
+    """Demanda máxima del mes en cualquier periodo horario (kW). Usada por cargo Distribución GDMTH."""
+    demanda = obtener_demanda_kw_periodo_mes(fecha, prefijo, con_bess=con_bess)
+    if demanda is None:
+        return None
+    return demanda['kw_max']
+
+
 def obtener_kvarh_mes(fecha, prefijo):
     """kVArh acumulados del mes al día indicado (reportes BESS, sin truncar)."""
     fila = _fila_por_fecha(_cargar_acumulados(prefijo), fecha)
@@ -103,7 +111,7 @@ def obtener_kvarh_mes(fecha, prefijo):
 
 
 def obtener_demanda_rolada_punta(fecha, prefijo, con_bess=True):
-    """Demanda rolada máxima en horario punta (kW) al día indicado."""
+    """Demanda máxima del mes en horario punta (kW). Usada por cargo Capacidad."""
     fila = _fila_por_fecha(_cargar_acumulados(prefijo), fecha)
     if fila is None:
         return None

@@ -7,7 +7,8 @@ import os
 import pandas as pd
 
 from bess.config import rutas as rutas_mod
-from bess.cfe.periods import obtener_periodo_por_fecha_hora
+from bess.cfe.periods import periodo_por_fecha_hora
+from bess.config.esquema_tarifa import normalizar_esquema_tarifa
 from bess.core.dates import agregar_fecha_operativa
 from bess.core.console import log
 from bess.data.ingest.readers import leer_sin_agrupar
@@ -44,6 +45,7 @@ def generar_reportes_generacion(
     prefijo: str,
     *,
     columna_kwh: str = "KWH_REC",
+    esquema_tarifa_id: str | None = None,
 ) -> dict[str, int]:
     """
     Genera a partir del CSV filtrado de generación/cogeneración:
@@ -58,9 +60,12 @@ def generar_reportes_generacion(
     print(f"GENERANDO REPORTES GENERACIÓN ({prefijo} · {subestacion})")
     print("=" * 60)
 
+    esquema = normalizar_esquema_tarifa(esquema_tarifa_id)
     df_min = leer_sin_agrupar(ruta_filtrado)
     df_min = agregar_fecha_operativa(df_min, col_fecha_hora="FECHA_HORA")
-    df_min["PERIODO"] = df_min["FECHA_HORA"].apply(obtener_periodo_por_fecha_hora)
+    df_min["PERIODO"] = df_min["FECHA_HORA"].apply(
+        lambda fh: periodo_por_fecha_hora(fh, esquema)
+    )
 
     if columna_kwh not in df_min.columns:
         print(f"ERROR: falta columna {columna_kwh} en {ruta_filtrado}")

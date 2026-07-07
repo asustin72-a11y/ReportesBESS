@@ -7,7 +7,8 @@ import os
 import pandas as pd
 
 from bess.config.subestaciones import Subestacion, medidor_consumo_por_prefijo, ruta_combinado_por_prefijo
-from bess.cfe.periods import obtener_periodo_por_fecha_hora
+from bess.cfe.periods import periodo_por_fecha_hora
+from bess.config.esquema_tarifa import normalizar_esquema_tarifa
 from bess.core.dates import agregar_fecha_operativa
 from bess.core.console import log
 
@@ -42,7 +43,7 @@ def _pivot_bess_periodos(df_bess_dia: pd.DataFrame) -> pd.DataFrame:
     return df_bess_diario.sort_values("FECHA_DT").drop("FECHA_DT", axis=1)
 
 
-def _bess_diario_desde_combinado_minuto(prefijo: str) -> pd.DataFrame | None:
+def _bess_diario_desde_combinado_minuto(prefijo: str, esquema_tarifa_id: str) -> pd.DataFrame | None:
     """Carga/descarga BESS por periodo desde COMBINADO_POR_MINUTO (5 min)."""
     med = medidor_consumo_por_prefijo(prefijo)
     if not med:
@@ -59,7 +60,9 @@ def _bess_diario_desde_combinado_minuto(prefijo: str) -> pd.DataFrame | None:
     if "FECHA" not in df.columns:
         df = agregar_fecha_operativa(df, col_fecha_hora="FECHA_HORA")
     if "PERIODO" not in df.columns:
-        df["PERIODO"] = df["FECHA_HORA"].apply(obtener_periodo_por_fecha_hora)
+        df["PERIODO"] = df["FECHA_HORA"].apply(
+            lambda fh: periodo_por_fecha_hora(fh, esquema_tarifa_id)
+        )
 
     df_bess_dia = df.groupby(["FECHA", "PERIODO"], as_index=False).agg(
         KWH_REC=("KWH_REC_BESS", "sum"),
@@ -86,7 +89,8 @@ def generar_bess_diario_subestacion(sub: Subestacion):
     ruta_salida = str(sub.ruta_energia_bess_dia())
     print(f"\n--- GENERANDO {nombre} ({sub.id}) ---")
 
-    df_bess_diario = _bess_diario_desde_combinado_minuto(med_fact.prefijo)
+    esquema = normalizar_esquema_tarifa(sub.esquema_tarifa_id)
+    df_bess_diario = _bess_diario_desde_combinado_minuto(med_fact.prefijo, esquema)
     if df_bess_diario is None:
         print(f"ERROR: No se pudo generar desde combinado de {med_fact.nombre}")
         return None
