@@ -16,7 +16,7 @@ $fecha = Get-Date -Format "yyyy-MM-dd"
 $backupsDir = Join-Path $root "backups"
 $zipName = "BESS_v${version}_respaldo_${fecha}.zip"
 $zipPath = Join-Path $backupsDir $zipName
-$staging = Join-Path $env:TEMP "BESS_respaldo_$fecha"
+$staging = Join-Path $backupsDir "_staging_respaldo"
 
 if (Test-Path $staging) { Remove-Item $staging -Recurse -Force }
 New-Item -ItemType Directory -Path $staging -Force | Out-Null
