@@ -142,7 +142,7 @@ def filtrar_datos():
             if ruta_cogen and os.path.exists(ruta_cogen):
                 df_cogen, err = _leer_perfil(ruta_cogen, sub.cogeneracion_csv)
                 if err:
-                    return False, f"{sub.nombre} (cogeneración): {err}"
+                    return False, f"{sub.nombre} (generación): {err}"
                 df_cogen_out = df_cogen[df_cogen["Fecha"].isin(fechas_bess_filtradas)].copy()
                 df_cogen_out = df_cogen_out.sort_values("Fecha").reset_index(drop=True)
                 generar_archivo_limpio(
@@ -150,12 +150,12 @@ def filtrar_datos():
                     str(sub.ruta_cogeneracion(filtrado=True)),
                 )
                 print(
-                    f"📊 Cogeneración ({sub.cogeneracion_csv}): {len(df_cogen)} registros "
+                    f"📊 Generación ({sub.cogeneracion_csv}): {len(df_cogen)} registros "
                     f"→ {sub.cogeneracion_filtrado}: {len(df_cogen_out)}"
                 )
             else:
                 print(
-                    f"⚠️ Cogeneración omitida: falta {sub.cogeneracion_csv} en ArchivosProcesados. "
+                    f"⚠️ Generación omitida: falta {sub.cogeneracion_csv} en ArchivosProcesados. "
                     f"Verifique {sub.cogeneracion_csv} en ArchivosFuente y ejecute Verificar."
                 )
 
@@ -223,18 +223,5 @@ def limpiar_archivos_fuente():
                 print(f"🗑️ Archivo fuente eliminado: {sub.id}/{archivo.name}")
             except Exception as e:
                 errores.append(f"Error al eliminar {sub.id}/{archivo.name}: {e}")
-
-    # Compatibilidad: CSV sueltos en la raíz de ArchivosFuente (legacy)
-    for archivo in os.listdir(DIRECTORIO_FUENTE):
-        if archivo.lower().endswith(".csv"):
-            ruta_archivo = os.path.join(DIRECTORIO_FUENTE, archivo)
-            if not os.path.isfile(ruta_archivo):
-                continue
-            try:
-                os.remove(ruta_archivo)
-                archivos_eliminados.append(archivo)
-                print(f"🗑️ Archivo fuente eliminado (raíz): {archivo}")
-            except Exception as e:
-                errores.append(f"Error al eliminar {archivo}: {e}")
 
     return archivos_eliminados, errores

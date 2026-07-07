@@ -201,9 +201,7 @@ def _pdf_grafica_perfil(
     tiene_generacion = incluir_generacion and 'KW_GENERACION' in df_dia.columns
     sub = subestacion_por_prefijo(prefijo)
     recurso_gen = recurso_generacion_subestacion(sub.id) if sub else None
-    etiqueta_generacion = (
-        f'kW generación ({recurso_gen.etiqueta})' if recurso_gen else 'kW generación'
-    )
+    etiqueta_generacion = "kW Generación" if recurso_gen else "kW generación"
     horas = df_dia['DATETIME'].values
     bess_rec = df_dia['BESS_REC_kW'].values
     bess_ent = -df_dia['BESS_ENT_kW'].values

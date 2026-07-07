@@ -148,7 +148,9 @@ def reporte_bess():
     print("=" * 60)
 
     for sub in SUBESTACIONES:
-        med_fact = sub.medidores_consumo[0]
+        med_fact = sub.medidor_facturacion
+        if not med_fact:
+            continue
         ruta_comb = ruta_combinado_por_prefijo(med_fact.prefijo)
         if ruta_comb and ruta_comb.exists():
             generar_bess_diario_subestacion(sub)

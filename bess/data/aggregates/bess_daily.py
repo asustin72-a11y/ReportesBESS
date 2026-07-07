@@ -79,7 +79,9 @@ def generar_bess_diario_subestacion(sub: Subestacion):
     """Genera ENERGIA_BESS_{sub}.csv desde el combinado del medidor de facturación."""
     if not sub.medidores_consumo:
         return None
-    med_fact = sub.medidores_consumo[0]
+    med_fact = sub.medidor_facturacion
+    if not med_fact:
+        return None
     nombre = sub.ruta_energia_bess_dia().name
     ruta_salida = str(sub.ruta_energia_bess_dia())
     print(f"\n--- GENERANDO {nombre} ({sub.id}) ---")

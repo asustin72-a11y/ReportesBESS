@@ -64,14 +64,17 @@ def _mapas_leyenda_arbitraje():
     return color_map, label_map
 
 
-def graficar_tendencia_consumo_periodo(df, rango_label):
+_COLS_ENERGIA_PERIODO = [
+    ('BASE_REC', 'Base', COLORES['base']),
+    ('INTERMEDIO_REC', 'Intermedio', COLORES['intermedio']),
+    ('PUNTA_REC', 'Punta', COLORES['punta']),
+]
+
+
+def graficar_energia_diaria_por_periodo(df, titulo):
+    """Barras apiladas Base / Intermedio / Punta por día (estilo unificado)."""
     fig = go.Figure()
-    cols = [
-        ('BASE_REC', 'Base', COLORES['base']),
-        ('INTERMEDIO_REC', 'Intermedio', COLORES['intermedio']),
-        ('PUNTA_REC', 'Punta', COLORES['punta']),
-    ]
-    for col, lbl, color in cols:
+    for col, lbl, color in _COLS_ENERGIA_PERIODO:
         y = pd.to_numeric(df[col], errors='coerce').fillna(0)
         fig.add_trace(go.Bar(
             x=df['FECHA_DT'],
@@ -85,12 +88,16 @@ def graficar_tendencia_consumo_periodo(df, rango_label):
         ))
     fig.update_layout(barmode='stack', bargap=0.15)
     total_diario = sum(
-        pd.to_numeric(df[c[0]], errors='coerce').fillna(0) for c in cols
+        pd.to_numeric(df[c[0]], errors='coerce').fillna(0) for c in _COLS_ENERGIA_PERIODO
     )
     y_max = float(total_diario.max()) if len(total_diario) else 0
     yaxis_range = [0, y_max * 1.08] if y_max > 0 else None
-    return _aplicar_estilo_grafica_tendencia(
-        fig, f'Consumo diario por periodo · {rango_label}', 'kWh', yaxis_range=yaxis_range,
+    return _aplicar_estilo_grafica_tendencia(fig, titulo, 'kWh', yaxis_range=yaxis_range)
+
+
+def graficar_tendencia_consumo_periodo(df, rango_label):
+    return graficar_energia_diaria_por_periodo(
+        df, f'Consumo diario por periodo · {rango_label}',
     )
 
 

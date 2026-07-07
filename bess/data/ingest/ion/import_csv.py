@@ -8,20 +8,16 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from bess.core.dates import validar_y_convertir_fecha
 from bess.data.ingest.ion import db
+from bess.data.ingest.medidor_ids import ids_medidores_perfil_bd
 
 MEDIDOR_BESS = db.MEDIDOR_BESS
 MEDIDOR_BANCO = db.MEDIDOR_BANCO
 LOTE = 500
 PRIMER_INTERVALO = (0, 5)
 
-MEDIDORES_IMPORTABLES = (
-    db.MEDIDOR_ION,
-    db.MEDIDOR_ION_IUSA2,
-    MEDIDOR_BESS,
-    db.MEDIDOR_BESS_IUSA2,
-    MEDIDOR_BANCO,
-)
+MEDIDORES_IMPORTABLES = tuple(ids_medidores_perfil_bd())
 
 
 def _es_ion_facturacion(medidor_id: str) -> bool:
@@ -29,13 +25,11 @@ def _es_ion_facturacion(medidor_id: str) -> bool:
 
 
 def _parse_fecha(texto: str) -> datetime:
-    texto = texto.strip()
-    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
-        try:
-            return datetime.strptime(texto, fmt)
-        except ValueError:
-            continue
-    raise ValueError(f'Fecha invalida: {texto!r}')
+    normalizada = validar_y_convertir_fecha(texto)
+    try:
+        return datetime.strptime(normalizada, "%Y-%m-%d %H:%M:%S")
+    except ValueError as exc:
+        raise ValueError(f"Fecha invalida: {texto!r}") from exc
 
 
 def _leer_valor(fila: dict[str, str], *claves: str) -> float:
@@ -61,6 +55,8 @@ def _fila_a_registro(encabezados: list[str], valores: list[str], medidor_id: str
     if not fecha_txt:
         return None
 
+    fecha_dt = _parse_fecha(fecha_txt)
+
     kwh_rec = _leer_valor(fila, 'kwh_rec')
     kwh_ent = _leer_valor(fila, 'kwh_ent')
     # Solo IUSA 1: CSV legacy con REC/ENT invertidos. ION_IUSA2 conserva columnas del medidor.
@@ -68,8 +64,8 @@ def _fila_a_registro(encabezados: list[str], valores: list[str], medidor_id: str
         kwh_rec, kwh_ent = _normalizar_kwh_ion(kwh_rec, kwh_ent)
 
     return {
-        'fecha': fecha_txt,
-        'fecha_dt': _parse_fecha(fecha_txt),
+        'fecha': fecha_dt.strftime("%Y-%m-%d %H:%M:%S"),
+        'fecha_dt': fecha_dt,
         'kwh_rec': kwh_rec,
         'kwh_ent': kwh_ent,
         'kvarh_q1': _leer_valor(fila, 'kvarh_q1'),
@@ -215,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--medidor",
         required=True,
-        choices=list(MEDIDORES_IMPORTABLES),
+        choices=ids_medidores_perfil_bd(),
     )
     parser.add_argument('--bd', type=Path, default=db.RUTA_BD_DEFAULT)
     parser.add_argument(

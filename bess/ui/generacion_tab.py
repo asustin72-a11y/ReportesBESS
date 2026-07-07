@@ -13,24 +13,14 @@ from bess.config.subestaciones import (
     recurso_generacion_subestacion,
     subestacion_por_id,
 )
-from bess.config.theme import COLORES
 from bess.cfe.periods import obtener_periodo_por_fecha_hora
 from bess.core.numbers import fmt_kwh, sumar_energia
 from bess.data.aggregates.generacion import ruta_energia_generacion_por_dia
-from bess.charts.layout import _titulo_y_leyenda_externos
+from bess.charts.layout import _titulo_y_leyenda_externos, color_periodo
+from bess.charts.trends import graficar_energia_diaria_por_periodo
+from bess.config.theme import COLORES, PERIODO_BG
+from bess.ui.chart_view import render_grafica_plotly
 from bess.ui.components import section_header
-
-_COLORES_PERIODO_RGBA = {
-    "Base": "rgba(52,152,219,1)",
-    "Intermedio": "rgba(241,196,15,1)",
-    "Punta": "rgba(231,76,60,1)",
-}
-
-_FILL_PERIODO_RGBA = {
-    "Base": "rgba(52,152,219,0.14)",
-    "Intermedio": "rgba(241,196,15,0.18)",
-    "Punta": "rgba(231,76,60,0.14)",
-}
 
 _COLS_PERIODO = [
     ("BASE_REC", "Base"),
@@ -92,27 +82,7 @@ def _filtrar_dia_minuto(df: pd.DataFrame, fecha) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 def _grafica_barras_rango(df: pd.DataFrame, etiqueta: str) -> go.Figure:
-    fig = go.Figure()
-    for col, nombre in _COLS_PERIODO:
-        fig.add_trace(go.Bar(
-            x=df["FECHA_DT"],
-            y=df[col],
-            name=nombre,
-            marker_color=_COLORES_PERIODO_RGBA[nombre],
-        ))
-    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(etiqueta, font_size=14)
-    fig.update_layout(
-        barmode="stack",
-        xaxis_title="Fecha",
-        yaxis_title="kWh",
-        title=title_cfg,
-        legend=legend_cfg,
-        margin=dict(l=40, r=20, t=margin_t, b=60),
-        height=380,
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-    )
-    return fig
+    return graficar_energia_diaria_por_periodo(df, etiqueta)
 
 
 def _grafica_linea_dia(df_min: pd.DataFrame, etiqueta: str) -> go.Figure:
@@ -125,27 +95,37 @@ def _grafica_linea_dia(df_min: pd.DataFrame, etiqueta: str) -> go.Figure:
         if not mask.any():
             continue
         seg = df_min[mask]
+        color = color_periodo(periodo)
         fig.add_trace(go.Scatter(
             x=seg["DATETIME"],
             y=seg["KW"],
             mode="lines",
             name=periodo,
-            line=dict(color=_COLORES_PERIODO_RGBA[periodo], width=2),
+            line=dict(color=color, width=2),
             fill="tozeroy",
-            fillcolor=_FILL_PERIODO_RGBA[periodo],
+            fillcolor=PERIODO_BG.get(periodo, "rgba(149,165,166,0.14)"),
+            hovertemplate=f"<b>{periodo}</b><br>%{{x|%H:%M}}<br>%{{y:,.0f}} kW<extra></extra>",
         ))
 
-    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(etiqueta, font_size=14)
+    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(etiqueta)
     fig.update_layout(
         title=title_cfg,
         xaxis_title="Hora",
-        yaxis_title="kW",
-        legend=legend_cfg,
-        margin=dict(l=40, r=20, t=margin_t, b=60),
-        height=380,
+        yaxis_title="Potencia (kW)",
+        height=420,
         hovermode="x unified",
+        legend=legend_cfg,
+        margin=dict(l=52, r=52, t=margin_t, b=40),
         plot_bgcolor="rgba(0,0,0,0)",
         paper_bgcolor="rgba(0,0,0,0)",
+    )
+    fig.update_xaxes(tickformat="%H:%M", dtick=7200000, gridcolor="#eef2f6")
+    fig.update_yaxes(
+        tickformat=",.0f",
+        gridcolor="#eef2f6",
+        zeroline=True,
+        zerolinecolor="#95a5a6",
+        zerolinewidth=1,
     )
     return fig
 
@@ -160,33 +140,43 @@ def _tabla_resumen_mes(df: pd.DataFrame) -> pd.DataFrame:
     df["MES"] = df["FECHA_DT"].dt.to_period("M")
     filas: list[dict] = []
     for mes, grp in df.groupby("MES"):
-        fila: dict = {"Mes": str(mes)}
-        total = 0.0
-        for col, nombre in _COLS_PERIODO:
-            val = float(grp[col].sum())
-            fila[nombre] = val
-            total += val
-        fila["Total"] = total
+        fila = _fila_kwh_por_periodo(grp, str(mes))
+        fila["Mes"] = fila.pop("Concepto")
         filas.append(fila)
     if not filas:
         return pd.DataFrame()
-    out = pd.DataFrame(filas)
-    for col_num in ["Base", "Intermedio", "Punta", "Total"]:
-        if col_num in out.columns:
-            out[col_num] = out[col_num].map(lambda v: f"{v:,.1f}")
-    return out
+    cols = ["Mes", "Base (kWh)", "Intermedio (kWh)", "Punta (kWh)", "Total (kWh)"]
+    return pd.DataFrame(filas)[cols]
 
 
-def _tabla_resumen_dia(df_dia: pd.DataFrame) -> pd.DataFrame:
-    """Resumen de un solo día: kWh por periodo."""
-    fila: dict = {}
+def _fila_kwh_por_periodo(df_slice: pd.DataFrame, concepto: str) -> dict:
+    fila: dict = {"Concepto": concepto}
     total = 0.0
     for col, nombre in _COLS_PERIODO:
-        val = float(df_dia[col].sum()) if col in df_dia.columns else 0.0
-        fila[nombre] = f"{val:,.1f}"
+        if df_slice.empty or col not in df_slice.columns:
+            val = 0.0
+        else:
+            val = float(df_slice[col].sum())
+        fila[f"{nombre} (kWh)"] = f"{val:,.1f}"
         total += val
-    fila["Total"] = f"{total:,.1f}"
-    return pd.DataFrame([fila])
+    fila["Total (kWh)"] = f"{total:,.1f}"
+    return fila
+
+
+def _tabla_resumen_dia(df: pd.DataFrame, fecha) -> pd.DataFrame:
+    """Diario de la fecha seleccionada y acumulado del mes hasta esa fecha."""
+    fecha_txt = fecha.strftime("%d/%m/%Y")
+    df_dia = df[df["FECHA_DT"].dt.date == fecha]
+    mask_acum = (
+        (df["FECHA_DT"].dt.year == fecha.year)
+        & (df["FECHA_DT"].dt.month == fecha.month)
+        & (df["FECHA_DT"].dt.date <= fecha)
+    )
+    df_acum = df[mask_acum]
+    return pd.DataFrame([
+        _fila_kwh_por_periodo(df_dia, f"Día {fecha_txt}"),
+        _fila_kwh_por_periodo(df_acum, f"Acumulado al {fecha_txt}"),
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -197,10 +187,10 @@ def _render_metricas(df: pd.DataFrame):
     total_kwh = sumar_energia(df["TOTAL"])
     cols_met = st.columns(4)
     datos = [
-        ("Base", "BASE_REC", _COLORES_PERIODO_RGBA["Base"]),
-        ("Intermedio", "INTERMEDIO_REC", _COLORES_PERIODO_RGBA["Intermedio"]),
-        ("Punta", "PUNTA_REC", _COLORES_PERIODO_RGBA["Punta"]),
-        ("Total", "TOTAL", "rgba(25,118,210,1)"),
+        ("Base", "BASE_REC", color_periodo("Base")),
+        ("Intermedio", "INTERMEDIO_REC", color_periodo("Intermedio")),
+        ("Punta", "PUNTA_REC", color_periodo("Punta")),
+        ("Total", "TOTAL", COLORES["primary"]),
     ]
     for col_st, (label, col_df, color) in zip(cols_met, datos):
         val = fmt_kwh(sumar_energia(df[col_df])) if col_df != "TOTAL" else fmt_kwh(total_kwh)
@@ -296,18 +286,26 @@ def tab_generacion(sub_id: str | None = None):
                         df_min_dia,
                         f"{rec.etiqueta} — Perfil de generación (kW)",
                     )
-                    st.plotly_chart(fig, use_container_width=True, key=f"gen_line_{sub.id}", theme=None)
+                    render_grafica_plotly(
+                        fig,
+                        f"generacion_perfil_{sub.id}.png",
+                        download_key=f"gen_line_{sub.id}",
+                    )
                 else:
                     st.info("Sin datos de perfil intradiario para este día.")
             else:
                 st.info("Sin archivo de perfil por minuto. Ejecute Reportes.")
 
             section_header("Resumen del día", compact=True)
-            df_tabla = _tabla_resumen_dia(df_rango)
+            df_tabla = _tabla_resumen_dia(df, fecha_inicio)
             st.dataframe(df_tabla, use_container_width=True, hide_index=True)
         else:
             fig = _grafica_barras_rango(df_rango, f"{rec.etiqueta} — kWh por día y periodo")
-            st.plotly_chart(fig, use_container_width=True, key=f"gen_bar_{sub.id}", theme=None)
+            render_grafica_plotly(
+                fig,
+                f"generacion_barras_{sub.id}.png",
+                download_key=f"gen_bar_{sub.id}",
+            )
 
             section_header("Acumulado mensual por periodo", compact=True)
             df_tabla = _tabla_resumen_mes(df_rango)

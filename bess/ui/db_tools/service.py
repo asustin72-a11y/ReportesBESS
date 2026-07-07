@@ -13,7 +13,7 @@ from pathlib import Path
 from bess.config.paths import RUTA_BD_PERFILES
 from bess.data.ingest.ion import db
 from bess.data.ingest.ion.export_csv import exportar, exportar_todos
-from bess.data.ingest.ion.import_csv import MEDIDORES_IMPORTABLES, importar_csv
+from bess.data.ingest.ion.import_csv import importar_csv
 
 ROOT = Path(__file__).resolve().parents[3]
 

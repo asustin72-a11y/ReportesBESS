@@ -2,7 +2,18 @@
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
 
-**Versión actual:** 5.6.6 — Cursor CSV de sync, barras de progreso en UI.
+**Versión actual:** 5.9.0 — Navegación por secciones, catálogo por nombre, gráficas unificadas y manuales actualizados.
+
+## Documentación
+
+| Documento | Descripción |
+|-----------|-------------|
+| [docs/INDICE_DOCUMENTACION.md](docs/INDICE_DOCUMENTACION.md) | Índice de manuales y notas de versión |
+| [docs/GUIA_USUARIO.md](docs/GUIA_USUARIO.md) · [PDF](docs/GUIA_USUARIO.pdf) | Manual del reporteador |
+| [docs/GUIA_ADMINISTRADOR.md](docs/GUIA_ADMINISTRADOR.md) · [PDF](docs/GUIA_ADMINISTRADOR.pdf) | Pipeline, sidebar y catálogo |
+| [docs/DOCKER.md](docs/DOCKER.md) | Despliegue Docker |
+
+Regenerar PDFs: `python docs/generar_guia_pdf.py` y `python docs/generar_guia_admin_pdf.py` (app en `localhost:8501` para capturas nuevas).
 
 ## Ejecución local
 

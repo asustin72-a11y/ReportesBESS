@@ -7,7 +7,6 @@ from functools import lru_cache
 from pathlib import Path
 
 from bess.config import rutas as rutas_mod
-from bess.config.paths import DIRECTORIO_REPORTES
 from bess.config.catalog import (
     GENERACION_GRUPO,
     TIPO_BESS,
@@ -17,12 +16,6 @@ from bess.config.catalog import (
     MedidorCatalogo,
     obtener_catalogo,
 )
-
-_LEGACY_PREFIJO: dict[str, str] = {
-    "ION_Testigo_IUSA1": "ION",
-    "Banco_1": "BANCO",
-    "ION_TESTIGO_IUSA2": "IUSA2",
-}
 
 _API_ALIAS: dict[str, str] = {
     "Banco_1": "banco1",
@@ -53,6 +46,7 @@ class MedidorConsumo:
     intercambiar_consumo: bool = False
     api_alias: str | None = None
     usa_consumo_neto: bool = False
+    es_facturacion: bool = False
 
     def ruta_consumo(self, *, filtrado: bool = False) -> Path:
         return rutas_mod.ruta_procesado_medidor(
@@ -60,7 +54,7 @@ class MedidorConsumo:
         )
 
     def ruta_consumo_lectura(self, *, filtrado: bool = False) -> Path:
-        return rutas_mod.resolver_ruta_procesado(self.ruta_consumo(filtrado=filtrado))
+        return self.ruta_consumo(filtrado=filtrado)
 
     def ruta_combinado(self) -> Path:
         return rutas_mod.ruta_combinado_minuto(self.nombre, self.subestacion_nombre)
@@ -93,38 +87,52 @@ class Subestacion:
     cogeneracion_nombre: str | None = None
 
     @property
+    def medidor_facturacion(self) -> MedidorConsumo | None:
+        for med in self.medidores_consumo:
+            if med.es_facturacion:
+                return med
+        return self.medidores_consumo[0] if self.medidores_consumo else None
+
+    @property
     def prefijo(self) -> str:
-        return self.medidores_consumo[0].prefijo
+        med = self.medidor_facturacion
+        return med.prefijo if med else ""
 
     @property
     def etiqueta_facturacion(self) -> str:
-        return self.medidores_consumo[0].etiqueta
+        med = self.medidor_facturacion
+        return med.etiqueta if med else ""
 
     @property
     def consumo_csv(self) -> str:
-        return self.medidores_consumo[0].consumo_csv
+        med = self.medidor_facturacion
+        return med.consumo_csv if med else ""
 
     @property
     def consumo_filtrado(self) -> str:
-        return self.medidores_consumo[0].consumo_filtrado
+        med = self.medidor_facturacion
+        return med.consumo_filtrado if med else ""
 
     @property
     def consumo_lectura(self) -> str:
-        return self.medidores_consumo[0].consumo_lectura
+        med = self.medidor_facturacion
+        return med.consumo_lectura if med else ""
 
     @property
     def consumo_bd(self) -> str:
-        return self.medidores_consumo[0].consumo_bd
+        med = self.medidor_facturacion
+        return med.consumo_bd if med else ""
 
     @property
     def intercambiar_consumo(self) -> bool:
-        return self.medidores_consumo[0].intercambiar_consumo
+        med = self.medidor_facturacion
+        return med.intercambiar_consumo if med else False
 
     def ruta_bess(self, *, filtrado: bool = False) -> Path:
         return rutas_mod.ruta_bess_subestacion(self.id, filtrado=filtrado)
 
     def ruta_bess_lectura(self, *, filtrado: bool = False) -> Path:
-        return rutas_mod.resolver_ruta_procesado(self.ruta_bess(filtrado=filtrado))
+        return self.ruta_bess(filtrado=filtrado)
 
     def ruta_generacion(self, *, filtrado: bool = False) -> Path:
         if not self.granja_csv:
@@ -133,7 +141,7 @@ class Subestacion:
         return rutas_mod.ruta_procesado(self.id, archivo or "")
 
     def ruta_generacion_lectura(self, *, filtrado: bool = False) -> Path:
-        return rutas_mod.resolver_ruta_procesado(self.ruta_generacion(filtrado=filtrado))
+        return self.ruta_generacion(filtrado=filtrado)
 
     def ruta_cogeneracion(self, *, filtrado: bool = False) -> Path | None:
         if not self.cogeneracion_csv:
@@ -145,11 +153,10 @@ class Subestacion:
         ruta = self.ruta_cogeneracion(filtrado=filtrado)
         if ruta is None:
             return None
-        proc = rutas_mod.resolver_ruta_procesado(ruta)
-        if proc.exists():
-            return proc
+        if ruta.exists():
+            return ruta
         fuente = rutas_mod.ruta_fuente(self.id, self.cogeneracion_csv or "")
-        return fuente if fuente.exists() else proc
+        return fuente if fuente.exists() else ruta
 
     def ruta_energia_bess_dia(self) -> Path:
         return rutas_mod.ruta_energia_bess_por_dia(self.id)
@@ -162,7 +169,7 @@ def _medidor_consumo_desde_catalogo(m: MedidorCatalogo) -> MedidorConsumo:
         raise ValueError(f"Sin reglas para tipo {m.tipo_medidor}")
     return MedidorConsumo(
         nombre=m.nombre,
-        prefijo=_LEGACY_PREFIJO.get(m.nombre, m.nombre),
+        prefijo=m.nombre,
         subestacion_nombre=m.subestacion_nombre,
         etiqueta=_ETIQUETAS.get(m.nombre, m.nombre),
         consumo_csv=rutas_mod.nombre_archivo_medidor(m.nombre),
@@ -172,6 +179,7 @@ def _medidor_consumo_desde_catalogo(m: MedidorCatalogo) -> MedidorConsumo:
         intercambiar_consumo=reglas.invertir,
         usa_consumo_neto=reglas.neteo,
         api_alias=_API_ALIAS.get(m.nombre),
+        es_facturacion=m.es_facturacion,
     )
 
 
@@ -182,11 +190,12 @@ def _construir_subestaciones() -> tuple[Subestacion, ...]:
 
     for sub_c in cat.subestaciones:
         meds_sub = cat.medidores_subestacion(sub_c.nombre)
-        consumo = tuple(
-            _medidor_consumo_desde_catalogo(m)
-            for m in meds_sub
+        meds_consumo = [
+            m for m in meds_sub
             if m.tipo_medidor in (TIPO_FACTURACION, TIPO_TESTIGO)
-        )
+        ]
+        meds_consumo.sort(key=lambda m: (not m.es_facturacion, m.nombre))
+        consumo = tuple(_medidor_consumo_desde_catalogo(m) for m in meds_consumo)
         bess_meds = [m for m in meds_sub if m.tipo_medidor == TIPO_BESS]
         ion_fact = next((m for m in meds_sub if m.es_facturacion and m.descarga == "ION"), None)
 
@@ -211,7 +220,8 @@ def _construir_subestaciones() -> tuple[Subestacion, ...]:
             cogeneracion_filtrado = rutas_mod.nombre_archivo_filtrado(gen.nombre)
 
         serial_bess = bess_meds[0].numero_serie.split()[0] if bess_meds else None
-        cliente = consumo[0].prefijo if consumo else sub_c.nombre
+        med_fact = next((m for m in consumo if m.es_facturacion), None)
+        cliente = med_fact.nombre if med_fact else (consumo[0].nombre if consumo else sub_c.nombre)
 
         subs.append(
             Subestacion(
@@ -267,22 +277,24 @@ def subestacion_por_id(sub_id: str) -> Subestacion | None:
     return None
 
 
-def medidor_consumo_por_prefijo(prefijo: str) -> MedidorConsumo | None:
-    clave = (prefijo or "").strip().upper()
-    for sub in _subs():
-        for med in sub.medidores_consumo:
-            if med.prefijo.upper() == clave or med.nombre.upper() == clave:
-                return med
-    return None
-
-
 def medidor_consumo_por_nombre(nombre: str) -> MedidorConsumo | None:
-    clave = (nombre or "").strip()
+    """Medidor de consumo por nombre del catálogo (= medidor_id en SQLite)."""
+    from bess.data.ingest.medidor_ids import medidor_id_canonico
+
+    clave = medidor_id_canonico((nombre or "").strip())
+    if not clave:
+        return None
+    clave_upper = clave.upper()
     for sub in _subs():
         for med in sub.medidores_consumo:
-            if med.nombre == clave:
+            if med.nombre.upper() == clave_upper or med.prefijo.upper() == clave_upper:
                 return med
     return None
+
+
+def medidor_consumo_por_prefijo(prefijo: str) -> MedidorConsumo | None:
+    """Alias de medidor_consumo_por_nombre (prefijo = nombre del catálogo)."""
+    return medidor_consumo_por_nombre(prefijo)
 
 
 def subestacion_por_prefijo(prefijo: str) -> Subestacion | None:
@@ -307,11 +319,27 @@ def medidores_facturacion_subestacion(sub_id: str) -> list[str]:
     sub = subestacion_por_id(sub_id)
     if not sub:
         return []
-    return [med.prefijo for med in sub.medidores_consumo]
+    meds = sorted(
+        sub.medidores_consumo,
+        key=lambda m: (not m.es_facturacion, m.etiqueta),
+    )
+    return [med.nombre for med in meds]
+
+
+def nombre_medidor_facturacion_subestacion(sub_id: str) -> str | None:
+    sub = subestacion_por_id(sub_id)
+    if not sub or not sub.medidor_facturacion:
+        return None
+    return sub.medidor_facturacion.nombre
+
+
+def prefijo_medidor_facturacion_subestacion(sub_id: str) -> str | None:
+    """Alias de nombre_medidor_facturacion_subestacion."""
+    return nombre_medidor_facturacion_subestacion(sub_id)
 
 
 def prefijos_facturacion() -> list[str]:
-    return [med.prefijo for sub in _subs() for med in sub.medidores_consumo]
+    return [med.nombre for sub in _subs() for med in sub.medidores_consumo]
 
 
 def etiqueta_medidor_consumo(prefijo: str) -> str:
@@ -380,59 +408,27 @@ def pares_filtrado() -> list[tuple[str, str, str]]:
     return pares
 
 
-def _legacy_combinado(prefijo: str) -> Path:
-    return DIRECTORIO_REPORTES / f"COMBINADO_POR_MINUTO_{prefijo}.csv"
-
-
-def _legacy_energia_dia(prefijo: str) -> Path:
-    return DIRECTORIO_REPORTES / f"ENERGIA_{prefijo}_POR_DIA.csv"
-
-
-def _legacy_acumulados(prefijo: str) -> Path:
-    return DIRECTORIO_REPORTES / f"ACUMULADOS_{prefijo}.csv"
-
-
-def _resolver_ruta(nueva: Path, legacy: Path) -> Path:
-    if nueva.exists():
-        return nueva
-    if legacy.exists():
-        return legacy
-    return nueva
-
-
 def rutas_consumo_por_prefijo(prefijo: str) -> tuple[Path, Path] | None:
     """(combinado, energía día) para un medidor de consumo."""
     med = medidor_consumo_por_prefijo(prefijo)
     if not med:
         return None
-    return (
-        _resolver_ruta(med.ruta_combinado(), _legacy_combinado(med.prefijo)),
-        _resolver_ruta(med.ruta_energia_dia(), _legacy_energia_dia(med.prefijo)),
-    )
+    return med.ruta_combinado(), med.ruta_energia_dia()
 
 
 def ruta_combinado_por_prefijo(prefijo: str) -> Path | None:
     med = medidor_consumo_por_prefijo(prefijo)
-    if not med:
-        legacy = _legacy_combinado(prefijo)
-        return legacy if legacy.exists() else None
-    return _resolver_ruta(med.ruta_combinado(), _legacy_combinado(med.prefijo))
+    return med.ruta_combinado() if med else None
 
 
 def ruta_energia_dia_por_prefijo(prefijo: str) -> Path | None:
     med = medidor_consumo_por_prefijo(prefijo)
-    if not med:
-        legacy = _legacy_energia_dia(prefijo)
-        return legacy if legacy.exists() else None
-    return _resolver_ruta(med.ruta_energia_dia(), _legacy_energia_dia(med.prefijo))
+    return med.ruta_energia_dia() if med else None
 
 
 def ruta_acumulados_por_prefijo(prefijo: str) -> Path | None:
     med = medidor_consumo_por_prefijo(prefijo)
-    if not med:
-        legacy = _legacy_acumulados(prefijo)
-        return legacy if legacy.exists() else None
-    return _resolver_ruta(med.ruta_acumulados(), _legacy_acumulados(med.prefijo))
+    return med.ruta_acumulados() if med else None
 
 
 def medidor_testigo_subestacion(sub_id: str) -> MedidorConsumo | None:
@@ -443,7 +439,7 @@ def medidor_testigo_subestacion(sub_id: str) -> MedidorConsumo | None:
     for med in sub.medidores_consumo:
         if "ION" in med.nombre.upper():
             return med
-    return sub.medidores_consumo[0] if sub.medidores_consumo else None
+    return sub.medidor_facturacion
 
 
 def soporta_participacion_capacidad(sub_id: str) -> bool:
@@ -453,9 +449,12 @@ def soporta_participacion_capacidad(sub_id: str) -> bool:
     return bool(sub.granja_csv or sub.cogeneracion_csv)
 
 
+_ETIQUETA_GENERACION = "Generación"
+
+
 @dataclass(frozen=True)
 class RecursoGeneracion:
-    """Recurso de generación por subestación (granja solar o cogeneración)."""
+    """Recurso de generación por subestación."""
 
     tipo: str
     prefijo_reporte: str
@@ -474,22 +473,17 @@ def recurso_generacion_subestacion(sub_id: str) -> RecursoGeneracion | None:
             tipo="granja",
             prefijo_reporte=sub.granja_bd,
             columna_kwh="KWH_REC",
-            etiqueta="Generación granja solar",
+            etiqueta=_ETIQUETA_GENERACION,
             csv_procesado=sub.granja_csv,
             csv_filtrado=sub.granja_filtrado,
         )
     if sub.cogeneracion_csv and sub.cogeneracion_filtrado and sub.cogeneracion_nombre:
         nombre = sub.cogeneracion_nombre
-        etiqueta = (
-            "Cogeneración"
-            if "cogeneracion" in nombre.lower()
-            else "Generación"
-        )
         return RecursoGeneracion(
             tipo="cogeneracion",
             prefijo_reporte=nombre,
             columna_kwh="KWH_ENT",
-            etiqueta=etiqueta,
+            etiqueta=_ETIQUETA_GENERACION,
             csv_procesado=sub.cogeneracion_csv,
             csv_filtrado=sub.cogeneracion_filtrado,
         )

@@ -5,6 +5,7 @@ from bess.charts.energy import graficar_arbitraje, graficar_costo_energia_period
 from bess.charts.layout import color_periodo
 from bess.charts.profile import graficar_demanda_dia, graficar_perfil
 from bess.charts.trends import (
+    graficar_energia_diaria_por_periodo,
     graficar_tendencia_arbitraje,
     graficar_tendencia_bess_operacion,
     graficar_tendencia_con_sin_bess,
@@ -19,6 +20,7 @@ __all__ = [
     'graficar_criterio_cfe',
     'graficar_demanda_dia',
     'graficar_perfil',
+    'graficar_energia_diaria_por_periodo',
     'graficar_tendencia_arbitraje',
     'graficar_tendencia_bess_operacion',
     'graficar_tendencia_con_sin_bess',

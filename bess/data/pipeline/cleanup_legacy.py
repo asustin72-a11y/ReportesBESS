@@ -62,6 +62,47 @@ def _contenido_perfiles_granja() -> list[Path]:
     return sorted(p for p in _PERFILES_GRANJA.rglob("*") if p.is_file())
 
 
+_FLAT_LEGACY_CSV: tuple[str, ...] = (
+    "ION.csv",
+    "ION_Filtrado.csv",
+    "Banco1.csv",
+    "Banco1_Filtrado.csv",
+    "BESS.csv",
+    "BESS_Filtrado.csv",
+    "ION_IUSA2.csv",
+    "ION_IUSA2_Filtrado.csv",
+    "BESS_IUSA2.csv",
+    "BESS_IUSA2_Filtrado.csv",
+    "GRANJA_IUSA2.csv",
+    "GRANJA_IUSA2_Filtrado.csv",
+    "COMBINADO_POR_MINUTO_ION.csv",
+    "COMBINADO_POR_MINUTO_BANCO.csv",
+    "COMBINADO_POR_MINUTO_IUSA2.csv",
+    "ENERGIA_ION_POR_DIA.csv",
+    "ENERGIA_BANCO_POR_DIA.csv",
+    "ENERGIA_IUSA2_POR_DIA.csv",
+    "ACUMULADOS_ION.csv",
+    "ACUMULADOS_BANCO.csv",
+    "ACUMULADOS_IUSA2.csv",
+    "ENERGIA_BESS_POR_DIA_ION.csv",
+    "ENERGIA_BESS_POR_DIA_BANCO.csv",
+    "ENERGIA_BESS_POR_DIA_IUSA2.csv",
+)
+
+
+def _csv_planos_en_raiz() -> list[Path]:
+    """CSV sueltos en la raíz de carpetas del pipeline (nomenclatura antigua)."""
+    encontrados: list[Path] = []
+    for base in (DIRECTORIO_PROCESADOS, DIRECTORIO_REPORTES, DIRECTORIO_FUENTE):
+        if not base.is_dir():
+            continue
+        for nombre in _FLAT_LEGACY_CSV:
+            ruta = base / nombre
+            if ruta.is_file():
+                encontrados.append(ruta)
+    return sorted(set(encontrados))
+
+
 def listar_archivos_legacy() -> list[Path]:
     """Lista todo lo que borraría limpiar_datos_legacy (sin tocar Tarifas ni SQLite)."""
     candidatos: list[Path] = []
@@ -70,6 +111,7 @@ def listar_archivos_legacy() -> list[Path]:
     candidatos.extend(_csv_por_hora())
     candidatos.extend(_archivos_tmp_data())
     candidatos.extend(_contenido_perfiles_granja())
+    candidatos.extend(_csv_planos_en_raiz())
     return sorted({p.resolve() for p in candidatos})
 
 

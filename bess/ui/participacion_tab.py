@@ -16,7 +16,7 @@ from bess.config.subestaciones import (
 from bess.config.theme import COLORES
 from bess.core.dates import serie_fecha_operativa
 from bess.core.numbers import fmt_kwh, redondear_mxn_energia
-from bess.ui.components import render_selector_fecha_unica, section_header
+from bess.ui.components import render_selector_fecha_unica, section_header, subnav_en_panel
 
 _CODIGOS_ESCENARIO = ("D0", "Dc", "Db", "Dcb")
 _LABEL_CRITERIO = {
@@ -170,8 +170,7 @@ def tab_participacion_capacidad(df, subestacion_id: str):
     sub = subestacion_por_id(subestacion_id)
     if not sub or not soporta_participacion_capacidad(subestacion_id):
         st.info(
-            "Participación de capacidad requiere generación o cogeneración en la subestación. "
-            "IUSA 2 (granja solar) e IUSA 1 (cogeneración) están soportadas."
+            "Participación de capacidad requiere un recurso de generación en la subestación."
         )
         return
 
@@ -263,22 +262,26 @@ def tab_participacion_capacidad(df, subestacion_id: str):
         unsafe_allow_html=True,
     )
 
-    tab_part, tab_esc, tab_shap_mxn, tab_shap_kw, tab_met = st.tabs([
-        "Participación",
-        "Escenarios CFE",
-        "Shapley (MXN)",
-        "Shapley (kW)",
-        "Metodología",
-    ])
+    vista = subnav_en_panel(
+        "Participación capacidad",
+        [
+            ("part", "Participación"),
+            ("esc", "Escenarios CFE"),
+            ("shap_mxn", "Shapley (MXN)"),
+            ("shap_kw", "Shapley (kW)"),
+            ("met", "Metodología"),
+        ],
+        f"participacion_vista_{subestacion_id}",
+    )
 
-    with tab_part:
+    if vista == "part":
         st.dataframe(
             _estilizar_participantes(resultado["participantes"]),
             use_container_width=True,
             hide_index=True,
         )
 
-    with tab_esc:
+    elif vista == "esc":
         df_esc = _formatear_escenarios_cfe(resultado["criterio_cfe"])
         st.dataframe(
             _estilizar_escenarios_cfe(df_esc),
@@ -286,21 +289,21 @@ def tab_participacion_capacidad(df, subestacion_id: str):
             hide_index=True,
         )
 
-    with tab_shap_mxn:
+    elif vista == "shap_mxn":
         st.dataframe(
             _estilizar_concepto_valor(resultado["shapley_mxn_tabla"], (6, 7, 8)),
             use_container_width=True,
             hide_index=True,
         )
 
-    with tab_shap_kw:
+    elif vista == "shap_kw":
         st.dataframe(
             _estilizar_concepto_valor(resultado["shapley_kw_tabla"], (5, 6, 7)),
             use_container_width=True,
             hide_index=True,
         )
 
-    with tab_met:
+    elif vista == "met":
         st.dataframe(
             _estilizar_tabla(
                 resultado["metodologia"],

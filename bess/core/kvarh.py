@@ -18,10 +18,23 @@ def normalizar_columnas_kvarh(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def columnas_kvarh_prefijo(prefijo: str) -> tuple[str, ...]:
-    """Cuadrantes de kVArh: ION/IUSA2=Q1; BANCO legado=Q1+Q4."""
-    if prefijo in ("ION", "IUSA2"):
+    """Cuadrantes de kVArh según reglas del tipo de medidor en catálogo."""
+    from bess.config.catalog import obtener_catalogo
+    from bess.config.subestaciones import medidor_consumo_por_nombre
+
+    med = medidor_consumo_por_nombre(prefijo)
+    if not med:
+        return COLUMNAS_KVARH
+    cat = obtener_catalogo()
+    m_cat = cat.medidor_por_nombre(med.nombre)
+    if not m_cat:
+        return COLUMNAS_KVARH
+    reglas = cat.reglas_tipo(m_cat.tipo_medidor)
+    if not reglas:
+        return COLUMNAS_KVARH
+    if reglas.reactivos == 1:
         return ("KVARH_Q1",)
-    if prefijo == "BANCO":
+    if reglas.reactivos == 2:
         return ("KVARH_Q1", "KVARH_Q4")
     return COLUMNAS_KVARH
 

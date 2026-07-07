@@ -136,6 +136,11 @@ def destinos_export_bd(ruta_bd: Path | None = None) -> list[tuple[str, Path]]:
     return destinos
 
 
+def ids_medidores_perfil_bd() -> list[str]:
+    """IDs con perfil en SQLite (mismo universo que exportar/importar CSV)."""
+    return sorted({mid for mid, _ in destinos_export_bd()})
+
+
 def resolver_medidor_bd_desde_api(medidor: str) -> str:
     """Alias API o nombre de catálogo → medidor_id canónico en SQLite."""
     from bess.config.catalog import obtener_catalogo

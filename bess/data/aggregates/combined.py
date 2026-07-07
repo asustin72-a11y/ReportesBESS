@@ -148,12 +148,11 @@ def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo):
     ])
 
     med = medidor_consumo_por_prefijo(prefijo)
-    nombre_archivo = (
-        med.ruta_combinado().name
-        if med
-        else f"COMBINADO_POR_MINUTO_{prefijo}.csv"
-    )
-    ruta_salida = str(med.ruta_combinado()) if med else nombre_archivo
+    if not med:
+        print(f"ERROR: medidor de consumo desconocido: {prefijo}")
+        return None
+    ruta_salida = str(med.ruta_combinado())
+    nombre_archivo = med.ruta_combinado().name
     os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
     df_combinado[columnas_export].to_csv(ruta_salida, index=False)
 

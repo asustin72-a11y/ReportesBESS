@@ -1,5 +1,5 @@
 [theme]
-primaryColor = "#27ae60"
+primaryColor = "#1a5276"
 backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F8F9FA"
 textColor = "#1A202C"
@@ -9,6 +9,9 @@ font = "sans serif"
 headless = true
 enableCORS = false
 enableXsrfProtection = true
+
+[client]
+toolbarMode = "minimal"
 
 [browser]
 gatherUsageStats = false

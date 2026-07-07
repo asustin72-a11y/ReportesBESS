@@ -26,7 +26,10 @@ def energia_diaria_tiene_sin_bess(prefijo: str) -> bool:
     return "BASE_REC_SIN_BESS" in pd.read_csv(ruta_p, nrows=0).columns
 
 
-def obtener_bess_energia_dia(fecha_str: str, prefijo: str = "ION") -> dict[str, float]:
+from bess.data.ingest.medidor_ids import MEDIDOR_ION
+
+
+def obtener_bess_energia_dia(fecha_str: str, prefijo: str = MEDIDOR_ION) -> dict[str, float]:
     """Carga y descarga BESS del día según subestación (prefijo de facturación)."""
     fila = fila_por_fecha_csv(str(ruta_energia_bess_por_dia(prefijo)), fecha_str)
     if fila is None:

@@ -117,9 +117,7 @@ def graficar_perfil(df, prefijo, titulo, *, incluir_generacion: bool = True):
     tiene_generacion = incluir_generacion and 'KW_GENERACION' in df.columns
     sub = subestacion_por_prefijo(prefijo)
     recurso_gen = recurso_generacion_subestacion(sub.id) if sub else None
-    etiqueta_generacion = (
-        f'kW generación ({recurso_gen.etiqueta})' if recurso_gen else 'kW generación'
-    )
+    etiqueta_generacion = "kW Generación" if recurso_gen else "kW generación"
     etiqueta_ion = etiqueta_medidor_consumo(prefijo)
 
     col_con = f'IUSA_CON_BESS_{prefijo}_kW'

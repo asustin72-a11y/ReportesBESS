@@ -28,6 +28,8 @@ from bess.config.subestaciones import (
     SUBESTACIONES,
     etiqueta_medidor_consumo,
     medidores_facturacion_subestacion,
+    nombre_medidor_facturacion_subestacion,
+    prefijo_medidor_facturacion_subestacion,
     recurso_generacion_subestacion,
     ruta_acumulados_por_prefijo,
     ruta_combinado_por_prefijo,
@@ -80,6 +82,7 @@ from bess.ui.components import (
     obtener_logo_html,
     render_selector_fecha_unica,
     section_header,
+    subnav_en_panel,
 )
 from bess.ui.downloads import render_boton_descarga
 from bess.ui.chart_view import render_grafica_plotly
@@ -697,13 +700,13 @@ def tab_analisis(df, prefijo):
     )
     precio_cap = tarifas.get('Capacidad', {}).get(mes_num, 0)
 
-    tab_dem, tab_ene, tab_cfe = st.tabs([
-        "📈 Demanda",
-        "💰 Energía y costos",
-        "🏭 Capacidad CFE",
-    ])
+    vista_analisis = subnav_en_panel("Análisis detallado", [
+        ("dem", "📈 Demanda"),
+        ("ene", "💰 Energía y costos"),
+        ("cfe", "🏭 Capacidad CFE"),
+    ], f"analisis_vista_{prefijo}")
 
-    with tab_dem:
+    if vista_analisis == "dem":
         df_dem = df_dia.copy()
         if col_con in df_dem.columns:
             df_dem[col_con] = pd.to_numeric(df_dem[col_con], errors='coerce')
@@ -740,7 +743,7 @@ def tab_analisis(df, prefijo):
         else:
             st.warning(f"No hay demanda acumulada para el mes {mes_label}")
 
-    with tab_ene:
+    elif vista_analisis == "ene":
         section_header(
             f"Costo de energía por periodo · {mes_label}",
             'kWh acumulados redondeados × tarifa por periodo (Base, Intermedio, Punta).',
@@ -777,7 +780,7 @@ def tab_analisis(df, prefijo):
                     download_key=f'dl_energia_{prefijo}_{fecha_sel:%Y%m}',
                 )
 
-    with tab_cfe:
+    elif vista_analisis == "cfe":
         section_header(
             f"Capacidad CFE · {mes_label}",
             'Capacidad = min(demanda punta, DemandaCalculadaCFE). '
@@ -1107,13 +1110,13 @@ def tab_tendencia(df, prefijo):
             with col4:
                 metric_compact('Arbitraje acum.', f'${arbitraje_acum:,.2f}')
 
-    tab_con, tab_cmp, tab_ops = st.tabs([
-        '📊 Consumo por periodo',
-        '⚖️ Consumo con BESS',
-        '🔋 Operación BESS',
-    ])
+    vista_tendencia = subnav_en_panel("Vistas de tendencia", [
+        ("con", "📊 Consumo por periodo"),
+        ("cmp", "⚖️ Consumo con BESS"),
+        ("ops", "🔋 Operación BESS"),
+    ], f"tendencia_vista_{prefijo}")
 
-    with tab_con:
+    if vista_tendencia == "con":
         with st.container(border=True):
             section_header(
                 'Consumo diario por periodo tarifario',
@@ -1125,7 +1128,7 @@ def tab_tendencia(df, prefijo):
                 download_key=f'dl_tend_con_{prefijo}_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}',
             )
 
-    with tab_cmp:
+    elif vista_tendencia == "cmp":
         with st.container(border=True):
             section_header(
                 'Comparativa con y sin BESS',
@@ -1170,7 +1173,7 @@ def tab_tendencia(df, prefijo):
                     </div>
                     """, unsafe_allow_html=True)
 
-    with tab_ops:
+    elif vista_tendencia == "ops":
         section_header(
             'Operación del BESS',
             'Barras diarias de carga y descarga. Arbitraje diario: verde = lun–vie, azul = sáb, rojo = dom/festivo.',
@@ -1230,14 +1233,23 @@ def _bloque_reporteador(prefijo, medidor):
 
     ruta_p = ruta_combinado_por_prefijo(prefijo)
     if not ruta_p or not ruta_p.exists():
-        st.warning(f"No hay datos para {etiqueta_medidor_consumo(medidor)}")
+        from bess.config.users import rol_es_operador
+        from bess.ui.pipeline_status import evaluar_pipeline, render_estado_vacio_reporteador
+
+        if rol_es_operador(st.session_state.get("rol")):
+            render_estado_vacio_reporteador(evaluar_pipeline())
+        else:
+            st.warning(
+                f"No hay datos para {etiqueta_medidor_consumo(medidor)}. "
+                "Contacte al administrador."
+            )
         return
 
     df = pd.read_csv(ruta_p)
     df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
 
-    with st.container(border=True):
-        seccion = render_navegacion_principal()
+    sub_id = st.session_state.get("subestacion_principal")
+    seccion = render_navegacion_principal(sub_id)
 
     if seccion == "operacion":
         tab_dashboard(df, prefijo, medidor)
@@ -1259,10 +1271,29 @@ def _bloque_reporteador(prefijo, medidor):
 
 def _al_cambiar_subestacion():
     sub_id = st.session_state.get("subestacion_principal")
+    default = nombre_medidor_facturacion_subestacion(sub_id)
     opciones = medidores_facturacion_subestacion(sub_id)
-    actual = st.session_state.get("medidor_principal")
-    if opciones and actual not in opciones:
+    if default:
+        st.session_state["medidor_principal"] = default
+    elif opciones:
         st.session_state["medidor_principal"] = opciones[0]
+
+
+def _normalizar_medidor_sesion():
+    """Convierte IDs legacy de sesión al nombre del catálogo (= medidor_id en BD)."""
+    from bess.data.ingest.medidor_ids import medidor_id_canonico
+
+    actual = st.session_state.get("medidor_principal")
+    if not actual:
+        return
+    canon = medidor_id_canonico(actual)
+    sub_id = st.session_state.get("subestacion_principal")
+    opciones = medidores_facturacion_subestacion(sub_id) if sub_id else []
+    if canon in opciones:
+        st.session_state["medidor_principal"] = canon
+    elif opciones:
+        default = nombre_medidor_facturacion_subestacion(sub_id)
+        st.session_state["medidor_principal"] = default or opciones[0]
 
 
 def main():
@@ -1326,18 +1357,35 @@ def main():
             return
     
     rutas_disponibles = [
-        ruta_combinado_por_prefijo(med.prefijo)
+        ruta_combinado_por_prefijo(med.nombre)
         for sub in SUBESTACIONES
         for med in sub.medidores_consumo
     ]
     if not any(r and r.exists() for r in rutas_disponibles):
-        st.warning("No hay datos procesados. Contacta al administrador.")
+        if es_operador:
+            with st.container(border=True):
+                render_barra_superior(rol)
+            from bess.ui.pipeline_status import evaluar_pipeline, render_estado_vacio_reporteador
+
+            render_estado_vacio_reporteador(evaluar_pipeline())
+        else:
+            st.warning(
+                "No hay datos procesados para consultar. "
+                "Contacte al administrador para ejecutar el pipeline."
+            )
         return
 
     if "subestacion_principal" not in st.session_state:
         st.session_state["subestacion_principal"] = SUBESTACIONES[0].id
     if "medidor_principal" not in st.session_state:
-        st.session_state["medidor_principal"] = SUBESTACIONES[0].prefijo
+        sub_inicial = SUBESTACIONES[0].id
+        default = nombre_medidor_facturacion_subestacion(sub_inicial)
+        st.session_state["medidor_principal"] = (
+            default or SUBESTACIONES[0].medidor_facturacion.nombre
+            if SUBESTACIONES[0].medidor_facturacion
+            else ""
+        )
+    _normalizar_medidor_sesion()
 
     with st.container(border=True):
         render_barra_superior(rol)
@@ -1375,7 +1423,7 @@ def main():
             opciones_medidor,
             key="medidor_principal",
             label_visibility="collapsed",
-            format_func=etiqueta_medidor_consumo,
+            format_func=lambda mid: etiqueta_medidor_consumo(mid),
         )
 
     prefijo = medidor

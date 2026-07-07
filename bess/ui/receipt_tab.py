@@ -19,7 +19,7 @@ from bess.cfe.receipt import (
 from bess.cfe.report_data import acumulados_tiene_demanda_sin_bess
 from bess.cfe.receipt.css import css_recibo_cfe
 from bess.tariffs.loader import cargar_tarifas
-from bess.ui.components import render_selector_fecha_unica
+from bess.ui.components import render_selector_fecha_unica, subnav_en_panel
 
 
 def _inyectar_css_recibo():
@@ -87,9 +87,13 @@ def tab_recibo(df, prefijo, descargar_fn):
     )
 
     tarifas = cargar_tarifas()
-    tab_sin, tab_con = st.tabs(["Sin BESS", "Con BESS"])
+    vista = subnav_en_panel(
+        "Escenario del recibo",
+        [("sin", "Sin BESS"), ("con", "Con BESS")],
+        f"recibo_vista_{prefijo}",
+    )
 
-    with tab_sin:
+    if vista == "sin":
         if not energia_diaria_tiene_sin_bess(prefijo):
             st.warning(
                 "No hay columnas sin BESS en ENERGIA_*_POR_DIA.csv. "
@@ -100,7 +104,7 @@ def tab_recibo(df, prefijo, descargar_fn):
                 fecha_sel, prefijo, con_bess=False, tarifas=tarifas, descargar_fn=descargar_fn
             )
 
-    with tab_con:
+    elif vista == "con":
         render_recibo_escenario(
             fecha_sel, prefijo, con_bess=True, tarifas=tarifas, descargar_fn=descargar_fn
         )

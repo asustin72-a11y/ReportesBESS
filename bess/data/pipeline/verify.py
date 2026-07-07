@@ -274,7 +274,7 @@ def _mensaje_verificacion_ok(verificados: list[str], omitidos: list[str]) -> str
         if sub.granja_csv and sub.granja_csv in ok_sub:
             nombres.append("Granja (20 MEGA)")
         if sub.cogeneracion_csv and sub.cogeneracion_csv in ok_sub:
-            nombres.append("Cogeneración")
+            nombres.append("Generación")
         partes.append(f"{sub.nombre}: {', '.join(nombres)}")
 
     mensaje = "Verificación completada — " + "; ".join(partes) if partes else (

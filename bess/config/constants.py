@@ -8,7 +8,7 @@ from bess.config.subestaciones import (
 )
 
 ARCHIVO_TARIFAS = "Tarifas_2026.csv"
-UI_BUILD = "2026-07-01"
+UI_BUILD = "2026-07-07"
 
 TIPOS_TARIFA = [
     "Base",
@@ -39,11 +39,8 @@ def slug_medidor(codigo: str) -> str:
     """Nombre corto para archivos descargables (sin espacios)."""
     med = medidor_consumo_por_prefijo(codigo)
     if med:
-        return med.consumo_csv.replace(".csv", "")
+        return med.nombre.replace(" ", "_")
     sub = subestacion_por_prefijo(codigo)
     if sub:
-        return sub.consumo_csv.replace(".csv", "")
-    cod = (codigo or "").upper()
-    if cod == "BANCO":
-        return "Banco1"
-    return codigo or ""
+        return sub.id
+    return (codigo or "").replace(" ", "_")

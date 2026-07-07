@@ -12,37 +12,9 @@ from bess.config.paths import (
     DIRECTORIO_REPORTES_DIARIOS,
 )
 
-# Archivos planos legacy en ArchivosProcesados/ (pre-Fase 4)
-_LEGACY_PROCESADO_PLANO: dict[str, str] = {
-    "ION_Testigo_IUSA1.csv": "ION.csv",
-    "ION_Testigo_IUSA1_Filtrado.csv": "ION_Filtrado.csv",
-    "Banco_1.csv": "Banco1.csv",
-    "Banco_1_Filtrado.csv": "Banco1_Filtrado.csv",
-    "BESS_NORTE.csv": "BESS.csv",
-    "BESS_NORTE_Filtrado.csv": "BESS_Filtrado.csv",
-    "ION_TESTIGO_IUSA2.csv": "ION_IUSA2.csv",
-    "ION_TESTIGO_IUSA2_Filtrado.csv": "ION_IUSA2_Filtrado.csv",
-    "BESS_SUR.csv": "BESS_IUSA2.csv",
-    "BESS_SUR_Filtrado.csv": "BESS_IUSA2_Filtrado.csv",
-    "BESS_IUSA_1.csv": "BESS.csv",
-    "BESS_IUSA_1_Filtrado.csv": "BESS_Filtrado.csv",
-    "BESS_IUSA_2.csv": "BESS_IUSA2.csv",
-    "BESS_IUSA_2_Filtrado.csv": "BESS_IUSA2_Filtrado.csv",
-    "Generacion_IUSA_2.csv": "GRANJA_IUSA2.csv",
-    "Generacion_IUSA_2_Filtrado.csv": "GRANJA_IUSA2_Filtrado.csv",
-}
-
-
-def resolver_ruta_procesado(ruta_nueva: Path) -> Path:
-    """Nueva ruta por subestación; si no existe, busca CSV plano legacy."""
-    if ruta_nueva.exists():
-        return ruta_nueva
-    legado = _LEGACY_PROCESADO_PLANO.get(ruta_nueva.name)
-    if legado:
-        plano = DIRECTORIO_PROCESADOS / legado
-        if plano.exists():
-            return plano
-    return ruta_nueva
+def resolver_ruta_procesado(ruta: Path) -> Path:
+    """Ruta canónica en ArchivosProcesados/{Subestación}/."""
+    return ruta
 
 
 def dir_subestacion(base: Path, subestacion: str) -> Path:

@@ -10,23 +10,10 @@ from bess.config import rutas as rutas_mod
 from bess.config.catalog import obtener_catalogo
 from bess.config.paths import DIRECTORIO_FUENTE
 from bess.config.subestaciones import SUBESTACIONES
-from bess.data.ingest.medidor_ids import LEGACY_A_NOMBRE
 
 from bess.core.console import log
 
 print = log
-
-# Nombre de archivo legacy (sin ruta) → Nombre del catálogo
-_LEGACY_ARCHIVO_A_NOMBRE: dict[str, str] = {
-    "ION.csv": LEGACY_A_NOMBRE["ION"],
-    "BESS.csv": LEGACY_A_NOMBRE["BESS"],
-    "Banco1.csv": LEGACY_A_NOMBRE["BANCO"],
-    "BANCO.csv": LEGACY_A_NOMBRE["BANCO"],
-    "ION_IUSA2.csv": LEGACY_A_NOMBRE["ION_IUSA2"],
-    "BESS_IUSA2.csv": LEGACY_A_NOMBRE["BESS_IUSA2"],
-    "GRANJA_IUSA2.csv": LEGACY_A_NOMBRE["GRANJA_IUSA2"],
-    "Generacion_IUSA_2.csv": "Generacion_IUSA_2",
-}
 
 # Patrones en nombre de archivo → Nombre catálogo (más específicos primero)
 _PATRONES_A_NOMBRE: tuple[tuple[str, tuple[str, ...], tuple[str, ...]], ...] = (
@@ -65,8 +52,6 @@ def _resolver_nombre_desde_archivo(nombre_archivo: str) -> str | None:
     base = nombre_archivo
     if base.lower().endswith(".csv"):
         base = base[:-4]
-    if nombre_archivo in _LEGACY_ARCHIVO_A_NOMBRE:
-        return _LEGACY_ARCHIVO_A_NOMBRE[nombre_archivo]
     cat = obtener_catalogo()
     for m in cat.medidores:
         if m.nombre == base:
@@ -79,21 +64,21 @@ def _resolver_nombre_desde_archivo(nombre_archivo: str) -> str | None:
 
 def _archivos_csv_en_fuente() -> list[Path]:
     encontrados: list[Path] = []
-    if DIRECTORIO_FUENTE.exists():
-        for item in DIRECTORIO_FUENTE.iterdir():
-            if item.is_file() and item.suffix.lower() == ".csv" and "_backup" not in item.name.lower():
-                encontrados.append(item)
-            elif item.is_dir():
-                for csv in item.glob("*.csv"):
-                    if "_backup" not in csv.name.lower():
-                        encontrados.append(csv)
+    if not DIRECTORIO_FUENTE.exists():
+        return encontrados
+    for item in DIRECTORIO_FUENTE.iterdir():
+        if not item.is_dir():
+            continue
+        for csv in item.glob("*.csv"):
+            if "_backup" not in csv.name.lower():
+                encontrados.append(csv)
     return encontrados
 
 
 def identificar_y_renombrar_archivos():
     """
     Ubica CSV en ArchivosFuente/{Subestacion}/{Nombre}.csv según catálogo.
-    Acepta archivos sueltos en la raíz (legacy) o ya en subcarpetas.
+    Solo procesa archivos ya dentro de subcarpetas por subestación.
     """
     renombrados: dict[str, dict[str, str]] = {}
     errores: list[str] = []

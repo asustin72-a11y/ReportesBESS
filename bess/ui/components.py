@@ -18,6 +18,50 @@ def section_header(titulo, descripcion="", compact=False):
     st.markdown(html, unsafe_allow_html=True)
 
 
+def _seleccionar_subnav(state_key: str, key: str) -> None:
+    st.session_state[state_key] = key
+
+
+def subnav_en_panel(
+    etiqueta: str,
+    opciones: list[tuple[str, str]],
+    state_key: str,
+) -> str:
+    """Botones de sub-sección dentro de un contenedor con borde. Devuelve la clave activa."""
+    if state_key not in st.session_state:
+        st.session_state[state_key] = opciones[0][0]
+    activa = st.session_state[state_key]
+    if activa not in {k for k, _ in opciones}:
+        activa = opciones[0][0]
+        st.session_state[state_key] = activa
+
+    with st.container(border=True):
+        st.markdown(
+            '<span class="bess-subnav-panel-marker" aria-hidden="true"></span>'
+            f'<p class="bess-subnav-panel-label">{etiqueta}</p>',
+            unsafe_allow_html=True,
+        )
+        cols = st.columns(len(opciones), gap="small")
+        for col, (key, label) in zip(cols, opciones):
+            with col:
+                es_activa = activa == key
+                marcador = (
+                    '<span class="bess-subnav-col-marker bess-subnav-active" aria-hidden="true"></span>'
+                    if es_activa
+                    else '<span class="bess-subnav-col-marker" aria-hidden="true"></span>'
+                )
+                st.markdown(marcador, unsafe_allow_html=True)
+                st.button(
+                    label,
+                    key=f"subnav_{state_key}_{key}",
+                    on_click=_seleccionar_subnav,
+                    kwargs={"state_key": state_key, "key": key},
+                    type="primary" if es_activa else "secondary",
+                    use_container_width=False,
+                )
+    return st.session_state[state_key]
+
+
 def metric_compact(label, value):
     st.markdown(
         f'<div class="metric-compact"><div class="label">{label}</div>'

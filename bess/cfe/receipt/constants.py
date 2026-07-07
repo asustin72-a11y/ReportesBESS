@@ -6,7 +6,7 @@ MESES_CFE = (
 )
 
 DATOS_CLIENTE_RECIBO = {
-    'ION': {
+    'ION_Testigo_IUSA1': {
         'razon_social': 'INDUSTRIAS UNIDAS SA DE CV',
         'direccion': (
             'CARR PANAMERICANA MEXICO QUERE',
@@ -24,7 +24,7 @@ DATOS_CLIENTE_RECIBO = {
         'carga_conectada_kw': 31000,
         'demanda_contratada_kw': 31000,
     },
-    'BANCO': {
+    'Banco_1': {
         'razon_social': 'INDUSTRIAS UNIDAS SA DE CV',
         'direccion': (
             'CARR PANAMERICANA MEXICO QUERE',
@@ -38,7 +38,25 @@ DATOS_CLIENTE_RECIBO = {
         'tarifa': 'DIST',
         'multiplicador': '—',
         'no_hilos': '3',
-        'no_medidor': 'BANCO',
+        'no_medidor': 'Banco 1',
+        'carga_conectada_kw': None,
+        'demanda_contratada_kw': None,
+    },
+    'ION_TESTIGO_IUSA2': {
+        'razon_social': 'INDUSTRIAS UNIDAS SA DE CV',
+        'direccion': (
+            'CARR PANAMERICANA MEXICO QUERE',
+            'JOCOTITLAN C FZA',
+            'C.P.50700',
+            'JOCOTITLAN,MEX.',
+        ),
+        'no_servicio': '—',
+        'cuenta': '—',
+        'rmu': '—',
+        'tarifa': 'DIST',
+        'multiplicador': '—',
+        'no_hilos': '3',
+        'no_medidor': 'ION IUSA 2',
         'carga_conectada_kw': None,
         'demanda_contratada_kw': None,
     },

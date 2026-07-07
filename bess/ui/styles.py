@@ -444,11 +444,44 @@ def aplicar_estilos():
             font-weight: 600;
         }
 
-        /* —— Navegación y ayuda flotante —— */
-        .bess-nav-bar {
-            margin-bottom: 4px;
+        /* —— Navegación principal y sub-pestañas —— */
+        [data-testid="stVerticalBlockBorderWrapper"]:has(.bess-nav-panel-marker),
+        [data-testid="stVerticalBlockBorderWrapper"]:has(.bess-subnav-panel-marker) {
+            background: linear-gradient(180deg, #e8f4fc 0%, #f8fbfe 100%) !important;
+            border-color: #a8d4ee !important;
+            box-shadow: 0 2px 10px rgba(26, 82, 118, 0.1) !important;
+            padding: 12px 14px 10px !important;
+            margin-bottom: 14px !important;
         }
-        /* Nav container: scroll horizontal en móvil */
+        [data-testid="stVerticalBlock"]:has(> [data-testid="stVerticalBlockBorderWrapper"] .bess-subnav-panel-marker) {
+            align-items: flex-start !important;
+        }
+        [data-testid="stVerticalBlockBorderWrapper"]:has(.bess-subnav-panel-marker) {
+            width: fit-content !important;
+            max-width: 100% !important;
+            align-self: flex-start !important;
+        }
+        .bess-nav-panel {
+            margin-bottom: 0;
+        }
+        /* Nav principal: ancho completo */
+        [data-testid="stVerticalBlockBorderWrapper"]:has(.bess-nav-panel-marker)
+            [data-testid="stHorizontalBlock"]:has(.bess-nav-col-marker),
+        [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .bess-nav-col-marker) {
+            flex-wrap: wrap !important;
+            gap: 10px 8px !important;
+            padding: 4px 2px 8px !important;
+        }
+        /* Sub-opciones: compactas a la izquierda */
+        [data-testid="stVerticalBlockBorderWrapper"]:has(.bess-subnav-panel-marker)
+            [data-testid="stHorizontalBlock"]:has(.bess-subnav-col-marker),
+        [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .bess-subnav-col-marker) {
+            flex-wrap: wrap !important;
+            gap: 10px 8px !important;
+            padding: 4px 2px 8px !important;
+            width: fit-content !important;
+            max-width: 100% !important;
+        }
         @media (max-width: 768px) {
             [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .bess-nav-col-marker) {
                 overflow-x: auto !important;
@@ -461,6 +494,22 @@ def aplicar_estilos():
                 display: none;
             }
             [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .bess-nav-col-marker) > [data-testid="column"] {
+                flex: 0 0 auto !important;
+                min-width: fit-content !important;
+                width: auto !important;
+            }
+            [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .bess-subnav-col-marker) {
+                overflow-x: auto !important;
+                flex-wrap: nowrap !important;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                padding-bottom: 4px;
+                max-width: 100% !important;
+            }
+            [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .bess-subnav-col-marker)::-webkit-scrollbar {
+                display: none;
+            }
+            [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .bess-subnav-col-marker) > [data-testid="column"] {
                 flex: 0 0 auto !important;
                 min-width: fit-content !important;
                 width: auto !important;
@@ -520,42 +569,75 @@ def aplicar_estilos():
         }
         .nav-hub-caps li { margin: 1px 0; }
 
-        .nav-pills-label {
-            margin: 0 0 4px;
-            font-size: 0.78rem;
-            font-weight: 600;
+        .nav-pills-label,
+        .bess-subnav-panel-label {
+            margin: 0 0 10px;
+            font-size: 0.82rem;
+            font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.04em;
-            color: #64748b;
+            letter-spacing: 0.06em;
+            color: #1a5276;
+        }
+        [data-testid="stVerticalBlockBorderWrapper"]:has(.bess-subnav-panel-marker) [data-testid="stTabs"] {
+            display: none !important;
         }
 
         div[data-testid="column"]:has(.bess-nav-col-marker) {
             position: relative !important;
             overflow: visible !important;
+            flex: 1 1 128px !important;
+            min-width: 128px !important;
+            max-width: 200px !important;
+        }
+        div[data-testid="column"]:has(.bess-subnav-col-marker) {
+            position: relative !important;
+            overflow: visible !important;
+            flex: 0 0 auto !important;
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: none !important;
+        }
+        div[data-testid="column"]:has(.bess-subnav-col-marker) [data-testid="stButton"] {
+            width: auto !important;
+        }
+        div[data-testid="column"]:has(.bess-nav-col-marker) [data-testid="stButton"] button,
+        div[data-testid="column"]:has(.bess-subnav-col-marker) [data-testid="stButton"] button {
+            border-radius: 10px !important;
+            font-size: 0.92rem !important;
+            font-weight: 700 !important;
+            min-height: 3rem !important;
+            background: #ffffff !important;
+            border: 2px solid #2e86c1 !important;
+            color: #1a5276 !important;
+            box-shadow: 0 1px 3px rgba(26, 82, 118, 0.12) !important;
+            transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
         }
         div[data-testid="column"]:has(.bess-nav-col-marker) [data-testid="stButton"] button {
-            border-radius: 999px !important;
-            font-size: 0.88rem !important;
-            font-weight: 600 !important;
-            min-height: 2.64rem !important;
-            padding: 0.53rem 0.75rem !important;
-            background: #f3f4f6 !important;
-            border-color: #e2e5e9 !important;
-            color: #31333f !important;
+            padding: 0.55rem 0.65rem !important;
         }
-        div[data-testid="column"]:has(.bess-nav-col-marker) [data-testid="stButton"] button:hover {
-            background: #e8eaed !important;
-            border-color: #2e86c1 !important;
-            color: #31333f !important;
+        div[data-testid="column"]:has(.bess-subnav-col-marker) [data-testid="stButton"] button {
+            padding: 0.55rem 0.85rem !important;
+            width: auto !important;
+            white-space: nowrap !important;
         }
-        div[data-testid="column"]:has(.bess-nav-active) [data-testid="stButton"] button {
-            background: #1a5276 !important;
+        div[data-testid="column"]:has(.bess-nav-col-marker) [data-testid="stButton"] button:hover,
+        div[data-testid="column"]:has(.bess-subnav-col-marker) [data-testid="stButton"] button:hover {
+            background: #dbeafe !important;
             border-color: #1a5276 !important;
-            color: #ffffff !important;
+            color: #154360 !important;
+            box-shadow: 0 3px 10px rgba(26, 82, 118, 0.18) !important;
         }
-        div[data-testid="column"]:has(.bess-nav-active) [data-testid="stButton"] button:hover {
-            background: #154360 !important;
-            border-color: #154360 !important;
+        div[data-testid="column"]:has(.bess-nav-active) [data-testid="stButton"] button,
+        div[data-testid="column"]:has(.bess-subnav-active) [data-testid="stButton"] button {
+            background: linear-gradient(180deg, #2e86c1 0%, #1a5276 100%) !important;
+            border: 2px solid #154360 !important;
+            color: #ffffff !important;
+            box-shadow: 0 4px 14px rgba(26, 82, 118, 0.35) !important;
+        }
+        div[data-testid="column"]:has(.bess-nav-active) [data-testid="stButton"] button:hover,
+        div[data-testid="column"]:has(.bess-subnav-active) [data-testid="stButton"] button:hover {
+            background: linear-gradient(180deg, #1a5276 0%, #154360 100%) !important;
+            border-color: #0e3a5c !important;
             color: #ffffff !important;
         }
 
@@ -581,6 +663,24 @@ def aplicar_estilos():
         div[data-testid="stTabs"] button[aria-selected="true"] {
             color: #1a5276 !important;
             border-bottom-color: #1a5276 !important;
+        }
+
+        /* CTA "Procesar todo": separarlo visualmente de la navegación del sidebar,
+           ya que ahora comparte el mismo azul de marca que el resto de los botones.
+           Anula el estilo genérico de tarjeta blanca de stVerticalBlockBorderWrapper
+           y en su lugar dibuja solo un separador delgado + sombra en el botón. */
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.bess-cta-procesar-marker) {
+            background: transparent !important;
+            border: none !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+            padding: 10px 0 4px 0 !important;
+            margin: 4px 0 14px 0 !important;
+            border-top: 1px solid #e2e8f0 !important;
+        }
+        div[data-testid="stVerticalBlockBorderWrapper"]:has(.bess-cta-procesar-marker) [data-testid="stButton"] button {
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+            font-size: 0.95rem !important;
         }
 
         /* Sidebar — guía y flujo admin */
@@ -713,11 +813,28 @@ def aplicar_estilos():
                 font-size: 0.75rem !important;
             }
 
-            /* Navegación: botones más compactos */
+            /* Navegación principal: botones compactos pero legibles */
+            div[data-testid="column"]:has(.bess-nav-col-marker) {
+                flex: 0 0 auto !important;
+                min-width: 108px !important;
+                max-width: none !important;
+            }
             div[data-testid="column"]:has(.bess-nav-col-marker) [data-testid="stButton"] button {
-                font-size: 0.7rem !important;
-                padding: 0.5rem 0.3rem !important;
-                min-height: 44px !important;
+                font-size: 0.8rem !important;
+                padding: 0.5rem 0.4rem !important;
+                min-height: 2.75rem !important;
+                line-height: 1.2 !important;
+            }
+            /* Sub-opciones: compactas */
+            div[data-testid="column"]:has(.bess-subnav-col-marker) {
+                flex: 0 0 auto !important;
+                min-width: 0 !important;
+                max-width: none !important;
+            }
+            div[data-testid="column"]:has(.bess-subnav-col-marker) [data-testid="stButton"] button {
+                font-size: 0.8rem !important;
+                padding: 0.5rem 0.4rem !important;
+                min-height: 2.75rem !important;
                 line-height: 1.2 !important;
             }
 

@@ -61,7 +61,7 @@ SECCIONES = [
         "pill": "Generación",
         "titulo": "Generación",
         "icono": "☀️",
-        "resumen": "Energía generada por cogeneración (IUSA 1) y granja solar (IUSA 2).",
+        "resumen": "Energía generada por el recurso de generación de cada subestación.",
         "capacidades": [
             "Generación por periodo",
             "Acumulado mensual",
@@ -95,6 +95,24 @@ SECCIONES = [
 ]
 
 
+def secciones_para_subestacion(sub_id: str | None) -> list[dict]:
+    """Filtra Participación y Generación si no aplican a la subestación."""
+    from bess.config.subestaciones import (
+        recurso_generacion_subestacion,
+        soporta_participacion_capacidad,
+    )
+
+    visibles: list[dict] = []
+    for seccion in SECCIONES:
+        key = seccion["key"]
+        if key == "participacion" and sub_id and not soporta_participacion_capacidad(sub_id):
+            continue
+        if key == "generacion" and sub_id and not recurso_generacion_subestacion(sub_id):
+            continue
+        visibles.append(seccion)
+    return visibles
+
+
 def _etiqueta_pill(s: dict) -> str:
     return f'{s["icono"]} {s["pill"]}'
 
@@ -103,7 +121,7 @@ def _seleccionar_seccion(key: str):
     st.session_state["seccion_activa"] = key
 
 
-def _inyectar_script_ayuda_nav(delay_ms: int = 2000):
+def _inyectar_script_ayuda_nav(secciones: list[dict], delay_ms: int = 2000):
     """Tooltips al hover (2 s) sobre los botones de navegación."""
     sections_json = json.dumps(
         [
@@ -114,7 +132,7 @@ def _inyectar_script_ayuda_nav(delay_ms: int = 2000):
                 "resumen": s["resumen"],
                 "capacidades": s["capacidades"],
             }
-            for s in SECCIONES
+            for s in secciones
         ],
         ensure_ascii=False,
     )
@@ -301,38 +319,52 @@ def _inicializar_seccion():
         st.session_state["seccion_activa"] = "reportes"
 
 
-def render_navegacion_principal() -> str:
+def _ajustar_seccion_activa(sub_id: str | None):
+    visibles = secciones_para_subestacion(sub_id)
+    keys = {s["key"] for s in visibles}
+    actual = st.session_state.get("seccion_activa", SECCIONES[0]["key"])
+    if actual == "reporte":
+        actual = "reportes"
+    if actual not in keys and visibles:
+        st.session_state["seccion_activa"] = visibles[0]["key"]
+
+
+def render_navegacion_principal(sub_id: str | None = None) -> str:
     """Botones en columnas + ayuda flotante (hover 2 s)."""
     _inicializar_seccion()
+    if sub_id is None:
+        sub_id = st.session_state.get("subestacion_principal")
+    _ajustar_seccion_activa(sub_id)
     activa = st.session_state["seccion_activa"]
+    visibles = secciones_para_subestacion(sub_id)
 
-    st.markdown(
-        '<div class="bess-nav-bar">'
-        '<p class="nav-pills-label">Ir a la sección</p>'
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    with st.container(border=True):
+        st.markdown(
+            '<span class="bess-nav-panel-marker" aria-hidden="true"></span>'
+            '<p class="nav-pills-label">Secciones del reporteador</p>',
+            unsafe_allow_html=True,
+        )
 
-    cols = st.columns(len(SECCIONES), gap="small")
-    for col, seccion in zip(cols, SECCIONES):
-        with col:
-            es_activa = activa == seccion["key"]
-            marcador = (
-                '<span class="bess-nav-col-marker bess-nav-active" aria-hidden="true"></span>'
-                if es_activa
-                else '<span class="bess-nav-col-marker" aria-hidden="true"></span>'
-            )
-            st.markdown(marcador, unsafe_allow_html=True)
-            st.button(
-                _etiqueta_pill(seccion),
-                key=f"nav_btn_{seccion['key']}",
-                on_click=_seleccionar_seccion,
-                kwargs={"key": seccion["key"]},
-                type="primary" if es_activa else "secondary",
-                use_container_width=True,
-            )
+        cols = st.columns(len(visibles), gap="small")
+        for col, seccion in zip(cols, visibles):
+            with col:
+                es_activa = activa == seccion["key"]
+                marcador = (
+                    '<span class="bess-nav-col-marker bess-nav-active" aria-hidden="true"></span>'
+                    if es_activa
+                    else '<span class="bess-nav-col-marker" aria-hidden="true"></span>'
+                )
+                st.markdown(marcador, unsafe_allow_html=True)
+                st.button(
+                    _etiqueta_pill(seccion),
+                    key=f"nav_btn_{seccion['key']}",
+                    on_click=_seleccionar_seccion,
+                    kwargs={"key": seccion["key"]},
+                    type="primary" if es_activa else "secondary",
+                    use_container_width=True,
+                )
 
-    _inyectar_script_ayuda_nav()
+    _inyectar_script_ayuda_nav(visibles)
     return st.session_state["seccion_activa"]
 
 

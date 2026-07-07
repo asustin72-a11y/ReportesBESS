@@ -9,7 +9,6 @@ from pathlib import Path
 import pandas as pd
 
 from bess.cfe.capacity import FACTOR_CFE_CAPACIDAD, calcular_criterio2_cfe_kw
-from bess.config import rutas as rutas_mod
 from bess.config.subestaciones import (
     Subestacion,
     medidor_testigo_subestacion,
@@ -42,10 +41,7 @@ def resolver_config_participacion(subestacion_id: str) -> ConfigParticipacionCap
     if not sub or not testigo:
         return None
 
-    ruta_combinado = rutas_mod.resolver_ruta_procesado(testigo.ruta_combinado())
-    if not ruta_combinado.exists():
-        legacy = rutas_mod.ruta_reporte(sub.id, testigo.ruta_combinado().name)
-        ruta_combinado = legacy if legacy.exists() else ruta_combinado
+    ruta_combinado = testigo.ruta_combinado()
 
     if sub.granja_csv:
         ruta_gen = sub.ruta_generacion_lectura()
@@ -56,7 +52,7 @@ def resolver_config_participacion(subestacion_id: str) -> ConfigParticipacionCap
             ruta_combinado=ruta_combinado,
             ruta_generacion=ruta_gen,
             columna_generacion="KWH_REC",
-            etiqueta_generacion="Generación granja solar",
+            etiqueta_generacion="Generación",
         )
 
     if sub.cogeneracion_csv:
@@ -70,7 +66,7 @@ def resolver_config_participacion(subestacion_id: str) -> ConfigParticipacionCap
             ruta_combinado=ruta_combinado,
             ruta_generacion=ruta_cogen,
             columna_generacion="KWH_ENT",
-            etiqueta_generacion="Cogeneración",
+            etiqueta_generacion="Generación",
         )
 
     return None
@@ -128,7 +124,7 @@ def calcular_participacion_capacidad(
     tarifas: dict | None = None,
 ) -> dict:
     """
-    Shapley de capacidad CFE (kW y MXN) para generación/cogeneración vs BESS.
+    Shapley de capacidad CFE (kW y MXN) para generación vs BESS.
 
     Escenarios (kWh/5 min):
     D0 = ION + Gen + Descarga − Carga

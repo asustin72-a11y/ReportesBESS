@@ -10,6 +10,7 @@ from bess.cfe.power_factor import calcular_cargo_fp, calcular_factor_potencia_re
 from bess.cfe.receipt.constants import DATOS_CLIENTE_RECIBO
 from bess.cfe.receipt.format import _fmt_fecha_cfe, _periodo_facturado_cfe
 from bess.cfe.report_data import obtener_demanda_kw_periodo_mes, obtener_kvarh_mes
+from bess.data.ingest.medidor_ids import MEDIDOR_ION, medidor_id_canonico
 
 
 def _tarifa_mes(tarifas, mes, *nombres):
@@ -41,7 +42,11 @@ def _celda_mem(importe, precio_kwh=0.0, precio_kw=0.0):
 
 def construir_datos_recibo_cfe(fecha, prefijo, con_bess, res_energia, res_cfe, tarifas):
     """Arma el diccionario de datos para el layout tipo recibo CFE."""
-    cliente = DATOS_CLIENTE_RECIBO.get(prefijo, DATOS_CLIENTE_RECIBO['ION'])
+    medidor_id = medidor_id_canonico(prefijo)
+    cliente = DATOS_CLIENTE_RECIBO.get(
+        medidor_id,
+        DATOS_CLIENTE_RECIBO[MEDIDOR_ION],
+    )
     escenario = 'Con BESS' if con_bess else 'Sin BESS'
     pp = res_energia['por_periodo']
     demanda = obtener_demanda_kw_periodo_mes(fecha, prefijo, con_bess=con_bess)

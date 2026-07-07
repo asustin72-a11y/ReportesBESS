@@ -10,6 +10,7 @@ from bess.config.paths import ruta_energia_bess_por_dia
 from bess.config.subestaciones import (
     etiqueta_medidor_consumo,
     medidor_consumo_por_prefijo,
+    recurso_generacion_subestacion,
     ruta_combinado_por_prefijo,
     subestacion_por_prefijo,
 )
@@ -39,8 +40,8 @@ def titulo_dia_tipo(prefijo: str) -> str:
     return f"Día Tipo · {sub_nombre} · {med_et}"
 
 
-def subestacion_tiene_granja_solar(sub) -> bool:
-    return bool(sub and sub.granja_csv and sub.granja_bd)
+def subestacion_tiene_generacion(sub) -> bool:
+    return bool(sub and recurso_generacion_subestacion(sub.id))
 
 
 def cargar_perfil_dia(prefijo: str, fecha: date) -> pd.DataFrame:
@@ -90,7 +91,7 @@ def buscar_dia_tipo(prefijo: str, fecha_corte: date) -> dict | None:
                     "prefijo": prefijo,
                     "medidor_etiqueta": etiqueta_medidor_consumo(prefijo),
                     "medidor_nombre": med.nombre if med else prefijo,
-                    "incluye_granja": subestacion_tiene_granja_solar(sub),
+                    "incluye_generacion": subestacion_tiene_generacion(sub),
                 }
         candidato -= timedelta(days=1)
     return None

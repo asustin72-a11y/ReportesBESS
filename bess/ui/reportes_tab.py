@@ -17,7 +17,7 @@ from bess.core.dates import mascara_rango_operativo, serie_fecha_operativa
 from bess.reports.accumulated import ReporteAcumuladoError, calcular_reporte_acumulado
 from bess.reports.accumulated_pdf import generar_reporte_acumulado_pdf
 from bess.ui.chart_view import render_grafica_plotly
-from bess.ui.components import render_selector_fecha_unica, section_header
+from bess.ui.components import render_selector_fecha_unica, section_header, subnav_en_panel
 from bess.ui.downloads import render_boton_descarga
 
 
@@ -211,7 +211,7 @@ def tab_reporte_acumulado(df, prefijo: str):
     if dia_tipo:
         df_dia = df[mascara_rango_operativo(df, dia_tipo["fecha"], dia_tipo["fecha"])].copy()
         if not df_dia.empty:
-            gen_txt = " · incluye generación granja solar" if dia_tipo.get("incluye_granja") else ""
+            gen_txt = " · incluye generación" if dia_tipo.get("incluye_generacion") else ""
             with st.container(border=True):
                 section_header(
                     titulo_dia_tipo(prefijo),
@@ -288,8 +288,12 @@ def tab_reporte_acumulado(df, prefijo: str):
 
 def tab_reportes(df, prefijo: str, tab_diario_fn: Callable):
     """Pestañas Reporte diario y Reporte acumulado."""
-    tab_diario, tab_acum = st.tabs(["Reporte diario", "Reporte acumulado"])
-    with tab_diario:
+    vista = subnav_en_panel(
+        "Tipo de reporte",
+        [("diario", "Reporte diario"), ("acum", "Reporte acumulado")],
+        f"reportes_vista_{prefijo}",
+    )
+    if vista == "diario":
         tab_diario_fn(df, prefijo)
-    with tab_acum:
+    elif vista == "acum":
         tab_reporte_acumulado(df, prefijo)
