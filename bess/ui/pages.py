@@ -73,10 +73,19 @@ from bess.cfe.report_data import (
     dias_transcurridos_mes,
     obtener_demanda_rolada_punta,
 )
-from bess.config.esquema_tarifa import esquema_tarifa_prefijo, esquema_tarifa_subestacion, factor_cfe_capacidad
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo, esquema_tarifa_subestacion, factor_cfe_capacidad, usa_netmetering
+from bess.core.energia_periodo import (
+    df_energia_para_visualizacion,
+    kwh_consumo_acum_periodo_fila,
+    kwh_ent_acum_periodo_fila,
+    kwh_rec_acum_periodo_fila,
+    sumar_consumo_por_periodo_df,
+    sumar_ent_por_periodo_df,
+    sumar_rec_por_periodo_df,
+)
 from bess.tariffs.loader import cargar_tarifas
 from bess.config.users import ETIQUETA_ROL, rol_es_operador, rol_es_superadmin
-from bess.ui.auth import get_usuarios, init_session, login, logout, preparar_ui_login, restaurar_ui_app
+from bess.ui.auth import get_usuarios, init_session, login, preparar_ui_login, restaurar_ui_app
 from bess.ui.components import (
     html_tarifas_sidebar,
     metric_compact,
@@ -167,6 +176,7 @@ def render_barra_superior(rol: str | None):
         if st.button("Cerrar sesión", use_container_width=True, key="btn_logout"):
             st.session_state["_logout_pendiente"] = True
             st.rerun()
+
 
 def render_selector_rango(df, prefijo, key_suffix, medidor=None):
     """Selector de rango de fechas y resumen del periodo."""
@@ -447,32 +457,68 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
 
     df_acum = pd.read_csv(ruta_acumulados) if os.path.exists(ruta_acumulados) else None
     fila_acum_fin = _fila_por_fecha(df_acum, fecha_fin)
+    esquema = esquema_tarifa_prefijo(prefijo)
+    netmetering = usa_netmetering(esquema)
+    df_med_rango = None
 
     if rango_un_dia:
         titulo_tabla = f"Detalle de Energía por Periodo · acumulado al {fecha_fin.strftime('%d/%m/%Y')}"
         lbl_consumo = 'Consumo Mensual (kWh)'
+        lbl_rec = 'Energía Recibida Mensual (kWh)'
+        lbl_ent = 'Energía Entregada Mensual (kWh)'
 
         if fila_acum_fin is not None:
-            consumo_base = _a_num(fila_acum_fin.get('BASE_REC_ACUM', 0))
-            consumo_intermedio = _a_num(fila_acum_fin.get('INTERMEDIO_REC_ACUM', 0))
-            consumo_punta = _a_num(fila_acum_fin.get('PUNTA_REC_ACUM', 0))
+            consumo_base = kwh_consumo_acum_periodo_fila(fila_acum_fin, 'base', esquema)
+            consumo_intermedio = kwh_consumo_acum_periodo_fila(fila_acum_fin, 'intermedio', esquema)
+            consumo_punta = kwh_consumo_acum_periodo_fila(fila_acum_fin, 'punta', esquema)
+            if netmetering:
+                rec_base = kwh_rec_acum_periodo_fila(fila_acum_fin, 'base')
+                rec_intermedio = kwh_rec_acum_periodo_fila(fila_acum_fin, 'intermedio')
+                rec_punta = kwh_rec_acum_periodo_fila(fila_acum_fin, 'punta')
+                ent_base = kwh_ent_acum_periodo_fila(fila_acum_fin, 'base')
+                ent_intermedio = kwh_ent_acum_periodo_fila(fila_acum_fin, 'intermedio')
+                ent_punta = kwh_ent_acum_periodo_fila(fila_acum_fin, 'punta')
             demanda_base = redondear_arriba_kw(fila_acum_fin.get('BASE_DEM_CON_BESS_MAX', 0))
             demanda_intermedio = redondear_arriba_kw(fila_acum_fin.get('INTERMEDIO_DEM_CON_BESS_MAX', 0))
             demanda_punta = redondear_arriba_kw(fila_acum_fin.get('PUNTA_DEM_CON_BESS_MAX', 0))
         else:
             consumo_base = consumo_intermedio = consumo_punta = 0
+            if netmetering:
+                rec_base = rec_intermedio = rec_punta = 0
+                ent_base = ent_intermedio = ent_punta = 0
             demanda_base = demanda_intermedio = demanda_punta = 0
     else:
         titulo_tabla = f"Detalle de Energía por Periodo · {rango_label}"
         lbl_consumo = 'Consumo del Periodo (kWh)'
+        lbl_rec = 'Energía Recibida del Periodo (kWh)'
+        lbl_ent = 'Energía Entregada del Periodo (kWh)'
 
-        sums_med = _sumar_columnas_en_rango(
-            ruta_med_dia, fecha_inicio, fecha_fin,
-            ['BASE_REC', 'INTERMEDIO_REC', 'PUNTA_REC']
-        )
-        consumo_base = sumar_energia(sums_med['BASE_REC'])
-        consumo_intermedio = sumar_energia(sums_med['INTERMEDIO_REC'])
-        consumo_punta = sumar_energia(sums_med['PUNTA_REC'])
+        if os.path.exists(ruta_med_dia):
+            df_med_rango = pd.read_csv(ruta_med_dia)
+            df_med_rango['FECHA_DT'] = pd.to_datetime(df_med_rango['FECHA'], format='%d/%m/%Y')
+            mask_med = (
+                (df_med_rango['FECHA_DT'].dt.date >= fecha_inicio)
+                & (df_med_rango['FECHA_DT'].dt.date <= fecha_fin)
+            )
+            df_med_rango = df_med_rango.loc[mask_med]
+            sums_med = sumar_consumo_por_periodo_df(df_med_rango, esquema, con_bess=True)
+            if netmetering:
+                sums_rec = sumar_rec_por_periodo_df(df_med_rango)
+                sums_ent = sumar_ent_por_periodo_df(df_med_rango)
+        else:
+            sums_med = {'base': 0.0, 'intermedio': 0.0, 'punta': 0.0}
+            if netmetering:
+                sums_rec = sums_ent = {'base': 0.0, 'intermedio': 0.0, 'punta': 0.0}
+        consumo_base = sumar_energia(sums_med['base'])
+        consumo_intermedio = sumar_energia(sums_med['intermedio'])
+        consumo_punta = sumar_energia(sums_med['punta'])
+        if netmetering:
+            rec_base = sumar_energia(sums_rec['base'])
+            rec_intermedio = sumar_energia(sums_rec['intermedio'])
+            rec_punta = sumar_energia(sums_rec['punta'])
+            ent_base = sumar_energia(sums_ent['base'])
+            ent_intermedio = sumar_energia(sums_ent['intermedio'])
+            ent_punta = sumar_energia(sums_ent['punta'])
 
         if fila_acum_fin is not None:
             demanda_base = redondear_arriba_kw(fila_acum_fin.get('BASE_DEM_CON_BESS_MAX', 0))
@@ -522,6 +568,11 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
 
     data = [['Periodo', 'Base', 'Intermedio', 'Punta', 'Total']]
     data.append([lbl_consumo, c_b, c_i, c_p, c_t])
+    if netmetering:
+        rec_b, rec_i, rec_p, rec_t = _celdas_kwh_tabla(rec_base, rec_intermedio, rec_punta)
+        ent_b, ent_i, ent_p, ent_t = _celdas_kwh_tabla(ent_base, ent_intermedio, ent_punta)
+        data.append([lbl_rec, rec_b, rec_i, rec_p, rec_t])
+        data.append([lbl_ent, ent_b, ent_i, ent_p, ent_t])
     data.append(['Demanda Rolada (kW)', f'{demanda_base:,}', f'{demanda_intermedio:,}', f'{demanda_punta:,}', f'{demanda_punta:,}'])
 
     sub = subestacion_por_prefijo(prefijo)
@@ -1009,18 +1060,8 @@ def _cargar_energia_diaria_rango(prefijo, fecha_inicio, fecha_fin):
     df = df[mask].sort_values('FECHA_DT').reset_index(drop=True)
     if df.empty:
         return None
-    df['TOTAL_CON'] = (
-        pd.to_numeric(df['BASE_REC'], errors='coerce').fillna(0)
-        + pd.to_numeric(df['INTERMEDIO_REC'], errors='coerce').fillna(0)
-        + pd.to_numeric(df['PUNTA_REC'], errors='coerce').fillna(0)
-    )
-    if energia_diaria_tiene_sin_bess(prefijo):
-        df['TOTAL_SIN'] = (
-            pd.to_numeric(df['BASE_REC_SIN_BESS'], errors='coerce').fillna(0)
-            + pd.to_numeric(df['INTERMEDIO_REC_SIN_BESS'], errors='coerce').fillna(0)
-            + pd.to_numeric(df['PUNTA_REC_SIN_BESS'], errors='coerce').fillna(0)
-        )
-    return df
+    esquema = esquema_tarifa_prefijo(prefijo)
+    return df_energia_para_visualizacion(df, esquema)
 
 def _cargar_bess_diaria_rango(fecha_inicio, fecha_fin, prefijo):
     ruta = str(ruta_energia_bess_por_dia(prefijo))

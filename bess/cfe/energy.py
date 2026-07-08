@@ -6,7 +6,8 @@ import os
 from datetime import datetime
 
 from bess.config.subestaciones import ruta_energia_dia_por_prefijo
-from bess.core.numbers import a_num, kwh_para_calculo, redondear_mxn_energia
+from bess.core.numbers import kwh_para_calculo, redondear_mxn_energia
+from bess.core.energia_periodo import kwh_consumo_periodo_fila
 from bess.cfe.daily_data import fila_por_fecha_csv
 from bess.config.esquema_tarifa import esquema_tarifa_prefijo
 from bess.tariffs.loader import cargar_tarifas
@@ -43,13 +44,19 @@ def calcular_costo_energia_dia(
     if fila is None:
         return None
 
-    mes = datetime.strptime(fecha_str, "%d/%m/%Y").month
-    por_periodo = {}
+    # Validar columnas mínimas según escenario
     for clave in _PERIODOS_ENERGIA_KEYS:
         col = columnas[clave]
         if col not in fila.index:
             return None
-        kwh = kwh_para_calculo(a_num(fila.get(col, 0)))
+
+    mes = datetime.strptime(fecha_str, "%d/%m/%Y").month
+    esquema = esquema_tarifa_prefijo(prefijo)
+    por_periodo = {}
+    for clave in _PERIODOS_ENERGIA_KEYS:
+        kwh = kwh_para_calculo(
+            kwh_consumo_periodo_fila(fila, clave, esquema, con_bess=con_bess)
+        )
         precio = tarifas.get(_TARIFA_PERIODO[clave], {}).get(mes, 0)
         por_periodo[clave] = {
             "kwh": kwh,

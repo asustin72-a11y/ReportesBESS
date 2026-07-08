@@ -13,6 +13,8 @@ from bess.config.subestaciones import (
 )
 from bess.core.kvarh import columnas_kvarh_prefijo, normalizar_columnas_kvarh
 from bess.core.numbers import redondear_arriba_kw, sumar_energia
+from bess.core.energia_periodo import sumar_consumo_por_periodo_df
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo
 
 def _fila_por_fecha(df, fecha):
     if df is None:
@@ -125,8 +127,8 @@ def obtener_demanda_rolada_punta(fecha, prefijo, con_bess=True):
     return redondear_arriba_kw(kw)
 
 
-def _obtener_energia_mes_desde_diario(fecha, prefijo, columnas_periodo):
-    """Suma energía por periodo desde ENERGIA_*_POR_DIA.csv (mes al día indicado)."""
+def _obtener_energia_mes_desde_diario(fecha, prefijo, con_bess=True):
+    """Suma energía de consumo por periodo desde ENERGIA_*_POR_DIA.csv (mes al día indicado)."""
     ruta_p = ruta_energia_dia_por_prefijo(prefijo)
     if not ruta_p or not ruta_p.exists():
         return None
@@ -136,30 +138,19 @@ def _obtener_energia_mes_desde_diario(fecha, prefijo, columnas_periodo):
     df_r = _filtrar_mes_hasta_fecha(df, fecha)
     if df_r.empty:
         return None
-    por_periodo = {}
-    for clave, col in columnas_periodo.items():
-        if col not in df_r.columns:
-            return None
-        por_periodo[clave] = sumar_energia(pd.to_numeric(df_r[col], errors='coerce').fillna(0))
+    esquema = esquema_tarifa_prefijo(prefijo)
+    por_periodo = sumar_consumo_por_periodo_df(df_r, esquema, con_bess=con_bess)
     return {'total': sum(por_periodo.values()), 'por_periodo': por_periodo}
 
 
 def obtener_energia_con_bess_mes(fecha, prefijo):
     """Energía con BESS por periodos (medidor), del mes al día indicado."""
-    return _obtener_energia_mes_desde_diario(fecha, prefijo, {
-        'base': 'BASE_REC',
-        'intermedio': 'INTERMEDIO_REC',
-        'punta': 'PUNTA_REC',
-    })
+    return _obtener_energia_mes_desde_diario(fecha, prefijo, con_bess=True)
 
 
 def obtener_energia_sin_bess_mes(fecha, prefijo):
     """Energía sin BESS por periodos, del mes al día indicado (ENERGIA_*_POR_DIA.csv)."""
-    return _obtener_energia_mes_desde_diario(fecha, prefijo, {
-        'base': 'BASE_REC_SIN_BESS',
-        'intermedio': 'INTERMEDIO_REC_SIN_BESS',
-        'punta': 'PUNTA_REC_SIN_BESS',
-    })
+    return _obtener_energia_mes_desde_diario(fecha, prefijo, con_bess=False)
 
 
 def acumulados_tiene_demanda_sin_bess(prefijo):

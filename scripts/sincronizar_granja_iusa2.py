@@ -30,7 +30,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--bd", type=Path, default=RUTA_BD_PERFILES)
     parser.add_argument("--desde", help="YYYY-MM-DD inicio")
-    parser.add_argument("--hasta", help="YYYY-MM-DD fin (default: mañana)")
+    parser.add_argument("--hasta", help="YYYY-MM-DD fin (default: hoy)")
     parser.add_argument("--granja", help="idcode de granja (default: primera)")
     parser.add_argument("--cantidad", type=int, default=20, help="Medidores MEGA a sumar")
     parser.add_argument("--export", action="store_true", help="Exportar GRANJA_IUSA2.csv")

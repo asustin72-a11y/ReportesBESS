@@ -17,6 +17,7 @@ from bess.config.subestaciones import (
     subestacion_por_prefijo,
 )
 from bess.config.theme import COLORES
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo, usa_netmetering
 from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
 
 def _kwh_neto_perfil(df: pd.DataFrame, prefijo: str) -> pd.Series | None:
@@ -29,6 +30,32 @@ def _kwh_neto_perfil(df: pd.DataFrame, prefijo: str) -> pd.Series | None:
         return None
     tmp = df.rename(columns={col_rec: 'KWH_REC', col_ent: 'KWH_ENT'})
     return kwh_neto_consumo(tmp, prefijo)
+
+
+def _enriquecer_demanda_real_perfil(df: pd.DataFrame, prefijo: str) -> pd.DataFrame:
+    """
+    Demanda real del sitio (GDMTH / netmetering):
+    kW = (REC − ENT + generación + descarga BESS − carga BESS) × 12 por intervalo.
+    """
+    if not usa_netmetering(esquema_tarifa_prefijo(prefijo)):
+        return df
+    col_rec = f'KWH_REC_{prefijo}'
+    col_ent = f'KWH_ENT_{prefijo}'
+    if col_rec not in df.columns or col_ent not in df.columns:
+        return df
+    out = df.copy()
+    kwh = (
+        pd.to_numeric(out[col_rec], errors='coerce').fillna(0)
+        - pd.to_numeric(out[col_ent], errors='coerce').fillna(0)
+    )
+    if 'KWH_GENERACION' in out.columns:
+        kwh = kwh + pd.to_numeric(out['KWH_GENERACION'], errors='coerce').fillna(0)
+    if 'KWH_ENT_BESS' in out.columns:
+        kwh = kwh + pd.to_numeric(out['KWH_ENT_BESS'], errors='coerce').fillna(0)
+    if 'KWH_REC_BESS' in out.columns:
+        kwh = kwh - pd.to_numeric(out['KWH_REC_BESS'], errors='coerce').fillna(0)
+    out['KW_DEMANDA_REAL'] = kwh * 12
+    return out
 
 
 def _preparar_df_perfil(df: pd.DataFrame, prefijo: str) -> tuple[pd.DataFrame, bool]:
@@ -81,18 +108,37 @@ def _rango_y_perfil(
     df_plot: pd.DataFrame,
     col_con: str,
     perfil_rec_ent: bool,
+    *,
+    tiene_demanda_real: bool = False,
 ) -> list[float] | None:
-    """Reserva espacio bajo el eje cero para que la descarga BESS sea visible."""
+    """Reserva espacio bajo el eje cero para descarga BESS y demanda real negativa."""
     pos_cols: list[str] = ['BESS_REC_kW']
     if 'KW_GENERACION' in df_plot.columns:
         pos_cols = ['KW_GENERACION', *pos_cols]
-    if perfil_rec_ent:
+    if tiene_demanda_real and 'KW_DEMANDA_REAL' in df_plot.columns:
+        pos_cols = ['KW_DEMANDA_REAL', *pos_cols]
+    elif perfil_rec_ent:
         pos_cols = ['KW_REC_ION', *pos_cols]
     elif col_con in df_plot.columns:
         pos_cols = [col_con, *pos_cols]
 
     y_max = max(_max_columna(df_plot, c) for c in pos_cols)
+    neg_cols: list[str] = []
     ent_max = _max_columna(df_plot, 'BESS_ENT_kW')
+    if ent_max > 0:
+        neg_cols.append('BESS_ENT_kW')
+    if tiene_demanda_real and 'KW_DEMANDA_REAL' in df_plot.columns:
+        dem_min = float(
+            pd.to_numeric(df_plot['KW_DEMANDA_REAL'], errors='coerce').fillna(0).min()
+        )
+        if dem_min < 0:
+            y_max = max(y_max, 0.0)
+            y_min = dem_min * 1.12
+            referencia = max(y_max, ent_max, abs(y_min))
+            pad_sup = referencia * 0.06 if referencia > 0 else ent_max * 0.06
+            pad_inf = abs(y_min) * 0.06
+            return [y_min - pad_inf, y_max + pad_sup]
+
     if ent_max <= 0:
         return None
 
@@ -114,6 +160,8 @@ def graficar_perfil(df, prefijo, titulo, *, incluir_generacion: bool = True):
     df, perfil_rec_ent = _preparar_df_perfil(df, prefijo)
     if incluir_generacion:
         df = _unir_generacion_perfil(df, prefijo)
+    df = _enriquecer_demanda_real_perfil(df, prefijo)
+    tiene_demanda_real = 'KW_DEMANDA_REAL' in df.columns
     tiene_generacion = incluir_generacion and 'KW_GENERACION' in df.columns
     sub = subestacion_por_prefijo(prefijo)
     recurso_gen = recurso_generacion_subestacion(sub.id) if sub else None
@@ -131,6 +179,8 @@ def graficar_perfil(df, prefijo, titulo, *, incluir_generacion: bool = True):
 
     if multidia:
         agg_cols = [c for c in ['BESS_REC_kW', 'BESS_ENT_kW'] if c in df.columns]
+        if tiene_demanda_real:
+            agg_cols = ['KW_DEMANDA_REAL'] + agg_cols
         if tiene_generacion:
             agg_cols = ['KW_GENERACION'] + agg_cols
         if perfil_rec_ent:
@@ -157,6 +207,18 @@ def graficar_perfil(df, prefijo, titulo, *, incluir_generacion: bool = True):
 
     fig = go.Figure()
     trace_mode = 'lines+markers' if multidia else 'lines'
+
+    if tiene_demanda_real and 'KW_DEMANDA_REAL' in df_plot.columns:
+        fig.add_trace(go.Scatter(
+            x=x_vals,
+            y=df_plot['KW_DEMANDA_REAL'],
+            name='Demanda real',
+            mode=trace_mode,
+            line=dict(color=COLORES['secondary'], width=2.8),
+            marker=dict(size=marker_size, color=COLORES['secondary']),
+            fill='tozeroy',
+            fillcolor='rgba(46,134,193,0.18)',
+        ))
 
     if perfil_rec_ent:
         fig.add_trace(go.Scatter(
@@ -227,7 +289,9 @@ def graficar_perfil(df, prefijo, titulo, *, incluir_generacion: bool = True):
 
     titulo_grafica = f"{titulo}{titulo_suffix}".strip()
     title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(titulo_grafica)
-    y_range = _rango_y_perfil(df_plot, col_con, perfil_rec_ent)
+    y_range = _rango_y_perfil(
+        df_plot, col_con, perfil_rec_ent, tiene_demanda_real=tiene_demanda_real
+    )
     yaxis_cfg = dict(
         title='Potencia (kW)',
         zeroline=True,

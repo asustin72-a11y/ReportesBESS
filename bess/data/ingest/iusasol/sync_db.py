@@ -61,8 +61,8 @@ def _dataframe_a_registros(df) -> list[dict[str, Any]]:
 
 
 def fecha_fin_api() -> str:
-    """Fin del rango API: mañana en America/Mexico_City (hoy + 1 día)."""
-    return (datetime.now(ZONA_API).date() + timedelta(days=1)).isoformat()
+    """Fin del rango API: hoy en America/Mexico_City."""
+    return datetime.now(ZONA_API).date().isoformat()
 
 
 def _fecha_fin_api() -> str:

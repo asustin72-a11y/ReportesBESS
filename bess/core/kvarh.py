@@ -18,7 +18,16 @@ def normalizar_columnas_kvarh(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def columnas_kvarh_prefijo(prefijo: str) -> tuple[str, ...]:
-    """Cuadrantes de kVArh según reglas del tipo de medidor en catálogo."""
+    """Cuadrantes de kVArh según esquema tarifario y tipo de medidor en catálogo.
+
+    GDMTH (p. ej. IUSA Aragón): KVARH_Q1 + KVARH_Q4.
+    Catálogo Reactivos=1 → solo Q1; Reactivos=2 → Q1 + Q4 (DIST consumo).
+    """
+    from bess.config.esquema_tarifa import ESQUEMA_GDMTH, esquema_tarifa_prefijo
+
+    if esquema_tarifa_prefijo(prefijo) == ESQUEMA_GDMTH:
+        return ("KVARH_Q1", "KVARH_Q4")
+
     from bess.config.catalog import obtener_catalogo
     from bess.config.subestaciones import medidor_consumo_por_nombre
 

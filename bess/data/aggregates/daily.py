@@ -12,7 +12,7 @@ from bess.config.subestaciones import (
 )
 from bess.core.consumo import kwh_neto_consumo
 from bess.cfe.periods import periodo_por_fecha_hora
-from bess.config.esquema_tarifa import esquema_tarifa_prefijo, normalizar_esquema_tarifa
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo, normalizar_esquema_tarifa, usa_netmetering
 from bess.core.kvarh import (
     columnas_kvarh as _columnas_kvarh,
     kvarh_total as _kvarh_total,
@@ -89,6 +89,11 @@ def _preparar_minuto(ruta_minuto: str, prefijo: str, esquema_tarifa_id: str) -> 
         print(f"ERROR: Falta columna {col_ent} en {os.path.basename(ruta_minuto)}")
         return None
 
+    col_rec = f"KWH_REC_{prefijo}"
+    if usa_netmetering(esquema_tarifa_id) and col_rec not in df.columns:
+        print(f"ERROR: Falta columna {col_rec} en {os.path.basename(ruta_minuto)}")
+        return None
+
     for col in ("KWH_REC_BESS", "KWH_ENT_BESS"):
         if col not in df.columns:
             print(f"ERROR: Falta columna {col} en {os.path.basename(ruta_minuto)}")
@@ -117,24 +122,46 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
 
     print(f"  Energía y sin BESS desde {nombre_combinado} (5 min)")
 
+    col_rec = f"KWH_REC_{prefijo}"
     col_ent = f"KWH_ENT_{prefijo}"
+    netmetering = usa_netmetering(esquema)
+
     df_ent = df_minuto.groupby(["FECHA", "PERIODO"], as_index=False)[col_ent].sum()
     df_med_ent_pivot = _pivot_por_periodo(df_ent, col_ent, _MAPA_PERIODO_ENT)
 
     df_minuto = df_minuto.copy()
     df_minuto["_KWH_CONSUMO"] = kwh_neto_consumo(df_minuto, prefijo)
-    df_rec = df_minuto.groupby(["FECHA", "PERIODO"], as_index=False)["_KWH_CONSUMO"].sum()
-    df_med_rec_pivot = _pivot_por_periodo(df_rec, "_KWH_CONSUMO", _MAPA_PERIODO_REC)
+
+    if netmetering:
+        df_rec_raw = df_minuto.groupby(["FECHA", "PERIODO"], as_index=False)[col_rec].sum()
+        df_med_rec_pivot = _pivot_por_periodo(df_rec_raw, col_rec, _MAPA_PERIODO_REC)
+
+        df_sin_grp = df_minuto.groupby(["FECHA", "PERIODO"], as_index=False).agg(
+            rec_ion=(col_rec, "sum"),
+            ent_ion=(col_ent, "sum"),
+            rec_bess=("KWH_REC_BESS", "sum"),
+            ent_bess=("KWH_ENT_BESS", "sum"),
+        )
+        df_sin_grp["KWH_SIN_BESS"] = (
+            df_sin_grp["rec_ion"]
+            - df_sin_grp["ent_ion"]
+            - df_sin_grp["rec_bess"]
+            + df_sin_grp["ent_bess"]
+        )
+        df_sin_pivot = _pivot_por_periodo(df_sin_grp, "KWH_SIN_BESS", _MAPA_PERIODO_SIN_BESS)
+    else:
+        df_rec = df_minuto.groupby(["FECHA", "PERIODO"], as_index=False)["_KWH_CONSUMO"].sum()
+        df_med_rec_pivot = _pivot_por_periodo(df_rec, "_KWH_CONSUMO", _MAPA_PERIODO_REC)
+
+        df_minuto["KWH_SIN_BESS"] = (
+            df_minuto["_KWH_CONSUMO"]
+            - pd.to_numeric(df_minuto["KWH_REC_BESS"], errors="coerce").fillna(0)
+            + pd.to_numeric(df_minuto["KWH_ENT_BESS"], errors="coerce").fillna(0)
+        )
+        df_sin = df_minuto.groupby(["FECHA", "PERIODO"], as_index=False)["KWH_SIN_BESS"].sum()
+        df_sin_pivot = _pivot_por_periodo(df_sin, "KWH_SIN_BESS", _MAPA_PERIODO_SIN_BESS)
 
     df_med_diario = df_med_ent_pivot.merge(df_med_rec_pivot, on="FECHA", how="outer").fillna(0)
-
-    df_minuto["KWH_SIN_BESS"] = (
-        df_minuto["_KWH_CONSUMO"]
-        - pd.to_numeric(df_minuto["KWH_REC_BESS"], errors="coerce").fillna(0)
-        + pd.to_numeric(df_minuto["KWH_ENT_BESS"], errors="coerce").fillna(0)
-    )
-    df_sin = df_minuto.groupby(["FECHA", "PERIODO"], as_index=False)["KWH_SIN_BESS"].sum()
-    df_sin_pivot = _pivot_por_periodo(df_sin, "KWH_SIN_BESS", _MAPA_PERIODO_SIN_BESS)
     df_med_diario = df_med_diario.merge(df_sin_pivot, on="FECHA", how="left").fillna(0)
 
     # Demandas máximas (rolling 15 min en combinado por minuto)

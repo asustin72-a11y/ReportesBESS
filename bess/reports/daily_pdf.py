@@ -24,7 +24,12 @@ from bess.core.numbers import a_num as _a_num, kwh_para_calculo, redondear_arrib
 from bess.cfe.arbitrage import calcular_arbitraje_dia
 from bess.cfe.daily_data import obtener_bess_energia_dia
 from bess.reports.assets import buscar_logo, formatear_fecha_espanol
-from bess.config.esquema_tarifa import esquema_tarifa_prefijo
+from bess.config.esquema_tarifa import esquema_tarifa_prefijo, usa_netmetering
+from bess.core.energia_periodo import (
+    kwh_consumo_acum_periodo_fila,
+    kwh_ent_acum_periodo_fila,
+    kwh_rec_acum_periodo_fila,
+)
 from bess.tariffs.loader import cargar_tarifas
 
 print = log
@@ -193,12 +198,14 @@ def _pdf_grafica_perfil(
     from reportlab.platypus import Image
     from reportlab.lib.units import inch
 
-    from bess.charts.profile import _preparar_df_perfil, _unir_generacion_perfil
+    from bess.charts.profile import _enriquecer_demanda_real_perfil, _preparar_df_perfil, _unir_generacion_perfil
     from bess.config.subestaciones import etiqueta_medidor_consumo, recurso_generacion_subestacion, subestacion_por_prefijo
 
     df_dia, perfil_rec_ent = _preparar_df_perfil(df_dia, prefijo)
     if incluir_generacion:
         df_dia = _unir_generacion_perfil(df_dia, prefijo)
+    df_dia = _enriquecer_demanda_real_perfil(df_dia, prefijo)
+    tiene_demanda_real = 'KW_DEMANDA_REAL' in df_dia.columns
     tiene_generacion = incluir_generacion and 'KW_GENERACION' in df_dia.columns
     sub = subestacion_por_prefijo(prefijo)
     recurso_gen = recurso_generacion_subestacion(sub.id) if sub else None
@@ -209,18 +216,28 @@ def _pdf_grafica_perfil(
 
     fig, ax = plt.subplots(figsize=(11, 3.62), facecolor='white', dpi=120)
     ax.set_facecolor('white')
+    ncol = 2
+
+    if tiene_demanda_real:
+        dem_real = df_dia['KW_DEMANDA_REAL'].values
+        ax.fill_between(horas, 0, dem_real, alpha=0.15, color=_PDF['secondary'])
+        ax.plot(
+            horas, dem_real, color=_PDF['secondary'], linewidth=2.2,
+            label='Demanda real',
+        )
+        ncol += 1
 
     if perfil_rec_ent:
         ion_rec = df_dia['KW_REC_ION'].values
         etiqueta_ion = etiqueta_medidor_consumo(prefijo)
         ax.fill_between(horas, 0, ion_rec, alpha=0.12, color=_PDF['iusa'])
         ax.plot(horas, ion_rec, color=_PDF['iusa'], linewidth=1.8, label=f'kW recibidos ({etiqueta_ion})')
-        ncol = 3
+        ncol += 1
     else:
         iusa_con = df_dia[f'IUSA_CON_BESS_{prefijo}_kW'].values
         ax.fill_between(horas, 0, iusa_con, alpha=0.12, color=_PDF['iusa'])
         ax.plot(horas, iusa_con, color=_PDF['iusa'], linewidth=1.8, label='Demanda con BESS')
-        ncol = 3
+        ncol += 1
 
     if tiene_generacion:
         gen_kw = df_dia['KW_GENERACION'].values
@@ -430,14 +447,27 @@ def generar_reporte_pdf(fecha_str, medidor, *, incluir_generacion: bool = True):
 
         if fila_acum is not None and len(fila_acum) > 0:
             fila = fila_acum.iloc[0]
-            consumo_base = _a_num(fila.get('BASE_REC_ACUM', 0))
-            consumo_intermedio = _a_num(fila.get('INTERMEDIO_REC_ACUM', 0))
-            consumo_punta = _a_num(fila.get('PUNTA_REC_ACUM', 0))
+            esquema = esquema_tarifa_prefijo(prefijo)
+            netmetering = usa_netmetering(esquema)
+            consumo_base = kwh_consumo_acum_periodo_fila(fila, 'base', esquema)
+            consumo_intermedio = kwh_consumo_acum_periodo_fila(fila, 'intermedio', esquema)
+            consumo_punta = kwh_consumo_acum_periodo_fila(fila, 'punta', esquema)
+            if netmetering:
+                rec_base = kwh_rec_acum_periodo_fila(fila, 'base')
+                rec_intermedio = kwh_rec_acum_periodo_fila(fila, 'intermedio')
+                rec_punta = kwh_rec_acum_periodo_fila(fila, 'punta')
+                ent_base = kwh_ent_acum_periodo_fila(fila, 'base')
+                ent_intermedio = kwh_ent_acum_periodo_fila(fila, 'intermedio')
+                ent_punta = kwh_ent_acum_periodo_fila(fila, 'punta')
             demanda_base = redondear_arriba_kw(fila.get('BASE_DEM_CON_BESS_MAX', 0))
             demanda_intermedio = redondear_arriba_kw(fila.get('INTERMEDIO_DEM_CON_BESS_MAX', 0))
             demanda_punta = redondear_arriba_kw(fila.get('PUNTA_DEM_CON_BESS_MAX', 0))
         else:
+            netmetering = usa_netmetering(esquema_tarifa_prefijo(prefijo))
             consumo_base = consumo_intermedio = consumo_punta = 0
+            if netmetering:
+                rec_base = rec_intermedio = rec_punta = 0
+                ent_base = ent_intermedio = ent_punta = 0
             demanda_base = demanda_intermedio = demanda_punta = 0
 
         bess_dia = obtener_bess_energia_dia(fecha_str, prefijo)
@@ -450,6 +480,11 @@ def generar_reporte_pdf(fecha_str, medidor, *, incluir_generacion: bool = True):
         )
 
         data.append(['Consumo Mensual (kWh)', c_b, c_i, c_p, c_t])
+        if netmetering:
+            rec_b, rec_i, rec_p, rec_t = _celdas_kwh_tabla(rec_base, rec_intermedio, rec_punta)
+            ent_b, ent_i, ent_p, ent_t = _celdas_kwh_tabla(ent_base, ent_intermedio, ent_punta)
+            data.append(['Energía Recibida Mensual (kWh)', rec_b, rec_i, rec_p, rec_t])
+            data.append(['Energía Entregada Mensual (kWh)', ent_b, ent_i, ent_p, ent_t])
         data.append(['Demanda Rolada (kW)', f'{demanda_base:,}', f'{demanda_intermedio:,}', f'{demanda_punta:,}', f'{demanda_punta:,}'])
 
         sub = subestacion_por_id(med.subestacion_nombre)

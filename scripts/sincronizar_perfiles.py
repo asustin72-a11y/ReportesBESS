@@ -164,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--desde', help='Forzar inicio YYYY-MM-DD o YYYY-MM-DD HH:MM:SS.')
     parser.add_argument(
         '--hasta',
-        help='Forzar fin YYYY-MM-DD (default API: mañana). Omita en ION para traer hasta ahora en el medidor.',
+        help='Forzar fin YYYY-MM-DD (default API: hoy). Omita en ION para traer hasta ahora en el medidor.',
     )
     parser.add_argument(
         '--vaciar',

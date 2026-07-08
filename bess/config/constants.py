@@ -9,7 +9,7 @@ from bess.config.subestaciones import (
 
 ARCHIVO_TARIFAS = "Tarifas_2026.csv"
 ARCHIVO_TARIFAS_GDMTH = "Tarifas_GDMTH_2026.csv"
-UI_BUILD = "2026-07-07"
+UI_BUILD = "2026-07-08"
 
 TIPOS_TARIFA = [
     "Base",

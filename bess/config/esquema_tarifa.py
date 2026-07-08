@@ -15,6 +15,13 @@ _FACTORES_CFE_CAPACIDAD: dict[str, float] = {
     ESQUEMA_GDMTH: FACTOR_CFE_CAPACIDAD_GDMTH,
 }
 
+# Netmetering: energía por periodo = Σ REC − Σ ENT (puede ser negativa).
+# Sin netmetering: energía = Σ max(0, REC−ENT) por intervalo.
+_NETMETERING: dict[str, bool] = {
+    ESQUEMA_DIST: False,
+    ESQUEMA_GDMTH: True,
+}
+
 
 def normalizar_esquema_tarifa(valor: str | None) -> str:
     clave = (valor or ESQUEMA_DEFAULT).strip().upper()
@@ -28,6 +35,14 @@ def factor_cfe_capacidad(esquema_id: str | None = None) -> float:
     return _FACTORES_CFE_CAPACIDAD.get(
         normalizar_esquema_tarifa(esquema_id),
         FACTOR_CFE_CAPACIDAD_DIST,
+    )
+
+
+def usa_netmetering(esquema_id: str | None = None) -> bool:
+    """True si el esquema acumula energía como Σ REC − Σ ENT por periodo (GDMTH)."""
+    return _NETMETERING.get(
+        normalizar_esquema_tarifa(esquema_id),
+        False,
     )
 
 

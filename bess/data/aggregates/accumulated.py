@@ -48,6 +48,10 @@ def generar_acumulados(prefijo):
     for col in ('BASE_REC', 'INTERMEDIO_REC', 'PUNTA_REC'):
         df_acum_med[f"{col}_ACUM"] = df_med_dia.groupby('MES')[col].cumsum()
 
+    for col in ('BASE_ENT', 'INTERMEDIO_ENT', 'PUNTA_ENT'):
+        if col in df_med_dia.columns:
+            df_acum_med[f"{col}_ACUM"] = df_med_dia.groupby('MES')[col].cumsum()
+
     if 'KVARH' in df_med_dia.columns:
         df_acum_med['KVARH_ACUM'] = df_med_dia.groupby('MES')['KVARH'].cumsum()
 

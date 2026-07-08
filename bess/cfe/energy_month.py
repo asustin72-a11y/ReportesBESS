@@ -10,9 +10,9 @@ from bess.config.subestaciones import ruta_energia_dia_por_prefijo
 from bess.core.numbers import (
     kwh_para_calculo,
     redondear_mxn_energia,
-    sumar_energia,
 )
 from bess.config.esquema_tarifa import esquema_tarifa_prefijo
+from bess.core.energia_periodo import sumar_consumo_por_periodo_df
 from bess.tariffs.loader import cargar_tarifas
 from bess.cfe.report_data import dias_transcurridos_mes
 
@@ -22,11 +22,6 @@ PERIODOS_ENERGIA = [
     ('punta', 'Punta'),
 ]
 
-_COLUMNAS_ENERGIA_CON = {
-    'base': 'BASE_REC',
-    'intermedio': 'INTERMEDIO_REC',
-    'punta': 'PUNTA_REC',
-}
 _COLUMNAS_ENERGIA_SIN = {
     'base': 'BASE_REC_SIN_BESS',
     'intermedio': 'INTERMEDIO_REC_SIN_BESS',
@@ -37,7 +32,6 @@ def calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, con_bess=True
     """kWh por periodo en un rango de fechas × tarifa → costo MXN."""
     if tarifas is None:
         tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
-    columnas = _COLUMNAS_ENERGIA_CON if con_bess else _COLUMNAS_ENERGIA_SIN
     ruta_p = ruta_energia_dia_por_prefijo(prefijo)
     if not ruta_p or not ruta_p.exists():
         return None
@@ -49,11 +43,8 @@ def calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, con_bess=True
     if df_r.empty:
         return None
 
-    por_periodo_raw = {}
-    for clave, col in columnas.items():
-        if col not in df_r.columns:
-            return None
-        por_periodo_raw[clave] = sumar_energia(pd.to_numeric(df_r[col], errors='coerce').fillna(0))
+    esquema = esquema_tarifa_prefijo(prefijo)
+    por_periodo_raw = sumar_consumo_por_periodo_df(df_r, esquema, con_bess=con_bess)
 
     mes = fecha_fin.month
     tarifa_keys = {'base': 'Base', 'intermedio': 'Intermedio', 'punta': 'Punta'}
