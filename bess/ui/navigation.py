@@ -92,6 +92,18 @@ SECCIONES = [
             "PDF del recibo",
         ],
     },
+    {
+        "key": "emisiones",
+        "pill": "Emisiones",
+        "titulo": "Emisiones CO₂",
+        "icono": "🌿",
+        "resumen": "Huella de carbono Scope 2 por periodo: consumo de red, BESS y generación.",
+        "capacidades": [
+            "Huella con/sin BESS",
+            "Factores Marcado",
+            "PDF descargable",
+        ],
+    },
 ]
 
 

@@ -105,12 +105,12 @@ Variables opcionales en `.env` / secrets para ION:
 
 ## 7. Actualizar desde GitHub (opcional)
 
-Este respaldo corresponde a la rama **`main`** (tag `v5.11.0`).
+Este respaldo corresponde a la rama **`main`** (tag `v5.12.0`).
 
 ```powershell
 git clone https://github.com/asustin72-a11y/ReportesBESS.git
 cd ReportesBESS
-git checkout v5.11.0
+git checkout v5.12.0
 ```
 
 Conserva tu carpeta `data/` y tus `secrets.toml` al actualizar código.
@@ -127,5 +127,5 @@ Conserva tu carpeta `data/` y tus `secrets.toml` al actualizar código.
 
 ## Versión
 
-- **BESS:** 5.11.0
+- **BESS:** 5.12.0
 - **Entry point:** `streamlit_app.py` → `bess/ui/app.py`

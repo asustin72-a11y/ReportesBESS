@@ -100,6 +100,7 @@ from bess.ui.participacion_tab import tab_participacion_capacidad
 from bess.ui.generacion_tab import tab_generacion
 from bess.ui.reportes_tab import tab_reportes
 from bess.ui.receipt_tab import tab_recibo as _tab_recibo_core
+from bess.ui.emisiones_tab import tab_emisiones as _tab_emisiones_core
 from bess.ui.sidebar import _ajustar_sidebar_por_rol, sidebar_admin
 from bess.ui.styles import aplicar_estilos
 from bess.ui.navigation import render_navegacion_principal
@@ -333,6 +334,10 @@ def html_comparacion_capacidad(res_con, res_sin, precio_cap, ahorro):
 
 def tab_recibo(df, prefijo):
     _tab_recibo_core(df, prefijo, render_boton_descarga)
+
+
+def tab_emisiones(df, prefijo):
+    _tab_emisiones_core(df, prefijo, render_boton_descarga)
 
 def _fila_por_fecha(df, fecha):
     if df is None:
@@ -1310,6 +1315,8 @@ def _bloque_reporteador(prefijo, medidor):
         tab_reportes(df, prefijo, tab_reporte)
     elif seccion == "recibo":
         tab_recibo(df, prefijo)
+    elif seccion == "emisiones":
+        tab_emisiones(df, prefijo)
 
 
 def _al_cambiar_subestacion():

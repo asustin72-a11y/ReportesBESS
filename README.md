@@ -2,7 +2,7 @@
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
 
-**Versión actual:** 5.11.0 — Netmetering GDMTH, factor de potencia Q1+Q4, demanda real en perfil y sync API hasta hoy.
+**Versión actual:** 5.12.0 — Sección Emisiones CO₂ (huella Scope 2, cogen/solar vs red, PDF).
 
 ## Documentación
 
