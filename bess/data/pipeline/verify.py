@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import sys
 from datetime import timedelta
 
 import pandas as pd
@@ -14,37 +13,18 @@ from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
 from bess.config.catalog import obtener_catalogo
 from bess.config.subestaciones import SUBESTACIONES, archivos_fuente_subestacion
 from bess.data.pipeline.bess_consolidate import consolidar_bess_subestacion
-from bess.core.console import crear_barra, imprimir_progreso as _imprimir_progreso, log
+from bess.core.console import log
 from bess.data.ingest.identify import identificar_y_renombrar_archivos
 from bess.data.ingest.readers import leer_archivo_perfil
 
 print = log
 
-_PRIMER_INTERVALO_DIA = (0, 5)
 # Solo ION (Modbus). BESS, Banco 1 y granja (API) deben conservar/rellenar 00:00.
 _ARCHIVOS_SALTAR_MEDIANOCHE_ION = frozenset(
     rutas_mod.nombre_archivo_medidor(m.nombre)
     for m in obtener_catalogo().medidores
     if m.descarga == "ION"
 )
-
-
-def _saltar_slot_medianoche_opcional(esperada, siguiente_en_archivo) -> bool:
-    """
-    Al rellenar huecos: tras 23:55 el reloj cae en 00:00, pero el medidor puede
-    empezar el día en 00:05. No insertar un cero en 00:00 si ya viene 00:05.
-    Si el medidor sí trae 00:00 con datos, ese registro se conserva sin saltar.
-    """
-    if esperada.hour != 0 or esperada.minute != 0:
-        return False
-    if siguiente_en_archivo <= esperada:
-        return False
-    if siguiente_en_archivo.date() != esperada.date():
-        return False
-    return (
-        siguiente_en_archivo.hour == _PRIMER_INTERVALO_DIA[0]
-        and siguiente_en_archivo.minute == _PRIMER_INTERVALO_DIA[1]
-    )
 
 
 def _guardar_perfil_procesado(
@@ -115,58 +95,52 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
         print(f"📊 Registros esperados: {registros_esperados}")
         print(f"📊 Registros actuales: {num_registros}")
         
-        # Insertar registros faltantes
-        Fecha_Correcta = fi
-        x = 0
-        Faltantes = 0
-        Perfiles_faltantes = None
-        primera_vez = 0
+        # Insertar registros faltantes (vectorizado: antes se armaba con un
+        # pd.concat por cada registro faltante dentro de un bucle, O(n^2) en
+        # perfiles largos; ahora se calcula la rejilla completa de 5 min y se
+        # resta contra las fechas reales en una sola pasada).
         Frecuencia_Perfil_MIN = 5
         columnas = perfil.columns.tolist()
-        
+
         print("\n⏳ Verificando registros faltantes...")
         usar_salto_medianoche = nombre_archivo in _ARCHIVOS_SALTAR_MEDIANOCHE_ION
-        
-        while x < num_registros:
-            fecha_archivo = perfil_sin_duplicados.iloc[x, 0]
-            
-            if fecha_archivo != Fecha_Correcta:
-                if usar_salto_medianoche and _saltar_slot_medianoche_opcional(
-                    Fecha_Correcta, fecha_archivo
-                ):
-                    Fecha_Correcta = fecha_archivo
-                    continue
 
-                nuevo_registro = {'Fecha': Fecha_Correcta}
-                for col in columnas[1:]:
-                    nuevo_registro[col] = 0
-                
-                if primera_vez == 0:
-                    Perfiles_faltantes = pd.DataFrame([nuevo_registro])
-                    primera_vez = 1
-                else:
-                    Perfiles_faltantes = pd.concat([Perfiles_faltantes, pd.DataFrame([nuevo_registro])], ignore_index=True)
-                
-                x = x - 1
-                Faltantes = Faltantes + 1
-            
-            x = x + 1
-            Fecha_Correcta = Fecha_Correcta + timedelta(minutes=Frecuencia_Perfil_MIN)
-            
-            porcentaje = (x / num_registros) * 100
-            barra = crear_barra(porcentaje, 40)
-            _imprimir_progreso(f"{barra} {porcentaje:.1f}%")
-        
-        if getattr(sys.stdout, 'isatty', lambda: False)():
-            print()
+        rango_completo = pd.date_range(fi, ff, freq=f'{Frecuencia_Perfil_MIN}min')
+
+        if usar_salto_medianoche:
+            # No exigir el slot 00:00 cuando el medidor legítimamente empieza
+            # el día en 00:05 (medidores ION, ver _ARCHIVOS_SALTAR_MEDIANOCHE_ION). Si el
+            # archivo sí trae 00:00, ese registro ya está en fechas_reales y
+            # no se toca.
+            fechas_reales = set(perfil_sin_duplicados['Fecha'])
+            medianoches = rango_completo[
+                (rango_completo.hour == 0) & (rango_completo.minute == 0)
+            ]
+            siguiente = medianoches + timedelta(minutes=Frecuencia_Perfil_MIN)
+            medianoches_a_excluir = medianoches[
+                (~medianoches.isin(fechas_reales)) & siguiente.isin(fechas_reales)
+            ]
+            if len(medianoches_a_excluir):
+                rango_completo = rango_completo.difference(medianoches_a_excluir)
+
+        fechas_faltantes = rango_completo.difference(
+            pd.DatetimeIndex(perfil_sin_duplicados['Fecha'])
+        )
+        Faltantes = len(fechas_faltantes)
+
         print("✅ Verificación completada")
         print(f"📝 Registros faltantes insertados: {Faltantes}")
-        
-        if Faltantes != 0:
-            perfil_completo = pd.concat([perfil_sin_duplicados, Perfiles_faltantes], ignore_index=True)
+
+        if Faltantes:
+            faltantes_df = pd.DataFrame({'Fecha': fechas_faltantes})
+            for col in columnas[1:]:
+                faltantes_df[col] = 0
+            perfil_completo = pd.concat(
+                [perfil_sin_duplicados, faltantes_df], ignore_index=True
+            )
         else:
             perfil_completo = perfil_sin_duplicados
-        
+
         perfil_completo = perfil_completo.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
 
         return _guardar_perfil_procesado(
