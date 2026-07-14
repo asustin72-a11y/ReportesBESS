@@ -25,6 +25,27 @@ def _leer_perfil(ruta_origen: str, archivo_origen: str):
 
 
 def filtrar_datos():
+    """Filtra datos, adquiriendo antes el lock del pipeline.
+
+    Ver bess.data.pipeline_lock: evita que esta etapa corra al mismo
+    tiempo que otra (sync/verificar/filtrar/reportes).
+    """
+    from filelock import Timeout
+
+    from bess.data.pipeline_lock import MENSAJE_PIPELINE_OCUPADO, lock_pipeline
+
+    lock = lock_pipeline()
+    try:
+        lock.acquire()
+    except Timeout:
+        return False, MENSAJE_PIPELINE_OCUPADO
+    try:
+        return _filtrar_datos_impl()
+    finally:
+        lock.release()
+
+
+def _filtrar_datos_impl():
     """
     Filtra por fechas comunes dentro de cada subestación (consumo + BESS).
     """

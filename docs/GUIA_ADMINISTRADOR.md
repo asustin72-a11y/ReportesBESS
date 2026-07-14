@@ -162,6 +162,7 @@ La aplicación recarga datos automáticamente cada **15 minutos** (`streamlit-au
 | Error al escribir CSV de reporte | Cerrar Excel u otros programas con archivos abiertos en `ArchivosReporte`. |
 | Timeout en generación (>15 min) | Ejecutar `python scripts/run_reporte_bess.py` en consola del servidor. |
 | Visualizador no ve datos | Confirmar que **Procesar todo** terminó OK para su subestación/medidor. |
+| «Otra ejecución del pipeline sigue en curso» | Sincronizar/Verificar/Filtrar/Generar reportes están bloqueados entre sí (lock de archivo en `data/.pipeline.lock`) para no pisarse. Espere a que termine la otra ejecución (cron, otro admin, u otra pestaña) y reintente. |
 
 ---
 

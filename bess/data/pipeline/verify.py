@@ -183,6 +183,28 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
 
 
 def verificar_datos_fuente():
+    """Verifica datos fuente, adquiriendo antes el lock del pipeline.
+
+    Ver bess.data.pipeline_lock: evita que esta etapa corra al mismo
+    tiempo que otra (sync/verificar/filtrar/reportes), sin importar si
+    la dispara el cron, el boton "Procesar todo" o el paso individual.
+    """
+    from filelock import Timeout
+
+    from bess.data.pipeline_lock import MENSAJE_PIPELINE_OCUPADO, lock_pipeline
+
+    lock = lock_pipeline()
+    try:
+        lock.acquire()
+    except Timeout:
+        return False, MENSAJE_PIPELINE_OCUPADO
+    try:
+        return _verificar_datos_fuente_impl()
+    finally:
+        lock.release()
+
+
+def _verificar_datos_fuente_impl():
     """Función principal de verificación de datos fuente. Retorna (éxito, mensaje)."""
     
     # PASO 1: Identificar y renombrar archivos

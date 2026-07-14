@@ -23,6 +23,7 @@ backups/*.zip
 data/bess_perfiles.db
 data/bess_perfiles.pre_migracion_*.db
 data/sync_preflight.json
+data/.pipeline.lock
 data/Tarifas/Ultima_Sincronizacion.csv
 data/tmp_*
 data/fase7_corrida.log

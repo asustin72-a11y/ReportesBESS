@@ -106,6 +106,27 @@ def _validar_archivos_filtrados():
 
 
 def reporte_bess():
+    """Genera reportes CSV, adquiriendo antes el lock del pipeline.
+
+    Ver bess.data.pipeline_lock: evita que esta etapa corra al mismo
+    tiempo que otra (sync/verificar/filtrar/reportes).
+    """
+    from filelock import Timeout
+
+    from bess.data.pipeline_lock import MENSAJE_PIPELINE_OCUPADO, lock_pipeline
+
+    lock = lock_pipeline()
+    try:
+        lock.acquire()
+    except Timeout:
+        return False, {"_error": MENSAJE_PIPELINE_OCUPADO}
+    try:
+        return _reporte_bess_impl()
+    finally:
+        lock.release()
+
+
+def _reporte_bess_impl():
     """Genera reportes CSV para todas las subestaciones."""
     total = _reporte_ui_total()
     paso = 0
