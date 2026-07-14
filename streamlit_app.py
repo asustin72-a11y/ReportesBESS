@@ -18,4 +18,6 @@ _configurar_salida_consola()
 
 # UI modular (bess/ui): gráficas con descarga PNG, sync, recibo, etc.
 # legacy/app_plotly.py queda archivado como referencia histórica; no usar como entry point.
-from bess.ui.app 
+from bess.ui.app import main
+
+main()

@@ -1478,4 +1478,4 @@ def main():
     _bloque_reporteador(prefijo, medidor)
 
 if __name__ == "__main__":
-    main()                                                      
+    main()
