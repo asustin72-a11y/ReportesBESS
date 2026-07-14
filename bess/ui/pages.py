@@ -1,8 +1,6 @@
-# app_plotly.py - Versión corregida
-
 """
 BESS - Sistema de Procesamiento y Reportes - Web App
-Versión simplificada con selector de fechas básico
+Pestañas del reporteador (Streamlit).
 """
 
 import streamlit as st
@@ -1480,4 +1478,4 @@ def main():
     _bloque_reporteador(prefijo, medidor)
 
 if __name__ == "__main__":
-    main()
+    main()                                                      

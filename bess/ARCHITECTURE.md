@@ -6,9 +6,9 @@ Documento de referencia para la migración de monolito (exe) a paquete modular (
 
 | Archivo | Líneas | Rol |
 |---------|--------|-----|
-| `app_plotly.py` | ~10 | Entrada compatibilidad → `bess.ui.app` |
 | `bess_core.py` | ~90 | Fachada de compatibilidad (re-exporta `bess.*`) |
 | `streamlit_app.py` | 21 | Entrada Streamlit Cloud |
+| `legacy/app_plotly.py` | 4168 | **Legacy archivado** (monolito pre-refactor, no usado ni importado) |
 | `legacy/styles.py` | 549 | **Legacy archivado** (no usado) |
 
 **Problemas:** duplicación de rutas/números/tarifas, lógica de negocio mezclada con UI, imports lazy difíciles de testear.
@@ -31,7 +31,7 @@ bess/
 Raíz del repo (compatibilidad):
 
 - `streamlit_app.py` → `bess.ui.app.main()` ✓
-- `app_plotly.py` → re-export de `bess.ui.app` (compatibilidad)
+- `legacy/app_plotly.py` → monolito pre-refactor archivado; no se importa desde ningún módulo activo
 
 ## Fases de migración
 
@@ -76,5 +76,4 @@ Plantillas: `.streamlit/secrets.toml.example`, `.env.example`. Contraseñas en t
 - Cálculos CFE → `bess/cfe/`
 - Tarifas CSV → `bess/tariffs/`
 - Recibo (~700 líneas) → `bess/cfe/receipt/`
-- Gráficas Plotly → `bess/charts/`
-- CSS y componentes → `bess/ui/`
+-
