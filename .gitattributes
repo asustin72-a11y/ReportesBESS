@@ -1,3 +1,17 @@
+# Normalización general: todo lo detectado como texto se guarda con LF
+* text=auto eol=lf
+
 *.sh text eol=lf
 deploy/*.sh text eol=lf
 scripts/*.sh text eol=lf
+
+# Binarios: nunca convertir fin de línea
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.pdf binary
+*.db binary
+*.exe binary
+*.rar binary
+*.zip binary
+*.pyc binary
