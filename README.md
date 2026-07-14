@@ -23,6 +23,15 @@ python -m playwright install chromium
 streamlit run streamlit_app.py
 ```
 
+## Pruebas
+
+Suite unitaria sobre `bess/core`, `bess/cfe` y `bess/tariffs` (sin levantar la app ni tocar datos reales):
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
 ## Despliegue en Streamlit Community Cloud
 
 1. Sube este repositorio a GitHub: [ReportesBESS](https://github.com/asustin72-a11y/ReportesBESS)
