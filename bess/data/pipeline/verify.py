@@ -53,9 +53,124 @@ def _guardar_perfil_procesado(
     return True
 
 
+def _anexar_perfil_procesado(
+    perfil_nuevo: pd.DataFrame,
+    ruta_destino: str,
+    nombre_archivo: str,
+) -> bool:
+    """Agrega filas nuevas al final de un CSV ya procesado (sin reescribirlo).
+
+    A diferencia de _guardar_perfil_procesado, no toca las filas existentes
+    ni crea backup: el archivo ya estaba verificado hasta el cursor y solo
+    se le suma lo nuevo. El lock del pipeline (bess.data.pipeline_lock)
+    ya garantiza que nadie mas escribe este archivo al mismo tiempo.
+    """
+    salida = perfil_nuevo.copy()
+    salida['Fecha'] = salida['Fecha'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        salida.to_csv(
+            ruta_destino, index=False, header=False, mode='a', encoding='utf-8-sig'
+        )
+    except OSError as e:
+        print(
+            f"❌ No se pudo anexar a {nombre_archivo}: {e}. "
+            "Cierre Excel u otro programa que tenga abierto el CSV en ArchivosProcesados."
+        )
+        return False
+    print(f"✅ {len(salida)} registro(s) nuevo(s) anexado(s) a: {ruta_destino}")
+    return True
+
+
+def _cursor_procesado(ruta_destino: str) -> "pd.Timestamp | None":
+    """Ultima Fecha ya escrita en el CSV procesado, o None si no existe/esta vacio.
+
+    Solo lee la columna Fecha (no el archivo completo) para que consultar
+    el cursor sea barato incluso en historiales largos.
+    """
+    if not os.path.exists(ruta_destino):
+        return None
+    try:
+        fechas = pd.read_csv(
+            ruta_destino, usecols=['Fecha'], encoding='utf-8-sig'
+        )['Fecha']
+    except (ValueError, KeyError):
+        # Encabezado inesperado (formato viejo, columna distinta, etc.):
+        # no hay cursor confiable, se reprocesa completo como antes.
+        return None
+    fechas = pd.to_datetime(fechas, errors='coerce').dropna()
+    if fechas.empty:
+        return None
+    return fechas.max()
+
+
+def _columnas_compatibles(ruta_destino: str, columnas_nuevas: list[str]) -> bool:
+    """True si el CSV ya procesado tiene exactamente las mismas columnas."""
+    try:
+        columnas_existentes = pd.read_csv(
+            ruta_destino, nrows=0, encoding='utf-8-sig'
+        ).columns.tolist()
+    except (ValueError, KeyError):
+        return False
+    return columnas_existentes == columnas_nuevas
+
+
+def _completar_rango(
+    datos: pd.DataFrame,
+    fi: "pd.Timestamp",
+    ff: "pd.Timestamp",
+    usar_salto_medianoche: bool,
+    columnas: list[str],
+    frecuencia_min: int = 5,
+) -> tuple[pd.DataFrame, int]:
+    """Rellena huecos de `datos` (ya sin duplicados) entre fi y ff inclusive.
+
+    Vectorizado: calcula la rejilla completa de `frecuencia_min` y resta
+    las fechas reales en una sola pasada (antes se armaba con un
+    pd.concat por cada registro faltante dentro de un bucle, O(n^2) en
+    perfiles largos). Devuelve (perfil_completo, cantidad_faltantes).
+    """
+    rango_completo = pd.date_range(fi, ff, freq=f'{frecuencia_min}min')
+
+    if usar_salto_medianoche:
+        # No exigir el slot 00:00 cuando el medidor legitimamente empieza
+        # el dia en 00:05 (medidores ION). Si el archivo si trae 00:00,
+        # ese registro ya esta en fechas_reales y no se toca.
+        fechas_reales = set(datos['Fecha'])
+        medianoches = rango_completo[
+            (rango_completo.hour == 0) & (rango_completo.minute == 0)
+        ]
+        siguiente = medianoches + timedelta(minutes=frecuencia_min)
+        medianoches_a_excluir = medianoches[
+            (~medianoches.isin(fechas_reales)) & siguiente.isin(fechas_reales)
+        ]
+        if len(medianoches_a_excluir):
+            rango_completo = rango_completo.difference(medianoches_a_excluir)
+
+    fechas_faltantes = rango_completo.difference(pd.DatetimeIndex(datos['Fecha']))
+    faltantes = len(fechas_faltantes)
+
+    if faltantes:
+        faltantes_df = pd.DataFrame({'Fecha': fechas_faltantes})
+        for col in columnas[1:]:
+            faltantes_df[col] = 0
+        completo = pd.concat([datos, faltantes_df], ignore_index=True)
+    else:
+        completo = datos
+
+    completo = completo.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
+    return completo, faltantes
+
+
 def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
     """
-    Procesa un archivo CSV verificando duplicados y registros faltantes
+    Procesa un archivo CSV verificando duplicados y registros faltantes.
+
+    Incremental: si ya existe un CSV procesado para este archivo, solo se
+    verifican (dedup + relleno de huecos) las filas del origen posteriores
+    al cursor (la ultima Fecha ya escrita), y se anexan al final en vez de
+    releer y reescribir todo el historico en cada sincronizacion. La
+    primera vez (o si el formato no coincide) se procesa completo, igual
+    que antes.
     """
     ruta_completa_origen = os.path.join(ruta_origen, nombre_archivo)
     ruta_completa_destino = os.path.join(ruta_destino, nombre_archivo)
@@ -75,73 +190,73 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
         
         print(f"📁 Archivo original: {nombre_archivo}")
         print(f"📏 Registros originales: {len(perfil)}")
-        
-        # Eliminar duplicados
+
+        columnas = perfil.columns.tolist()
+        usar_salto_medianoche = nombre_archivo in _ARCHIVOS_SALTAR_MEDIANOCHE_ION
+        Frecuencia_Perfil_MIN = 5
+
+        cursor = _cursor_procesado(ruta_completa_destino)
+        modo_incremental = cursor is not None and _columnas_compatibles(
+            ruta_completa_destino, columnas
+        )
+
+        if modo_incremental:
+            print(f"📌 Cursor: ya verificado hasta {cursor.strftime('%Y-%m-%d %H:%M:%S')}")
+            nuevos = perfil[perfil['Fecha'] > cursor]
+            nuevos = nuevos.drop_duplicates(subset=['Fecha'], keep='first')
+            renglones_duplicados = len(perfil[perfil['Fecha'] > cursor]) - len(nuevos)
+            if renglones_duplicados:
+                print(f"🗑️ Renglones duplicados eliminados: {renglones_duplicados}")
+
+            if nuevos.empty:
+                print("ℹ️ Sin registros nuevos desde la última verificación")
+                return True
+
+            nuevos = nuevos.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
+            fi = cursor + timedelta(minutes=Frecuencia_Perfil_MIN)
+            ff = nuevos['Fecha'].max()
+
+            print(f"📅 Rango nuevo: {fi.strftime('%Y-%m-%d %H:%M:%S')} a {ff.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"📊 Registros nuevos: {len(nuevos)}")
+
+            perfil_completo, faltantes = _completar_rango(
+                nuevos, fi, ff, usar_salto_medianoche, columnas, Frecuencia_Perfil_MIN
+            )
+            print(f"📝 Registros faltantes insertados: {faltantes}")
+
+            return _anexar_perfil_procesado(
+                perfil_completo, ruta_completa_destino, nombre_archivo
+            )
+
+        # Modo completo: primera vez que se procesa este archivo, o el CSV
+        # existente no tiene un cursor confiable (formato distinto).
         perfil_sin_duplicados = perfil.drop_duplicates(subset=['Fecha'], keep='first')
         renglones_duplicados = len(perfil) - len(perfil_sin_duplicados)
         print(f"🗑️ Renglones duplicados eliminados: {renglones_duplicados}")
-        
-        perfil_sin_duplicados = perfil_sin_duplicados.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
 
-        # Verificar registros faltantes
+        perfil_sin_duplicados = perfil_sin_duplicados.sort_values(
+            by='Fecha', ascending=True
+        ).reset_index(drop=True)
+
         num_registros = len(perfil_sin_duplicados)
         fi = perfil_sin_duplicados.iloc[0, 0]
         ff = perfil_sin_duplicados.iloc[num_registros - 1, 0]
         dias = (ff - fi).days + 1
         registros_esperados = dias * 288
-        
+
         print(f"📅 Fecha inicial: {fi.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"📅 Fecha final: {ff.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"📊 Registros esperados: {registros_esperados}")
         print(f"📊 Registros actuales: {num_registros}")
-        
-        # Insertar registros faltantes (vectorizado: antes se armaba con un
-        # pd.concat por cada registro faltante dentro de un bucle, O(n^2) en
-        # perfiles largos; ahora se calcula la rejilla completa de 5 min y se
-        # resta contra las fechas reales en una sola pasada).
-        Frecuencia_Perfil_MIN = 5
-        columnas = perfil.columns.tolist()
-
         print("\n⏳ Verificando registros faltantes...")
-        usar_salto_medianoche = nombre_archivo in _ARCHIVOS_SALTAR_MEDIANOCHE_ION
 
-        rango_completo = pd.date_range(fi, ff, freq=f'{Frecuencia_Perfil_MIN}min')
-
-        if usar_salto_medianoche:
-            # No exigir el slot 00:00 cuando el medidor legítimamente empieza
-            # el día en 00:05 (medidores ION, ver _ARCHIVOS_SALTAR_MEDIANOCHE_ION). Si el
-            # archivo sí trae 00:00, ese registro ya está en fechas_reales y
-            # no se toca.
-            fechas_reales = set(perfil_sin_duplicados['Fecha'])
-            medianoches = rango_completo[
-                (rango_completo.hour == 0) & (rango_completo.minute == 0)
-            ]
-            siguiente = medianoches + timedelta(minutes=Frecuencia_Perfil_MIN)
-            medianoches_a_excluir = medianoches[
-                (~medianoches.isin(fechas_reales)) & siguiente.isin(fechas_reales)
-            ]
-            if len(medianoches_a_excluir):
-                rango_completo = rango_completo.difference(medianoches_a_excluir)
-
-        fechas_faltantes = rango_completo.difference(
-            pd.DatetimeIndex(perfil_sin_duplicados['Fecha'])
+        perfil_completo, faltantes = _completar_rango(
+            perfil_sin_duplicados, fi, ff, usar_salto_medianoche, columnas,
+            Frecuencia_Perfil_MIN,
         )
-        Faltantes = len(fechas_faltantes)
 
         print("✅ Verificación completada")
-        print(f"📝 Registros faltantes insertados: {Faltantes}")
-
-        if Faltantes:
-            faltantes_df = pd.DataFrame({'Fecha': fechas_faltantes})
-            for col in columnas[1:]:
-                faltantes_df[col] = 0
-            perfil_completo = pd.concat(
-                [perfil_sin_duplicados, faltantes_df], ignore_index=True
-            )
-        else:
-            perfil_completo = perfil_sin_duplicados
-
-        perfil_completo = perfil_completo.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
+        print(f"📝 Registros faltantes insertados: {faltantes}")
 
         return _guardar_perfil_procesado(
             perfil_completo,

@@ -53,7 +53,7 @@ Raíz del repo (compatibilidad):
 1. **`bess/*` no importa `streamlit`** (excepto `bess/ui/`).
 2. **`bess/data/` no importa `bess/ui/`**.
 3. Duplicar código solo durante transición; eliminar de `app_plotly.py` / `bess_core.py` al mover.
-4. Tests unitarios sobre `bess/core`, `bess/cfe`, `bess/tariffs` sin levantar la app -- iniciado en `tests/` (`pytest`): numbers, kvarh, periods, power_factor, tariffs/loader. Falta cubrir shapley, arbitrage y el resto de `cfe/`.
+4. Tests unitarios sobre `bess/core`, `bess/cfe`, `bess/tariffs` sin levantar la app -- iniciado en `tests/` (`pytest`): numbers, kvarh, periods, power_factor, tariffs/loader, verify (incremental). Falta cubrir shapley, arbitrage y el resto de `cfe/`.
 
 ## Qué permanece en `bess_core.py`
 
@@ -75,5 +75,4 @@ Plantillas: `.streamlit/secrets.toml.example`, `.env.example`. Contraseñas en t
 
 - Cálculos CFE → `bess/cfe/`
 - Tarifas CSV → `bess/tariffs/`
-- Recibo (~700 líneas) → `bess/cfe/receipt/`
--
+- Recibo (~700 líneas) →

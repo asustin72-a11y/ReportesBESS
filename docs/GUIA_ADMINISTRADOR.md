@@ -67,7 +67,7 @@ Expander con acciones individuales:
 | Acción | Qué hace |
 |--------|----------|
 | **Sincronizar ahora** | Ejecuta `scripts/sincronizar_perfiles.py` (ION + API). Muestra resumen y actualiza validación de medidores. |
-| **Verificar** | Comprueba CSV en fuente y copia a procesados. |
+| **Verificar** | Comprueba CSV en fuente y copia a procesados. Incremental: si ya existe un CSV procesado, solo verifica (duplicados + huecos) las filas nuevas desde la última sincronización y las agrega al final, en vez de reprocesar todo el histórico. La primera vez (o si cambia el formato de columnas) procesa completo, como antes. |
 | **Filtrar** | Genera archivos `*_Filtrado.csv` (intersección temporal). |
 | **Generar reportes** | Ejecuta `scripts/run_reporte_bess.py` con barra de progreso. |
 
@@ -187,10 +187,4 @@ Scripts:
 ## 10. Soporte y despliegue
 
 - Docker: [DOCKER.md](DOCKER.md)  
-- Restauración local: [RESTAURACION_LOCAL.md](../RESTAURACION_LOCAL.md)  
-- Versión 5.9.0: [RELEASE_NOTES_5.9.0.md](../RELEASE_NOTES_5.9.0.md)
-- Versión 5.8.0: [RELEASE_NOTES_5.8.0.md](../RELEASE_NOTES_5.8.0.md)  
-
----
-
-*Guía para administradores del sistema BESS — IUSASOL.*
+- Rest
