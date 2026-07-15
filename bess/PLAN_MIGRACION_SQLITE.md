@@ -244,10 +244,33 @@ en una corrida posterior), no-op sin días nuevos, fallback a completo si
 cambia el formato de columnas, y equivalencia con el combinado real de
 IUSA_1. Suite completa: 99 pruebas.
 
-Pendiente dentro de esta misma fase: `accumulated.py`, `bess_daily.py`,
-`granja.py` y `generacion.py`. `generacion.py` en realidad no genera nada
--- es una consulta de solo lectura sobre `ENERGIA_Generacion_*_POR_DIA.csv`
-ya generado, así que no necesita cambios.
+#### Fase 5.3 — accumulated.py incremental · Hecho (esta sesión)
+
+`generar_acumulados()` calcula, a partir del reporte diario, un cumsum de
+energía y un máximo corrido de demanda -- ambos reiniciados cada mes. A
+diferencia de daily.py, aquí sí hay dependencia entre días consecutivos
+del mismo mes: el cumsum/máximo de un día depende del día anterior.
+
+La versión incremental hereda ese estado como "semilla" del día anterior
+al último ya escrito (leído del propio `ACUMULADOS_*.csv` existente): si
+ese día anterior es del mismo mes, el cumsum sigue sumando desde ahí (con
+un truco de fila sintética + `groupby('mes').cumsum()`, para seguir
+vectorizado en vez de un loop) y el máximo corrido sigue comparando desde
+ahí; si el día ya escrito era el primero de su mes, no hay semilla y se
+reinicia en 0, igual que una corrida completa. Se probó explícitamente el
+caso de un split justo en la frontera de un mes.
+
+Validado con 7 pruebas (`tests/test_accumulated_incremental.py`): primera
+corrida completa, incremental multi-corrida == completo dentro del mismo
+mes y con un split en la frontera de mes, que el último día se recalcule
+al reabrirse (cumsum crece lo esperado), no-op sin días nuevos, fallback a
+completo si cambia el formato de columnas, y equivalencia con la energía
+diaria real de IUSA_1. Suite completa: 106 pruebas.
+
+Pendiente dentro de esta misma fase: `bess_daily.py` y `granja.py`.
+`generacion.py` en realidad no genera nada -- es una consulta de solo
+lectura sobre `ENERGIA_Generacion_*_POR_DIA.csv` ya generado, así que no
+necesita cambios.
 
 ### Fase 6 — Reportes y UI apuntando a BD
 
