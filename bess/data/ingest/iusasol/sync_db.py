@@ -220,7 +220,17 @@ def sincronizar_medidor_api(
     with db.conectar_bd(ruta_bd) as conn:
         for i in range(0, len(registros), LOTE):
             lote = registros[i:i + LOTE]
-            resultado = db.upsert_registros(conn, medidor_bd, lote, fuente='iusasol')
+            # respetar_fuente='csv': una corrección importada manualmente por
+            # CSV (p.ej. para rellenar/corregir un tramo con datos malos del
+            # medidor) no debe perderse en el próximo sync -- el solapamiento
+            # de 1 día de arriba vuelve a pedir y sobrescribir el día anterior
+            # en cada corrida para autocorregir huecos/ceros transitorios de
+            # la API, y sin esta protección eso pisaba silenciosamente
+            # cualquier corrección manual con lo que la API sigue reportando
+            # (que puede seguir en cero si el medidor real no se ha arreglado).
+            resultado = db.upsert_registros(
+                conn, medidor_bd, lote, fuente='iusasol', respetar_fuente='csv'
+            )
             insertados += resultado.insertados
             actualizados += resultado.actualizados
         if registros:
