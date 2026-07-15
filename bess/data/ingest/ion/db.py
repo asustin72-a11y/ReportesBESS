@@ -264,15 +264,23 @@ def upsert_registros(
 
     if respetar_fuente and fuente != respetar_fuente:
         fechas = [r['fecha'] for r in registros]
+        filas_respetadas = conn.execute(
+            f"""
+            SELECT fecha, kwh_rec, kwh_ent, kvarh_q1, kvarh_q2, kvarh_q3, kvarh_q4
+            FROM perfil_carga
+            WHERE medidor_id = ? AND fuente = ? AND fecha IN ({','.join('?' * len(fechas))})
+            """,
+            [medidor_id, respetar_fuente, *fechas],
+        )
+        # Solo se protegen las filas de `respetar_fuente` que tienen energía
+        # real. Una fila con esa fuente pero en cero no es una corrección
+        # manual intencional -- es relleno de un import masivo (p.ej.
+        # restaurar un respaldo que trae el día completo prellenado con
+        # ceros, como hace la API antes de completarlo con valores reales).
+        # Bloquear esas filas dejaría el día en curso pegado en cero para
+        # siempre, porque ningún sync posterior podría corregirlas.
         protegidos = {
-            row['fecha']
-            for row in conn.execute(
-                f"""
-                SELECT fecha FROM perfil_carga
-                WHERE medidor_id = ? AND fuente = ? AND fecha IN ({','.join('?' * len(fechas))})
-                """,
-                [medidor_id, respetar_fuente, *fechas],
-            )
+            row['fecha'] for row in filas_respetadas if not _fila_sin_energia(row)
         }
         if protegidos:
             registros = [r for r in registros if r['fecha'] not in protegidos]
