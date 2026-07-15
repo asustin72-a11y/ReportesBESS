@@ -15,6 +15,7 @@ from bess.data.pipeline.clean import (
     MARGEN_REEXPORTAR_DIAS,
     columnas_archivo_limpio,
     cursor_archivo_limpio,
+    escribir_ventana_archivo_limpio,
     generar_archivo_limpio,
     leer_previas_a_ventana,
 )
@@ -54,9 +55,11 @@ def consolidar_bess_subestacion(sub: Subestacion, *, filtrado: bool = False) -> 
     cursor), y esa ventana reemplaza lo que hubiera en el consolidado para
     esas fechas -- en vez de releer y reescribir todo el histórico en cada
     corrida. Esto recoge actualizaciones que verify.py trae para fechas ya
-    consolidadas (ver bess/data/pipeline/clean.py). La primera vez (o si
-    el formato de columnas no coincide) se recalcula y reescribe completo,
-    igual que antes.
+    consolidadas (ver bess/data/pipeline/clean.py). Lo anterior a la
+    ventana se preserva crudo (leer_previas_a_ventana), sin reparsear sus
+    valores numéricos, para no arriesgar diferencias de redondeo en datos
+    ya cerrados. La primera vez (o si el formato de columnas no coincide)
+    se recalcula y reescribe completo, igual que antes.
     """
     cat = obtener_catalogo()
     bess_meds = [m for m in cat.medidores_subestacion(sub.id) if m.tipo_medidor == TIPO_BESS]
@@ -103,9 +106,7 @@ def consolidar_bess_subestacion(sub: Subestacion, *, filtrado: bool = False) -> 
         if columnas_archivo_limpio(destino) == columnas_nuevas:
             previas = leer_previas_a_ventana(destino, inicio_ventana)
             if previas is not None:
-                resultado = pd.concat([previas, base], ignore_index=True)
-                resultado = resultado.sort_values("Fecha").reset_index(drop=True)
-                generar_archivo_limpio(resultado, destino)
+                escribir_ventana_archivo_limpio(previas, base, destino)
                 return True
         # Formato de columnas distinto al existente, o no se pudo leer lo
         # previo: cae al modo completo de abajo, releyendo todo.

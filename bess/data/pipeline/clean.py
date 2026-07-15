@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import os
 
 import pandas as pd
@@ -26,27 +27,78 @@ print = log
 MARGEN_REEXPORTAR_DIAS = 1
 
 
-def leer_previas_a_ventana(ruta_salida, inicio_ventana) -> "pd.DataFrame | None":
-    """DataFrame de las filas ya escritas en `ruta_salida` (por
-    generar_archivo_limpio) con Fecha anterior a `inicio_ventana` -- se
-    conservan intactas al recalcular una ventana incremental. Devuelve
-    None si el archivo no existe o no tiene una columna Fecha legible
-    (mismo criterio que cursor_archivo_limpio); quien llama debe caer al
-    modo completo en ese caso.
+def leer_previas_a_ventana(ruta_salida, inicio_ventana) -> "list[list[str]] | None":
+    """Filas crudas (via csv.reader, SIN reparsear los valores numericos)
+    ya escritas en `ruta_salida` (por generar_archivo_limpio) con Fecha
+    anterior a `inicio_ventana` -- se preservan tal cual estaban al
+    recalcular una ventana incremental.
+
+    Deliberadamente NO se devuelve un DataFrame: reparsear una columna
+    numerica ya escrita (p.ej. "193.33090209960932") y volver a
+    serializarla via pandas puede producir una representacion de texto
+    ligeramente distinta para el mismo float64 (p.ej.
+    "193.3309020996093") -- un cambio de bytes sin sentido en datos que ya
+    estaban cerrados. Igual que export_csv.py, se preservan las filas
+    crudas y solo se reparsea la ventana que realmente se recalcula.
+
+    Devuelve None si el archivo no existe o no tiene una columna Fecha
+    legible en la primera posicion; quien llama debe caer al modo
+    completo en ese caso.
     """
     if not os.path.exists(ruta_salida):
         return None
     try:
-        df = pd.read_csv(ruta_salida, encoding='utf-8-sig')
-    except (ValueError, OSError):
+        with open(ruta_salida, 'r', newline='', encoding='utf-8-sig') as f:
+            lector = csv.reader(f)
+            encabezado = next(lector, None)
+            if not encabezado or encabezado[0] != 'Fecha':
+                return None
+            filas = [fila for fila in lector if fila]
+    except OSError:
         return None
-    if 'Fecha' not in df.columns:
-        return None
+    if not filas:
+        return []
     # dayfirst=True: normalizar_fecha() escribe DD/MM/YYYY, ambiguo para
     # pandas sin esta bandera cuando el dia es <= 12 (p.ej. 01/02/2026).
-    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce', dayfirst=True)
-    df = df.dropna(subset=['Fecha'])
-    return df[df['Fecha'] < inicio_ventana].reset_index(drop=True)
+    fechas = pd.to_datetime([fila[0] for fila in filas], errors='coerce', dayfirst=True)
+    return [
+        fila for fila, fecha in zip(filas, fechas)
+        if pd.notna(fecha) and fecha < inicio_ventana
+    ]
+
+
+def escribir_ventana_archivo_limpio(filas_previas, df_ventana, ruta_salida):
+    """Escribe `ruta_salida` completo: `filas_previas` (crudas, preservadas
+    tal cual via leer_previas_a_ventana) + `df_ventana` (la ventana
+    recalculada, formateada igual que generar_archivo_limpio) -- reemplaza
+    lo que hubiera en el archivo para las fechas de la ventana, sin tocar
+    el formato de lo anterior.
+
+    Quien llama debe garantizar que `df_ventana` tiene las mismas columnas
+    que el archivo existente (mismo chequeo que ya hace generar/anexar
+    contra columnas_archivo_limpio) -- aqui no se revalida.
+    """
+    columnas = ['Fecha', 'KWH_REC', 'KWH_ENT'] + _columnas_kvarh(df_ventana)
+    df_limpio = df_ventana[columnas].copy()
+    df_limpio['Fecha'] = df_limpio['Fecha'].apply(normalizar_fecha)
+    # lineterminator='\n': pandas.to_csv() (usado en generar_archivo_limpio
+    # y anexar_archivo_limpio, y el que escribio originalmente el archivo
+    # existente) escribe '\n' en este entorno, no el '\r\n' del dialecto
+    # 'excel' por defecto de csv.writer -- sin esto, cada corrida
+    # incremental cambiaria el fin de linea de todo el archivo aunque los
+    # datos no cambien.
+    with open(ruta_salida, 'w', newline='', encoding='utf-8-sig') as f:
+        writer = csv.writer(f, lineterminator='\n')
+        writer.writerow(columnas)
+        for fila in filas_previas:
+            writer.writerow(fila)
+        for row in df_limpio.itertuples(index=False):
+            writer.writerow(row)
+    print(
+        f"✅ Ventana recalculada guardada: {ruta_salida} "
+        f"({len(filas_previas)} preservada(s) + {len(df_limpio)} en ventana)"
+    )
+    return df_limpio
 
 
 def generar_archivo_limpio(df, ruta_salida):

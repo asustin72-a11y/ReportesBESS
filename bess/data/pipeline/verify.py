@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import os
 import shutil
 
@@ -58,28 +59,57 @@ def _guardar_perfil_procesado(
 def _leer_previas_a_ventana(
     ruta_destino: str,
     inicio_ventana: "pd.Timestamp",
-) -> pd.DataFrame:
-    """Filas ya procesadas en `ruta_destino` con Fecha anterior a
-    `inicio_ventana` -- se conservan intactas. El motor de escritura
-    (pandas to_csv) es el mismo que las escribio originalmente, asi que
-    reparsearlas y reescribirlas junto con la ventana reverificada es un
-    no-op de formato para esas filas (a diferencia de un CSV fuente
-    externo, este archivo siempre lo escribimos nosotros).
+) -> "list[list[str]] | None":
+    """Filas crudas (via csv.reader, SIN reparsear los valores numericos)
+    ya procesadas en `ruta_destino` con Fecha anterior a `inicio_ventana`
+    -- se preservan tal cual estaban al recalcular la ventana.
+
+    Deliberadamente NO se devuelve un DataFrame: reparsear una columna
+    numerica ya escrita (p.ej. "193.33090209960932", un valor real de ION)
+    y volver a serializarla via pandas puede producir una representacion
+    de texto ligeramente distinta para el mismo float64 (p.ej.
+    "193.3309020996093") -- un cambio de bytes sin sentido en datos que ya
+    estaban cerrados. Igual que export_csv.py, se preservan las filas
+    crudas y solo se reparsea/reformatea la ventana que realmente se
+    recalcula.
+
+    Devuelve None si el archivo no existe o no tiene una columna Fecha en
+    la primera posicion; quien llama debe caer al modo completo en ese
+    caso (no debería ocurrir aquí porque _columnas_compatibles() ya se
+    validó antes de llamar, pero es la misma defensa que el resto del
+    módulo usa ante un formato inesperado).
     """
-    df = pd.read_csv(ruta_destino, encoding='utf-8-sig')
-    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
-    df = df.dropna(subset=['Fecha'])
-    return df[df['Fecha'] < inicio_ventana].reset_index(drop=True)
+    if not os.path.exists(ruta_destino):
+        return None
+    try:
+        with open(ruta_destino, 'r', newline='', encoding='utf-8-sig') as f:
+            lector = csv.reader(f)
+            encabezado = next(lector, None)
+            if not encabezado or encabezado[0] != 'Fecha':
+                return None
+            filas = [fila for fila in lector if fila]
+    except OSError:
+        return None
+    if not filas:
+        return []
+    fechas = pd.to_datetime([fila[0] for fila in filas], errors='coerce')
+    return [
+        fila for fila, fecha in zip(filas, fechas)
+        if pd.notna(fecha) and fecha < inicio_ventana
+    ]
 
 
 def _guardar_ventana_procesada(
-    resultado: pd.DataFrame,
+    filas_previas: "list[list[str]]",
+    perfil_ventana: pd.DataFrame,
     ruta_destino: str,
     nombre_archivo: str,
 ) -> bool:
-    """Escribe ruta_destino completo: filas preservadas antes de la
-    ventana + la ventana reverificada, reemplazando lo que hubiera para
-    esas fechas.
+    """Escribe ruta_destino completo: `filas_previas` (crudas, preservadas
+    tal cual via _leer_previas_a_ventana) + `perfil_ventana` (la ventana
+    reverificada, formateada igual que _guardar_perfil_procesado) --
+    reemplaza lo que hubiera para las fechas de la ventana, sin tocar el
+    formato de lo anterior.
 
     A diferencia de _guardar_perfil_procesado, no crea backup: esto corre
     en cada sincronizacion incremental normal (no solo al reprocesar todo
@@ -87,10 +117,22 @@ def _guardar_ventana_procesada(
     escribe este archivo al mismo tiempo.
     """
     os.makedirs(os.path.dirname(ruta_destino), exist_ok=True)
-    salida = resultado.copy()
+    salida = perfil_ventana.copy()
     salida['Fecha'] = salida['Fecha'].dt.strftime('%Y-%m-%d %H:%M:%S')
     try:
-        salida.to_csv(ruta_destino, index=False, encoding='utf-8-sig')
+        # lineterminator='\n': pandas.to_csv() (usado en el modo completo,
+        # y el que escribio originalmente el archivo existente) escribe
+        # '\n' en este entorno, no el '\r\n' del dialecto 'excel' por
+        # defecto de csv.writer -- sin esto, cada corrida incremental
+        # cambiaria el fin de linea de todo el archivo aunque los datos no
+        # cambien.
+        with open(ruta_destino, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.writer(f, lineterminator='\n')
+            writer.writerow(list(salida.columns))
+            for fila in filas_previas:
+                writer.writerow(fila)
+            for row in salida.itertuples(index=False):
+                writer.writerow(row)
     except OSError as e:
         print(
             f"❌ No se pudo guardar {nombre_archivo}: {e}. "
@@ -98,7 +140,7 @@ def _guardar_ventana_procesada(
         )
         return False
     print(f"✅ Ventana reverificada guardada: {ruta_destino}")
-    print(f"📊 Registros finales: {len(salida)}")
+    print(f"📊 Registros finales: {len(filas_previas) + len(salida)}")
     return True
 
 
@@ -128,7 +170,7 @@ def _primera_fecha_procesada(ruta_destino: str) -> "pd.Timestamp | None":
     """Primera Fecha ya escrita en el CSV procesado, o None si no existe/esta vacio.
 
     Solo lee la columna Fecha, igual que _cursor_procesado. Se usa para
-    acotar la ventana de reverificacion: si `_inicio_ventana` cae antes
+    acotar la ventana de reverificacion: si `inicio_ventana` cae antes
     del inicio real del historico (archivo recien agregado, a menos de
     `_MARGEN_REEXPORTAR_DIAS` dias de su primer registro), no hay que
     fabricar un dia que nunca existio -- ver procesar_archivo_verificacion.
@@ -209,8 +251,11 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
     todo el historico en cada sincronizacion. Esto recoge actualizaciones
     que el origen trae para fechas ya verificadas (p.ej. la API ISOL, via
     export_csv.py, completando con valores reales un dia que ya se habia
-    exportado en cero). La primera vez (o si el formato no coincide) se
-    procesa completo, igual que antes.
+    exportado en cero). Lo anterior a la ventana se preserva crudo
+    (_leer_previas_a_ventana), sin reparsear sus valores numéricos, para
+    no arriesgar diferencias de redondeo en datos ya cerrados. La primera
+    vez (o si el formato no coincide) se procesa completo, igual que
+    antes.
     """
     ruta_completa_origen = os.path.join(ruta_origen, nombre_archivo)
     ruta_completa_destino = os.path.join(ruta_destino, nombre_archivo)
@@ -277,9 +322,10 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
             print(f"📝 Registros faltantes insertados: {faltantes}")
 
             previas = _leer_previas_a_ventana(ruta_completa_destino, inicio_ventana)
-            resultado = pd.concat([previas, perfil_completo], ignore_index=True)
+            if previas is None:
+                previas = []
             return _guardar_ventana_procesada(
-                resultado, ruta_completa_destino, nombre_archivo
+                previas, perfil_completo, ruta_completa_destino, nombre_archivo
             )
 
         # Modo completo: primera vez que se procesa este archivo, o el CSV
@@ -408,4 +454,43 @@ def _verificar_datos_fuente_impl():
     fallidos = [a for a, ok in resultados.items() if ok is False]
     omitidos = [a for a, ok in resultados.items() if ok is None]
 
-    i
+    if not verificados:
+        return False, (
+            "No se verificó ningún archivo. "
+            "Copie los CSV en data/ArchivosFuente y vuelva a intentar."
+        )
+    if fallidos:
+        return False, (
+            f"Error al verificar: {', '.join(fallidos)}. "
+            "Cierre Excel u otros programas que tengan abiertos los CSV."
+        )
+
+    return True, _mensaje_verificacion_ok(verificados, omitidos)
+
+
+def _mensaje_verificacion_ok(verificados: list[str], omitidos: list[str]) -> str:
+    """Mensaje de éxito agrupado por subestación (incluye granja IUSA 2)."""
+    partes: list[str] = []
+    for sub in SUBESTACIONES:
+        archivos_sub = archivos_fuente_subestacion(sub)
+        ok_sub = [a for a in archivos_sub if a in verificados]
+        if not ok_sub:
+            continue
+        nombres = []
+        for med in sub.medidores_consumo:
+            if med.consumo_csv in ok_sub:
+                nombres.append(med.etiqueta)
+        if sub.bess_csv in ok_sub:
+            nombres.append("BESS")
+        if sub.granja_csv and sub.granja_csv in ok_sub:
+            nombres.append("Granja (20 MEGA)")
+        if sub.cogeneracion_csv and sub.cogeneracion_csv in ok_sub:
+            nombres.append("Generación")
+        partes.append(f"{sub.nombre}: {', '.join(nombres)}")
+
+    mensaje = "Verificación completada — " + "; ".join(partes) if partes else (
+        f"Verificación OK ({len(verificados)} archivo(s)): {', '.join(verificados)}"
+    )
+    if omitidos:
+        mensaje += f". Sin archivo en fuente: {', '.join(omitidos)}"
+    return mensaje
