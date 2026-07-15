@@ -15,10 +15,12 @@ from bess.core.kvarh import columnas_kvarh
 from bess.data.ingest.readers import leer_archivo_perfil
 from bess.data.pipeline.bess_consolidate import consolidar_bess_subestacion
 from bess.data.pipeline.clean import (
-    anexar_archivo_limpio,
+    MARGEN_REEXPORTAR_DIAS,
     columnas_archivo_limpio,
     cursor_archivo_limpio,
+    escribir_ventana_archivo_limpio,
     generar_archivo_limpio,
+    leer_previas_a_ventana,
 )
 
 print = log
@@ -45,36 +47,51 @@ def _escribir_filtrado(
     calculado por quien llama).
 
     Incremental: si `ruta_destino` ya tiene un cursor legible (última Fecha
-    escrita en una corrida anterior) y columnas compatibles, solo se arma y
-    anexa el tramo nuevo (Fecha > cursor) en vez de reescribir el archivo
-    completo. La primera vez (o si cambia el formato de columnas) recalcula
-    y reescribe completo, igual que antes de esta fase.
+    escrita en una corrida anterior) y columnas compatibles, se recalcula
+    una ventana de los últimos `MARGEN_REEXPORTAR_DIAS` días (no solo lo
+    estrictamente posterior al cursor) y esa ventana reemplaza lo que
+    hubiera en el archivo para esas fechas, preservando intacto todo lo
+    anterior -- en vez de reescribir el archivo completo. Esto recoge
+    actualizaciones que Verificar (y, más atrás, export_csv.py) traen para
+    fechas ya filtradas (ver bess/data/pipeline/clean.py). Lo anterior a la
+    ventana se preserva crudo (leer_previas_a_ventana), sin reparsear sus
+    valores numéricos, para no arriesgar diferencias de redondeo en datos
+    ya cerrados. La primera vez (o si cambia el formato de columnas)
+    recalcula y reescribe completo, igual que antes de esta fase.
 
     `fechas_aceptadas` en sí siempre se calcula completo (a partir de los
     conjuntos de fechas de BESS/medidor ya leídos): lo único que se vuelve
-    incremental es qué tanto de ese resultado hace falta *escribir*. Esto es
-    seguro porque Verificar garantiza que cada CSV procesado no tiene huecos
-    internos dentro de su propio rango -- la intersección de dos rangos sin
-    huecos es a su vez un rango sin huecos, así que una fecha nunca queda
-    "saltada" por quedar por debajo del cursor sin haber sido nunca escrita.
+    incremental es qué tanto de ese resultado hace falta *reescribir*. Esto
+    es seguro porque Verificar garantiza que cada CSV procesado no tiene
+    huecos internos dentro de su propio rango -- la intersección de dos
+    rangos sin huecos es a su vez un rango sin huecos, así que una fecha
+    nunca queda "saltada" por quedar por debajo del cursor sin haber sido
+    nunca escrita. Tampoco hay riesgo de fabricar fechas fantasma: aquí no
+    se rellenan huecos con cero, solo se escribe lo que ya está en
+    `fechas_aceptadas` (calculado por quien llama a partir de datos reales).
 
-    Devuelve la cantidad de filas escritas (0 si no había nada nuevo).
+    Devuelve la cantidad de filas escritas en esta corrida (0 si la
+    ventana no tenía nada que escribir).
     """
     cursor = cursor_archivo_limpio(ruta_destino)
     if cursor is not None:
-        nuevas = {f for f in fechas_aceptadas if f > cursor}
-        if not nuevas:
+        inicio_ventana = cursor.normalize() - pd.Timedelta(days=MARGEN_REEXPORTAR_DIAS)
+        ventana = {f for f in fechas_aceptadas if f >= inicio_ventana}
+        if not ventana:
             return 0
-        df_nuevo = df_fuente[df_fuente["Fecha"].isin(nuevas)].copy()
+        df_nuevo = df_fuente[df_fuente["Fecha"].isin(ventana)].copy()
         df_nuevo = df_nuevo.sort_values("Fecha").reset_index(drop=True)
         if transformar is not None:
             df_nuevo = transformar(df_nuevo)
         columnas_nuevas = ["Fecha", "KWH_REC", "KWH_ENT"] + columnas_kvarh(df_nuevo)
         if columnas_archivo_limpio(ruta_destino) == columnas_nuevas:
-            anexar_archivo_limpio(df_nuevo, ruta_destino)
-            return len(df_nuevo)
-        # Formato de columnas distinto al existente: cae al modo completo de
-        # abajo, recalculando sobre todo `fechas_aceptadas`.
+            previas = leer_previas_a_ventana(ruta_destino, inicio_ventana)
+            if previas is not None:
+                escribir_ventana_archivo_limpio(previas, df_nuevo, ruta_destino)
+                return len(df_nuevo)
+        # Formato de columnas distinto al existente, o no se pudo leer lo
+        # previo: cae al modo completo de abajo, recalculando sobre todo
+        # `fechas_aceptadas`.
 
     df_completo = df_fuente[df_fuente["Fecha"].isin(fechas_aceptadas)].copy()
     df_completo = df_completo.sort_values("Fecha").reset_index(drop=True)

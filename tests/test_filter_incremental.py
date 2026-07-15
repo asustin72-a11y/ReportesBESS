@@ -2,12 +2,16 @@
 
 `_escribir_filtrado()` es la pieza nueva: dado el conjunto ya calculado de
 fechas aceptadas (interseccion BESS/medidor, sin cambios respecto a antes)
-decide si puede *anexar* solo el tramo nuevo (cursor sobre la ultima Fecha
-ya escrita en el destino) o si tiene que recalcular y reescribir completo
-(primera vez, o cambio de formato de columnas). Se prueba aislada, igual
-que `consolidar_bess_subestacion`/`_sumar_marcos` en Fase 3, mas una prueba
-de integracion contra los datos reales del repo para confirmar que una
-segunda corrida sin datos nuevos es no-op.
+decide si puede *recalcular una ventana* de los ultimos
+`MARGEN_REEXPORTAR_DIAS` dias (cursor sobre la ultima Fecha ya escrita en
+el destino, no solo lo estrictamente nuevo) o si tiene que recalcular y
+reescribir completo (primera vez, o cambio de formato de columnas). La
+ventana se recalcula -- no solo se anexa lo nuevo -- para recoger
+actualizaciones que Verificar trae para fechas ya escritas (ver
+bess/data/pipeline/clean.py y bess/data/pipeline/verify.py). Se prueba
+aislada, igual que `consolidar_bess_subestacion`/`_sumar_marcos` en Fase 3,
+mas una prueba de integracion contra los datos reales del repo para
+confirmar que una segunda corrida sin datos nuevos es no-op.
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 import bess.data.pipeline.filter as filter_mod
+from bess.data.pipeline.clean import MARGEN_REEXPORTAR_DIAS
 from bess.data.pipeline.filter import _escribir_filtrado, _filtrar_datos_impl
 
 
@@ -54,7 +59,12 @@ def test_escribir_filtrado_incremental_equivale_a_completo(tmp_path):
     # llegaron datos nuevos y ahora hay más fechas comunes).
     filas_nuevas = _escribir_filtrado(df, set(df["Fecha"]), str(destino_inc))
 
-    assert filas_nuevas == len(fechas) - mitad
+    # La 2a corrida recalcula una ventana de MARGEN_REEXPORTAR_DIAS días
+    # antes del cursor de la 1a corrida (no solo lo estrictamente nuevo).
+    cursor_1a_corrida = df["Fecha"][:mitad].max()
+    inicio_ventana_esperado = cursor_1a_corrida.normalize() - pd.Timedelta(days=MARGEN_REEXPORTAR_DIAS)
+    esperado = len(df[df["Fecha"] >= inicio_ventana_esperado])
+    assert filas_nuevas == esperado
 
     destino_full = tmp_path / "completo.csv"
     _escribir_filtrado(df, set(df["Fecha"]), str(destino_full))
@@ -65,7 +75,11 @@ def test_escribir_filtrado_incremental_equivale_a_completo(tmp_path):
     assert len(df_inc) == len(fechas)
 
 
-def test_escribir_filtrado_sin_novedades_es_no_op(tmp_path):
+def test_escribir_filtrado_sin_novedades_no_cambia_el_archivo(tmp_path):
+    """Una segunda corrida con el mismo conjunto de fechas aceptadas
+    recalcula la ventana (ya no es un no-op en el sentido de "no escribir
+    nada"), pero el resultado debe ser byte-identico: mismos datos, misma
+    escritura determinista."""
     fechas = pd.date_range("2026-02-01", "2026-02-01 12:00:00", freq="5min")
     df = _df(fechas)
     destino = tmp_path / "salida.csv"
@@ -75,7 +89,7 @@ def test_escribir_filtrado_sin_novedades_es_no_op(tmp_path):
 
     filas = _escribir_filtrado(df, set(df["Fecha"]), str(destino))
 
-    assert filas == 0
+    assert filas > 0
     assert destino.read_bytes() == contenido_antes
 
 
@@ -90,14 +104,14 @@ def test_escribir_filtrado_columnas_distintas_recalcula_completo(tmp_path):
     filas = _escribir_filtrado(df_con_kvarh, set(df_con_kvarh["Fecha"]), str(destino))
 
     # Cambió el formato de columnas (ahora trae KVARH_Q1): debe recalcular
-    # completo, no intentar anexar con columnas distintas.
+    # completo, no intentar recalcular la ventana con columnas distintas.
     assert filas == len(fechas2)
     resultado = pd.read_csv(destino, encoding="utf-8-sig")
     assert "KVARH_Q1" in resultado.columns
     assert len(resultado) == len(fechas2)
 
 
-def test_escribir_filtrado_transformar_solo_sobre_lo_nuevo(tmp_path):
+def test_escribir_filtrado_transformar_sobre_la_ventana_recalculada(tmp_path):
     fechas = pd.date_range("2026-04-01", "2026-04-01 01:00:00", freq="5min")
     df = _df(fechas)
     destino = tmp_path / "salida.csv"
@@ -115,9 +129,12 @@ def test_escribir_filtrado_transformar_solo_sobre_lo_nuevo(tmp_path):
     df2 = _df(fechas2)
     _escribir_filtrado(df2, set(df2["Fecha"]), str(destino), transformar=transformar)
 
-    # La segunda llamada de transformar solo debe recibir el tramo nuevo
-    # (12 filas de 01:05 a 02:00), no las 13 ya escritas antes.
-    assert llamadas[-1] == len(fechas2) - len(fechas)
+    # La segunda llamada de transformar recibe la ventana recalculada
+    # (MARGEN_REEXPORTAR_DIAS días antes del cursor de la 1a corrida), no
+    # solo el tramo estrictamente nuevo.
+    inicio_ventana_esperado = fechas.max().normalize() - pd.Timedelta(days=MARGEN_REEXPORTAR_DIAS)
+    esperado = len(df2[df2["Fecha"] >= inicio_ventana_esperado])
+    assert llamadas[-1] == esperado
 
 
 def test_escribir_filtrado_incremental_equivale_a_completo_datos_reales(tmp_path):
@@ -140,7 +157,10 @@ def test_escribir_filtrado_incremental_equivale_a_completo_datos_reales(tmp_path
     destino_inc = tmp_path / "incremental.csv"
     _escribir_filtrado(df_ion, {f for f in fechas_comunes if f <= mitad}, str(destino_inc))
     filas_nuevas = _escribir_filtrado(df_ion, fechas_comunes, str(destino_inc))
-    assert filas_nuevas == len([f for f in fechas_comunes if f > mitad])
+
+    inicio_ventana_esperado = mitad.normalize() - pd.Timedelta(days=MARGEN_REEXPORTAR_DIAS)
+    esperado = len([f for f in fechas_comunes if f >= inicio_ventana_esperado])
+    assert filas_nuevas == esperado
 
     destino_full = tmp_path / "completo.csv"
     _escribir_filtrado(df_ion, fechas_comunes, str(destino_full))
@@ -149,6 +169,62 @@ def test_escribir_filtrado_incremental_equivale_a_completo_datos_reales(tmp_path
     df_full = pd.read_csv(destino_full, encoding="utf-8-sig")
     assert df_inc.equals(df_full)
     assert len(df_inc) == len(fechas_comunes)
+
+
+def test_escribir_filtrado_dia_abierto_recoge_actualizacion(tmp_path):
+    """El caso real que motivo este cambio: Verificar puede traer, en
+    corridas sucesivas, un valor actualizado para una fecha ya escrita en
+    el filtrado ese mismo dia (ver bess/data/pipeline/verify.py y, mas
+    atras, bess/data/ingest/ion/export_csv.py). La siguiente corrida de
+    Filtrar debe reflejarlo, no quedarse pegada en lo que ya se habia
+    escrito."""
+    fechas = pd.date_range("2026-07-15 00:05:00", "2026-07-15 23:55:00", freq="5min")
+    df = pd.DataFrame({
+        "Fecha": fechas,
+        "KWH_REC": 0.0,
+        "KWH_ENT": 0.0,
+    })
+    destino = tmp_path / "salida.csv"
+
+    _escribir_filtrado(df, set(df["Fecha"]), str(destino))
+    df1 = pd.read_csv(destino, encoding="utf-8-sig")
+    assert (df1["KWH_REC"] == 0).all()
+
+    # Verificar trae un valor real para una hora ya escrita ese dia.
+    df.loc[df["Fecha"] == pd.Timestamp("2026-07-15 12:15:00"), "KWH_REC"] = 129.6
+
+    _escribir_filtrado(df, set(df["Fecha"]), str(destino))
+    df2 = pd.read_csv(destino, encoding="utf-8-sig")
+    # generar_archivo_limpio escribe Fecha en formato DD/MM/YYYY.
+    fila = df2[df2["Fecha"] == "15/07/2026 12:15:00"]
+    assert len(fila) == 1, "la fila se duplico o se perdio al recalcular la ventana"
+    assert fila.iloc[0]["KWH_REC"] == 129.6
+    assert len(df2) == len(df1), "la cantidad de filas no debia cambiar, solo el valor"
+
+
+def test_escribir_filtrado_dias_cerrados_no_se_tocan(tmp_path):
+    """Un dia bien anterior a la ventana de recalculo no debe verse
+    afectado por cambios fuera de esa ventana -- solo los ultimos
+    MARGEN_REEXPORTAR_DIAS dias se vuelven a escribir en cada corrida
+    incremental."""
+    fechas = pd.date_range("2026-08-01 00:05:00", "2026-08-10 00:00:00", freq="5min")
+    df = _df(fechas)
+    destino = tmp_path / "salida.csv"
+
+    _escribir_filtrado(df, set(df["Fecha"]), str(destino))
+    df1 = pd.read_csv(destino, encoding="utf-8-sig")
+
+    # "Corromper" un dia bien cerrado, fuera de la ventana de recalculo.
+    df.loc[df["Fecha"].dt.strftime("%Y-%m-%d") == "2026-08-02", "KWH_REC"] = 999.0
+
+    _escribir_filtrado(df, set(df["Fecha"]), str(destino))
+    df2 = pd.read_csv(destino, encoding="utf-8-sig")
+    # generar_archivo_limpio escribe Fecha en formato DD/MM/YYYY.
+    dia2_antes = df1[df1["Fecha"].str.startswith("02/08/2026")].reset_index(drop=True)
+    dia2_despues = df2[df2["Fecha"].str.startswith("02/08/2026")].reset_index(drop=True)
+    assert len(dia2_antes) > 0, "la prueba no esta comparando nada -- revisar el formato de Fecha"
+    assert dia2_despues.equals(dia2_antes)
+    assert not (dia2_despues["KWH_REC"] == 999.0).any()
 
 
 def test_filtrar_datos_segunda_corrida_sin_datos_nuevos_es_no_op(monkeypatch):
