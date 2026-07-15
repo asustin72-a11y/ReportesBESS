@@ -205,11 +205,49 @@ equivalencia con datos reales de IUSA_1 (ION ∩ BESS), y una corrida real de
 `procesar_grupo()` dos veces seguidas contra los datos reales del repo.
 Suite completa: 93 pruebas.
 
-Pendiente dentro de esta misma fase: `daily.py`, `accumulated.py`,
-`bess_daily.py`, `granja.py` y `generacion.py` siguen releyendo el
-combinado completo y reescribiendo sus salidas completas en cada corrida
-(no rompen con lo anterior -- releen el CSV ya actualizado del disco --
-pero no se benefician todavía de la incrementalidad).
+#### Fase 5.2 — daily.py incremental · Hecho (esta sesión)
+
+`generar_diarios_con_demandas()` agrupa el combinado por minuto por
+FECHA (+ PERIODO) -- a diferencia de la demanda rodante de combined.py,
+aquí no hay ventana ni acumulado que cruce entre días en este cálculo, así
+que cada día es independiente. Se agregó `bess/data/aggregates/
+_incremental_dia.py` (compartido con las fases 5.3-5.5) con
+`cursor_dia()`/`columnas_dia()`/`combinar_cola_diaria()`: si el reporte
+diario ya existe con cursor legible (última FECHA) y columnas compatibles,
+solo se recalculan los minutos del último día ya escrito (por si seguía
+abierto -- el cron corre cada 15 min) en adelante, y esos días reemplazan
+a los correspondientes en el archivo existente; los días ya cerrados no se
+tocan ni se releen para la agregación.
+
+Bug encontrado y corregido de paso (lo destapó el diseño incremental, no
+es nuevo en esta sesión): los pivots de demanda máxima (`BASE_DEM_CON_BESS`
+y compañía) no garantizaban las tres columnas de periodo (Base/Intermedio/
+Punta) si alguna no aparecía en el lote procesado. Con el histórico
+completo eso nunca pasaba (algún día del año siempre tiene Punta); con un
+lote incremental de un solo día todavía abierto, sí -- cualquier corrida
+antes de que ese día llegue a su horario Punta habría reventado con
+`KeyError`. Se agregó `_asegurar_columnas()` para rellenar con 0 (kW) o ""
+(fecha/hora) las columnas de periodo ausentes, igual que ya hacía
+`_pivot_por_periodo()` para energía.
+
+Nota de precisión: recalcular la suma de un día en un lote distinto (todo
+el histórico vs. solo ese día) puede diferir en el último dígito de punto
+flotante por orden de suma (no asociativa) -- diferencia inmaterial para
+facturación, muy por debajo de la resolución de cualquier medidor real.
+Las pruebas de equivalencia comparan con tolerancia (`check_exact=False`)
+por este motivo.
+
+Validado con 6 pruebas (`tests/test_daily_incremental.py`): primera
+corrida completa, incremental multi-corrida == completo, que el último
+día se recalcule correctamente al reabrirse (más registros del mismo día
+en una corrida posterior), no-op sin días nuevos, fallback a completo si
+cambia el formato de columnas, y equivalencia con el combinado real de
+IUSA_1. Suite completa: 99 pruebas.
+
+Pendiente dentro de esta misma fase: `accumulated.py`, `bess_daily.py`,
+`granja.py` y `generacion.py`. `generacion.py` en realidad no genera nada
+-- es una consulta de solo lectura sobre `ENERGIA_Generacion_*_POR_DIA.csv`
+ya generado, así que no necesita cambios.
 
 ### Fase 6 — Reportes y UI apuntando a BD
 

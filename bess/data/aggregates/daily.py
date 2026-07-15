@@ -19,6 +19,11 @@ from bess.core.kvarh import (
     normalizar_columnas_kvarh as _normalizar_columnas_kvarh,
 )
 from bess.core.dates import agregar_fecha_operativa
+from bess.data.aggregates._incremental_dia import (
+    columnas_dia,
+    combinar_cola_diaria,
+    cursor_dia,
+)
 from bess.core.console import log
 
 print = log
@@ -39,6 +44,35 @@ _MAPA_PERIODO_SIN_BESS = {
     "Punta": "PUNTA_REC_SIN_BESS",
 }
 
+# Fijo: no depende de los datos ni del prefijo, así que se puede comparar
+# contra el encabezado de un ENERGIA_*_POR_DIA.csv existente para decidir
+# si el recálculo incremental aplica (ver _incremental_dia.py).
+COLUMNAS_DIARIO = [
+    "FECHA",
+    "BASE_ENT",
+    "INTERMEDIO_ENT",
+    "PUNTA_ENT",
+    "BASE_REC",
+    "INTERMEDIO_REC",
+    "PUNTA_REC",
+    "BASE_REC_SIN_BESS",
+    "INTERMEDIO_REC_SIN_BESS",
+    "PUNTA_REC_SIN_BESS",
+    "KVARH",
+    "BASE_DEM_CON_BESS",
+    "BASE_DEM_CON_BESS_FECHA_HORA",
+    "INTERMEDIO_DEM_CON_BESS",
+    "INTERMEDIO_DEM_CON_BESS_FECHA_HORA",
+    "PUNTA_DEM_CON_BESS",
+    "PUNTA_DEM_CON_BESS_FECHA_HORA",
+    "BASE_DEM_SIN_BESS",
+    "BASE_DEM_SIN_BESS_FECHA_HORA",
+    "INTERMEDIO_DEM_SIN_BESS",
+    "INTERMEDIO_DEM_SIN_BESS_FECHA_HORA",
+    "PUNTA_DEM_SIN_BESS",
+    "PUNTA_DEM_SIN_BESS_FECHA_HORA",
+]
+
 
 def _idxmax_por_grupo(df: pd.DataFrame, group_cols: list[str], value_col: str) -> pd.Series:
     """idxmax por grupo; omite grupos donde todos los valores son NA (rolling incompleto)."""
@@ -50,6 +84,21 @@ def _idxmax_por_grupo(df: pd.DataFrame, group_cols: list[str], value_col: str) -
         return valid.idxmax()
 
     return df.groupby(group_cols, group_keys=False)[value_col].apply(_idxmax_group)
+
+
+def _asegurar_columnas(df: pd.DataFrame, columnas: list[str], relleno) -> pd.DataFrame:
+    """Garantiza que `df` tenga todas las `columnas` (rellenando con
+    `relleno` las que falten). Necesario para los pivots de demanda máxima:
+    a diferencia de _pivot_por_periodo (que ya tiene esta protección), un
+    pivot_table sobre PERIODO solo genera columnas para los periodos
+    (Base/Intermedio/Punta) realmente presentes en las filas de entrada. En
+    una corrida completa sobre todo el histórico eso nunca faltaba (algún
+    día siempre tuvo Punta); en una corrida incremental el lote puede ser
+    un solo día todavía "abierto" que aún no llegó a su horario Punta."""
+    for col in columnas:
+        if col not in df.columns:
+            df[col] = relleno
+    return df
 
 
 def _pivot_por_periodo(
@@ -103,7 +152,17 @@ def _preparar_minuto(ruta_minuto: str, prefijo: str, esquema_tarifa_id: str) -> 
 
 
 def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
-    """Genera archivos diarios con demandas máximas."""
+    """Genera archivos diarios con demandas máximas.
+
+    Incremental: cada día se calcula de forma independiente (no hay
+    ventana ni acumulado entre días en este cálculo, a diferencia de la
+    demanda rodante de combined.py), así que si el reporte diario ya
+    existe con cursor legible y columnas compatibles, solo se recalculan
+    los minutos del último día ya escrito (por si seguía abierto) en
+    adelante, y esos días reemplazan a los correspondientes en el archivo
+    existente -- los días ya cerrados no se tocan. La primera vez (o si
+    cambia el formato de columnas) procesa completo, como antes.
+    """
     print("\n" + "=" * 60)
     print(f"GENERANDO ARCHIVOS DIARIOS ({prefijo}) CON DEMANDAS MAXIMAS")
     print("=" * 60)
@@ -119,6 +178,24 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
     df_minuto = _preparar_minuto(ruta_minuto, prefijo, esquema)
     if df_minuto is None:
         return None
+
+    med = medidor_consumo_por_prefijo(prefijo)
+    if med:
+        ruta_salida = str(med.ruta_energia_dia())
+        nombre_med_dia = med.ruta_energia_dia().name
+    else:
+        nombre_med_dia = f"ENERGIA_{prefijo}_POR_DIA.csv"
+        ruta_salida = nombre_med_dia
+
+    cursor = cursor_dia(ruta_salida)
+    incremental = cursor is not None and columnas_dia(ruta_salida) == COLUMNAS_DIARIO
+
+    if incremental:
+        fecha_dt = pd.to_datetime(df_minuto["FECHA"], format="%d/%m/%Y")
+        df_minuto = df_minuto[fecha_dt >= cursor]
+        if df_minuto.empty:
+            print(f"  Sin días nuevos para {nombre_med_dia} (cursor {cursor.date()})")
+            return pd.read_csv(ruta_salida)
 
     print(f"  Energía y sin BESS desde {nombre_combinado} (5 min)")
 
@@ -184,6 +261,11 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
             "Punta": "PUNTA_DEM_CON_BESS",
         }
     )
+    df_con_max_kw = _asegurar_columnas(
+        df_con_max_kw,
+        ["BASE_DEM_CON_BESS", "INTERMEDIO_DEM_CON_BESS", "PUNTA_DEM_CON_BESS"],
+        0.0,
+    )
 
     df_con_max_fh = df_con_max.pivot_table(
         index="FECHA", columns="PERIODO", values="FECHA_HORA", aggfunc="first", fill_value=""
@@ -194,6 +276,15 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
             "Intermedio": "INTERMEDIO_DEM_CON_BESS_FECHA_HORA",
             "Punta": "PUNTA_DEM_CON_BESS_FECHA_HORA",
         }
+    )
+    df_con_max_fh = _asegurar_columnas(
+        df_con_max_fh,
+        [
+            "BASE_DEM_CON_BESS_FECHA_HORA",
+            "INTERMEDIO_DEM_CON_BESS_FECHA_HORA",
+            "PUNTA_DEM_CON_BESS_FECHA_HORA",
+        ],
+        "",
     )
 
     idx_sin_max = _idxmax_por_grupo(df_minuto, ["FECHA", "PERIODO"], col_sin_dem).dropna()
@@ -212,6 +303,11 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
             "Punta": "PUNTA_DEM_SIN_BESS",
         }
     )
+    df_sin_max_kw = _asegurar_columnas(
+        df_sin_max_kw,
+        ["BASE_DEM_SIN_BESS", "INTERMEDIO_DEM_SIN_BESS", "PUNTA_DEM_SIN_BESS"],
+        0.0,
+    )
 
     df_sin_max_fh = df_sin_max.pivot_table(
         index="FECHA", columns="PERIODO", values="FECHA_HORA", aggfunc="first", fill_value=""
@@ -222,6 +318,15 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
             "Intermedio": "INTERMEDIO_DEM_SIN_BESS_FECHA_HORA",
             "Punta": "PUNTA_DEM_SIN_BESS_FECHA_HORA",
         }
+    )
+    df_sin_max_fh = _asegurar_columnas(
+        df_sin_max_fh,
+        [
+            "BASE_DEM_SIN_BESS_FECHA_HORA",
+            "INTERMEDIO_DEM_SIN_BESS_FECHA_HORA",
+            "PUNTA_DEM_SIN_BESS_FECHA_HORA",
+        ],
+        "",
     )
 
     for df_temp in [df_con_max_kw, df_con_max_fh, df_sin_max_kw, df_sin_max_fh]:
@@ -238,43 +343,13 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
     else:
         df_med_diario["KVARH"] = 0.0
 
-    columnas_med = [
-        "FECHA",
-        "BASE_ENT",
-        "INTERMEDIO_ENT",
-        "PUNTA_ENT",
-        "BASE_REC",
-        "INTERMEDIO_REC",
-        "PUNTA_REC",
-        "BASE_REC_SIN_BESS",
-        "INTERMEDIO_REC_SIN_BESS",
-        "PUNTA_REC_SIN_BESS",
-        "KVARH",
-        "BASE_DEM_CON_BESS",
-        "BASE_DEM_CON_BESS_FECHA_HORA",
-        "INTERMEDIO_DEM_CON_BESS",
-        "INTERMEDIO_DEM_CON_BESS_FECHA_HORA",
-        "PUNTA_DEM_CON_BESS",
-        "PUNTA_DEM_CON_BESS_FECHA_HORA",
-        "BASE_DEM_SIN_BESS",
-        "BASE_DEM_SIN_BESS_FECHA_HORA",
-        "INTERMEDIO_DEM_SIN_BESS",
-        "INTERMEDIO_DEM_SIN_BESS_FECHA_HORA",
-        "PUNTA_DEM_SIN_BESS",
-        "PUNTA_DEM_SIN_BESS_FECHA_HORA",
-    ]
-
-    df_med_diario = df_med_diario[columnas_med]
+    df_med_diario = df_med_diario[COLUMNAS_DIARIO]
     df_med_diario["FECHA_DT"] = pd.to_datetime(df_med_diario["FECHA"], format="%d/%m/%Y")
     df_med_diario = df_med_diario.sort_values("FECHA_DT").drop("FECHA_DT", axis=1)
 
-    med = medidor_consumo_por_prefijo(prefijo)
-    if med:
-        ruta_salida = str(med.ruta_energia_dia())
-        nombre_med_dia = med.ruta_energia_dia().name
-    else:
-        nombre_med_dia = f"ENERGIA_{prefijo}_POR_DIA.csv"
-        ruta_salida = nombre_med_dia
+    if incremental:
+        df_med_diario = combinar_cola_diaria(df_med_diario, ruta_salida, COLUMNAS_DIARIO)
+
     os.makedirs(os.path.dirname(ruta_salida) or ".", exist_ok=True)
     df_med_diario.to_csv(ruta_salida, index=False)
     print(f"OK {nombre_med_dia} - {len(df_med_diario)} dias")
