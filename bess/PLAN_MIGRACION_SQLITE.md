@@ -161,15 +161,55 @@ de BESS/medidores de consumo a consultas directas sobre SQLite en vez de
 bess_daily,generacion}.py` (~800 líneas en total) generan
 `COMBINADO_POR_MINUTO_*.csv`, `ENERGIA_*_POR_DIA.csv` y `ACUMULADOS_*.csv` —
 la capa que sí calcula demanda rodante, periodos CFE y kWh netos, no solo
-copia datos. Hoy cada uno relee CSV filtrado y reescribe completo. Son
-candidatos a convertirse en tablas materializadas en SQLite, recalculadas
-solo para el rango de fechas afectado por el último sync.
+copia datos. Son candidatos a convertirse en tablas materializadas en
+SQLite, recalculadas solo para el rango de fechas afectado por el último
+sync; por ahora esta fase se está dividiendo en sub-pasos por archivo
+(según lo previsto), empezando por `combined.py`.
 
 **Riesgo:** medio-alto. Es la lógica de cálculo, no solo de transporte de
 datos — cualquier diferencia de redondeo o de agrupación aquí sí cambia un
-número que ve el cliente. Conviene dividir esta fase en sub-pasos por
-archivo (empezar por `combined.py`, que es la base de los otros tres) en vez
-de intentarlo de una vez.
+número que ve el cliente.
+
+#### Fase 5.1 — combined.py incremental · Hecho (esta sesión)
+
+`generar_combinado_por_minuto()` combinaba BESS + medidor de consumo
+(merge por `FECHA_HORA`, sigue siendo completo: ya requiere leer
+`ArchivosProcesados/*_Filtrado.csv` enteros) y luego calculaba columnas
+derivadas -- HORA, PERIODO CFE, kW, kWh netos, mejora BESS y demanda
+rodante de 15 min con reinicio mensual -- sobre **todo** el histórico en
+cada corrida, reescribiendo `COMBINADO_POR_MINUTO_*.csv` completo.
+
+Ahora, si el destino ya existe con cursor legible (última `FECHA_HORA`
+escrita) y columnas compatibles, esas columnas derivadas solo se calculan
+para las filas nuevas y se anexan (no se recalcula ni se reescribe el
+histórico ya escrito). El caso delicado es la demanda rodante: es un
+rolling de 3 filas (15 min / 5 min) reiniciado al inicio de cada mes
+operativo, así que para que la primera fila nueva dé el mismo resultado
+que una corrida completa hace falta incluir como contexto las 2 filas
+previas al corte -- si esas 2 filas de contexto caen en un mes distinto al
+de las filas nuevas, `groupby(mes).rolling()` las separa solas y el
+reinicio mensual sigue funcionando igual que antes.
+
+`procesar_grupo()` (el orquestador que encadena combinado → diario →
+acumulados) trataba `len(df_combinado) == 0` como fallo del paso; con la
+versión incremental, "sin filas nuevas" ya no es un DataFrame vacío (se
+devuelve el merge completo, sin las columnas derivadas del histórico ya
+escrito) para no confundir un no-op con un error real.
+
+Validado con 7 pruebas (`tests/test_combined_incremental.py`): primera
+corrida completa, incremental multi-corrida == completo con un split a
+mitad de mes y con un split justo en la frontera de un mes (ejercitando el
+reinicio de la demanda rodante), no-op sin filas nuevas (y que no se
+reporte como fallo), fallback a completo si cambia el formato de columnas,
+equivalencia con datos reales de IUSA_1 (ION ∩ BESS), y una corrida real de
+`procesar_grupo()` dos veces seguidas contra los datos reales del repo.
+Suite completa: 93 pruebas.
+
+Pendiente dentro de esta misma fase: `daily.py`, `accumulated.py`,
+`bess_daily.py`, `granja.py` y `generacion.py` siguen releyendo el
+combinado completo y reescribiendo sus salidas completas en cada corrida
+(no rompen con lo anterior -- releen el CSV ya actualizado del disco --
+pero no se benefician todavía de la incrementalidad).
 
 ### Fase 6 — Reportes y UI apuntando a BD
 
