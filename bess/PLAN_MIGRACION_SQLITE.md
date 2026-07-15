@@ -118,26 +118,42 @@ incluye la suma por outer-join como función pura) y contra el medidor
 BESS real de IUSA_1 (5 sincronizaciones incrementales == una corrida
 completa, exacto). Suite completa: 79 pruebas.
 
-### Fase 4 — Filtrar sin relectura completa
+### Fase 4 — Filtrar sin relectura completa · Hecho (esta sesión)
 
-**Qué cambia:** `bess/data/pipeline/filter.py` (~230 líneas) relee
-`ArchivosProcesados/*.csv` completos, calcula la intersección de fechas
-entre BESS y cada medidor de consumo (para que los reportes no comparen
-periodos distintos) y reescribe `*_Filtrado.csv` completo (ya no borra
-`ArchivosFuente` al final -- ver nota en Fase 2). Es candidato a moverse
-a consultas directas sobre
-SQLite (o sobre las tablas/vistas que resulten de Fases 2-3) en vez de leer
-CSV — ya no solo "hacer incremental el CSV" sino empezar a no depender de él.
+`bess/data/pipeline/filter.py` seguía calculando la intersección de fechas
+completa en cada corrida (eso no cambia: BESS y cada medidor de consumo
+siguen leyéndose completos desde `ArchivosProcesados/*.csv`, porque esa
+lectura ya es un requisito para calcular bien la intersección), pero antes
+reescribía cada `*_Filtrado.csv` completo sin importar cuánto de ese
+resultado ya estaba escrito de una corrida anterior.
 
-**Riesgo:** medio. La intersección de fechas es la lógica que garantiza que
-BESS y el medidor de consumo se comparen en el mismo rango — un error aquí
-se propaga a todos los reportes de esa subestación. El propio código ya trae
-la advertencia ("Ejecute Verificar antes de Filtrar") como pista de que el
-orden y la consistencia entre pasos importa.
+Se agregó `_escribir_filtrado()`: recibe el conjunto de fechas aceptadas
+(la intersección, sin cambios en su cálculo) y decide si puede *anexar*
+solo el tramo nuevo (cursor sobre la última Fecha ya escrita en el destino,
+usando los mismos helpers de `clean.py` de Fase 3) o si tiene que
+recalcular y reescribir completo (primera vez, o cambio de formato de
+columnas). Es seguro anexar solo lo nuevo porque Verificar garantiza que
+cada CSV procesado no tiene huecos internos dentro de su propio rango: la
+intersección de dos rangos sin huecos es a su vez un rango sin huecos, así
+que una fecha nunca queda "saltada" por quedar por debajo del cursor sin
+haber sido nunca escrita. Se aplica a los cuatro archivos que genera cada
+subestación: el filtrado de cada medidor de consumo, `BESS_*_Filtrado.csv`,
+y (cuando aplican) Granja y Cogeneración.
 
-**Nota aparte:** la limpieza de `ArchivosFuente` al final de este paso deja
-de tener sentido en cuanto Fase 2 vuelva ese CSV innecesario — hay que
-revisar esa función (`limpiar_archivos_fuente`) cuando se llegue aquí.
+Validado con 6 pruebas de equivalencia (`tests/test_filter_incremental.py`:
+primera corrida completa, incremental multi-corrida == completo -- con
+datos sintéticos y también con datos reales de IUSA_1 (ION ∩ BESS) --,
+no-op sin novedades, fallback a completo si cambia el formato de columnas,
+y que la transformación de intercambio REC/ENT de Banco 1 solo se aplique
+al tramo nuevo) más una prueba de integración que corre
+`_filtrar_datos_impl()` dos veces seguidas contra los datos reales del
+repo (las tres subestaciones) y confirma que la segunda corrida no cambia
+ni un byte de los `*_Filtrado.csv` ya escritos. Suite completa: 86 pruebas.
+
+Sigue pendiente (no es parte de esta fase, ver Fase 5+): mover la *lectura*
+de BESS/medidores de consumo a consultas directas sobre SQLite en vez de
+`ArchivosProcesados/*.csv` completos -- eso es un cambio más grande que
+"hacer incremental el CSV" y se deja para cuando se ataque esa capa.
 
 ### Fase 5 — Combinados, diarios y acumulados desde BD
 

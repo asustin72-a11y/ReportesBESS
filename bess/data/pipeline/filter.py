@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 import os
+from typing import Callable
+
+import pandas as pd
 
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
 from bess.config.subestaciones import SUBESTACIONES
 from bess.core.consumo import orientar_kwh_consumo
 from bess.core.console import log
+from bess.core.kvarh import columnas_kvarh
 from bess.data.ingest.readers import leer_archivo_perfil
 from bess.data.pipeline.bess_consolidate import consolidar_bess_subestacion
-from bess.data.pipeline.clean import generar_archivo_limpio
+from bess.data.pipeline.clean import (
+    anexar_archivo_limpio,
+    columnas_archivo_limpio,
+    cursor_archivo_limpio,
+    generar_archivo_limpio,
+)
 
 print = log
 
@@ -22,6 +31,57 @@ def _leer_perfil(ruta_origen: str, archivo_origen: str):
     if df is None:
         return None, f"Error al leer {archivo_origen}"
     return df, None
+
+
+def _escribir_filtrado(
+    df_fuente: pd.DataFrame,
+    fechas_aceptadas: set,
+    ruta_destino: str,
+    *,
+    transformar: Callable[[pd.DataFrame], pd.DataFrame] | None = None,
+) -> int:
+    """Escribe en `ruta_destino` las filas de `df_fuente` cuya Fecha está en
+    `fechas_aceptadas` (el resultado de la intersección de fechas, ya
+    calculado por quien llama).
+
+    Incremental: si `ruta_destino` ya tiene un cursor legible (última Fecha
+    escrita en una corrida anterior) y columnas compatibles, solo se arma y
+    anexa el tramo nuevo (Fecha > cursor) en vez de reescribir el archivo
+    completo. La primera vez (o si cambia el formato de columnas) recalcula
+    y reescribe completo, igual que antes de esta fase.
+
+    `fechas_aceptadas` en sí siempre se calcula completo (a partir de los
+    conjuntos de fechas de BESS/medidor ya leídos): lo único que se vuelve
+    incremental es qué tanto de ese resultado hace falta *escribir*. Esto es
+    seguro porque Verificar garantiza que cada CSV procesado no tiene huecos
+    internos dentro de su propio rango -- la intersección de dos rangos sin
+    huecos es a su vez un rango sin huecos, así que una fecha nunca queda
+    "saltada" por quedar por debajo del cursor sin haber sido nunca escrita.
+
+    Devuelve la cantidad de filas escritas (0 si no había nada nuevo).
+    """
+    cursor = cursor_archivo_limpio(ruta_destino)
+    if cursor is not None:
+        nuevas = {f for f in fechas_aceptadas if f > cursor}
+        if not nuevas:
+            return 0
+        df_nuevo = df_fuente[df_fuente["Fecha"].isin(nuevas)].copy()
+        df_nuevo = df_nuevo.sort_values("Fecha").reset_index(drop=True)
+        if transformar is not None:
+            df_nuevo = transformar(df_nuevo)
+        columnas_nuevas = ["Fecha", "KWH_REC", "KWH_ENT"] + columnas_kvarh(df_nuevo)
+        if columnas_archivo_limpio(ruta_destino) == columnas_nuevas:
+            anexar_archivo_limpio(df_nuevo, ruta_destino)
+            return len(df_nuevo)
+        # Formato de columnas distinto al existente: cae al modo completo de
+        # abajo, recalculando sobre todo `fechas_aceptadas`.
+
+    df_completo = df_fuente[df_fuente["Fecha"].isin(fechas_aceptadas)].copy()
+    df_completo = df_completo.sort_values("Fecha").reset_index(drop=True)
+    if transformar is not None:
+        df_completo = transformar(df_completo)
+    generar_archivo_limpio(df_completo, ruta_destino)
+    return len(df_completo)
 
 
 def filtrar_datos():
@@ -107,18 +167,20 @@ def _filtrar_datos_impl():
                     f"{med.consumo_csv} y {sub.bess_csv}"
                 )
 
-            df_filtrado = df_consumo[df_consumo["Fecha"].isin(fechas_comunes)].copy()
-            df_filtrado = df_filtrado.sort_values("Fecha").reset_index(drop=True)
+            transformar = None
             if med.intercambiar_consumo:
-                antes = df_filtrado[["KWH_REC", "KWH_ENT"]].copy()
-                df_filtrado = orientar_kwh_consumo(df_filtrado, forzar=True)
-                if not df_filtrado[["KWH_REC", "KWH_ENT"]].equals(antes):
-                    print(
-                        f"🔄 {med.consumo_filtrado}: Intercambiando KWH_REC ↔ KWH_ENT "
-                        f"(solo en archivo filtrado)"
-                    )
+                def transformar(df, _med=med):
+                    antes = df[["KWH_REC", "KWH_ENT"]].copy()
+                    salida = orientar_kwh_consumo(df, forzar=True)
+                    if not salida[["KWH_REC", "KWH_ENT"]].equals(antes):
+                        print(
+                            f"🔄 {_med.consumo_filtrado}: Intercambiando KWH_REC ↔ KWH_ENT "
+                            f"(solo en archivo filtrado)"
+                        )
+                    return salida
+
             ruta_destino = str(med.ruta_consumo(filtrado=True))
-            generar_archivo_limpio(df_filtrado, ruta_destino)
+            _escribir_filtrado(df_consumo, fechas_comunes, ruta_destino, transformar=transformar)
 
             if fechas_bess_filtradas is None:
                 fechas_bess_filtradas = fechas_comunes
@@ -127,10 +189,9 @@ def _filtrar_datos_impl():
 
         print(f"📊 Registros BESS ({sub.bess_csv}): {len(fechas_bess)}")
         if fechas_bess_filtradas:
-            df_bess_out = df_bess[df_bess["Fecha"].isin(fechas_bess_filtradas)].copy()
-            df_bess_out = df_bess_out.sort_values("Fecha").reset_index(drop=True)
-            generar_archivo_limpio(
-                df_bess_out,
+            _escribir_filtrado(
+                df_bess,
+                fechas_bess_filtradas,
                 str(sub.ruta_bess(filtrado=True)),
             )
             total_fechas += len(fechas_bess_filtradas)
@@ -142,15 +203,15 @@ def _filtrar_datos_impl():
                 df_granja, err = _leer_perfil(ruta_granja, sub.granja_csv)
                 if err:
                     return False, f"{sub.nombre} (granja): {err}"
-                df_granja_out = df_granja[df_granja["Fecha"].isin(fechas_bess_filtradas)].copy()
-                df_granja_out = df_granja_out.sort_values("Fecha").reset_index(drop=True)
-                generar_archivo_limpio(
-                    df_granja_out,
+                filas_escritas = _escribir_filtrado(
+                    df_granja,
+                    fechas_bess_filtradas,
                     str(sub.ruta_generacion(filtrado=True)),
                 )
                 print(
                     f"📊 Granja ({sub.granja_csv}): {len(df_granja)} registros "
-                    f"→ {sub.granja_filtrado}: {len(df_granja_out)}"
+                    f"→ {sub.granja_filtrado}: {len(fechas_bess_filtradas)} en total"
+                    + (f" ({filas_escritas} nuevo(s))" if filas_escritas else "")
                 )
             else:
                 print(
@@ -164,15 +225,15 @@ def _filtrar_datos_impl():
                 df_cogen, err = _leer_perfil(ruta_cogen, sub.cogeneracion_csv)
                 if err:
                     return False, f"{sub.nombre} (generación): {err}"
-                df_cogen_out = df_cogen[df_cogen["Fecha"].isin(fechas_bess_filtradas)].copy()
-                df_cogen_out = df_cogen_out.sort_values("Fecha").reset_index(drop=True)
-                generar_archivo_limpio(
-                    df_cogen_out,
+                filas_escritas = _escribir_filtrado(
+                    df_cogen,
+                    fechas_bess_filtradas,
                     str(sub.ruta_cogeneracion(filtrado=True)),
                 )
                 print(
                     f"📊 Generación ({sub.cogeneracion_csv}): {len(df_cogen)} registros "
-                    f"→ {sub.cogeneracion_filtrado}: {len(df_cogen_out)}"
+                    f"→ {sub.cogeneracion_filtrado}: {len(fechas_bess_filtradas)} en total"
+                    + (f" ({filas_escritas} nuevo(s))" if filas_escritas else "")
                 )
             else:
                 print(
