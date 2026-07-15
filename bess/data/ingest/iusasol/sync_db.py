@@ -228,8 +228,18 @@ def sincronizar_medidor_api(
             # la API, y sin esta protección eso pisaba silenciosamente
             # cualquier corrección manual con lo que la API sigue reportando
             # (que puede seguir en cero si el medidor real no se ha arreglado).
+            #
+            # no_degradar_a_ceros=True: la API puede responder un lote entero
+            # en cero por una falla transitoria propia (timeout, error del
+            # lado del proveedor, etc.), sin que eso signifique que el
+            # medidor real dejó de reportar. Sin esta protección, ese lote
+            # en cero pisaba silenciosamente lecturas reales ya guardadas de
+            # una corrida anterior -- pasó en producción con Cogeneracion,
+            # GENERACION_ARAGON y Generacion_IUSA_2 el mismo día que se
+            # detectó este bug.
             resultado = db.upsert_registros(
-                conn, medidor_bd, lote, fuente='iusasol', respetar_fuente='csv'
+                conn, medidor_bd, lote, fuente='iusasol', respetar_fuente='csv',
+                no_degradar_a_ceros=True,
             )
             insertados += resultado.insertados
             actualizados += resultado.actualizados

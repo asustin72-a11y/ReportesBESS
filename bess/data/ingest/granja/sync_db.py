@@ -154,7 +154,14 @@ def sincronizar_granja_iusa2(
     with db.conectar_bd(ruta_bd) as conn:
         for i in range(0, len(registros), LOTE):
             lote = registros[i : i + LOTE]
-            resultado = db.upsert_registros(conn, medidor_id, lote, fuente="farm_api")
+            # no_degradar_a_ceros=True: mismo motivo que en
+            # iusasol/sync_db.py -- una falla transitoria del API de granja
+            # puede devolver un lote entero en cero sin que el medidor real
+            # haya dejado de generar; sin esta proteccion eso pisaba
+            # silenciosamente lecturas reales ya guardadas.
+            resultado = db.upsert_registros(
+                conn, medidor_id, lote, fuente="farm_api", no_degradar_a_ceros=True
+            )
             insertados += resultado.insertados
             actualizados += resultado.actualizados
         if registros:

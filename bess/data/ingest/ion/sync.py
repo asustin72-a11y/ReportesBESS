@@ -165,13 +165,19 @@ def sincronizar(
 
             if len(lote) >= LOTE_GUARDADO:
                 with db.conectar_bd(ruta_bd) as conn:
+                    # no_degradar_a_ceros=True: una lectura Modbus en cero
+                    # (glitch de comunicacion, registro corrupto en el data
+                    # recorder, etc.) no debe pisar una lectura real ya
+                    # guardada -- mismo motivo que en iusasol/sync_db.py y
+                    # granja/sync_db.py.
                     upsert_kwargs = (
                         {'respetar_fuente': 'csv'}
                         if medidor_id == db.MEDIDOR_ION
                         else {}
                     )
                     res = db.upsert_registros(
-                        conn, medidor_id, lote, fuente='modbus', **upsert_kwargs
+                        conn, medidor_id, lote, fuente='modbus',
+                        no_degradar_a_ceros=True, **upsert_kwargs
                     )
                     insertados += res.insertados
                     actualizados += res.actualizados
@@ -189,7 +195,8 @@ def sincronizar(
                     else {}
                 )
                 res = db.upsert_registros(
-                    conn, medidor_id, lote, fuente='modbus', **upsert_kwargs
+                    conn, medidor_id, lote, fuente='modbus',
+                    no_degradar_a_ceros=True, **upsert_kwargs
                 )
                 insertados += res.insertados
                 actualizados += res.actualizados
