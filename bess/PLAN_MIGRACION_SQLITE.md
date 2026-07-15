@@ -1,0 +1,166 @@
+# Plan — reducir la dependencia de CSV (migración a SQLite)
+
+Documento de referencia para la segunda migración del proyecto: de "hoja de
+Excel con pasos encadenados" (Sincronizar → Verificar → Filtrar → Reportes,
+cada uno leyendo y reescribiendo CSV completos) a un pipeline que usa la base
+de datos como fuente de verdad en cada etapa, no solo en la ingesta.
+
+Ver [`ARCHITECTURE.md`](ARCHITECTURE.md) para la migración de monolito a
+paquete modular (`bess/*`), ya completada — este documento es un eje distinto:
+dónde vive el dato, no cómo está organizado el código.
+
+## Por qué
+
+La app nació como hoja de Excel y todavía se comporta como una: cada paso del
+pipeline relee un CSV completo, lo transforma y reescribe el CSV completo
+para que el siguiente paso haga lo mismo. Con meses de histórico esto es
+lento (se demostró en Fase 1: 70 días × relectura completa = trabajo
+cuadrático) y frágil (un CSV a medio escribir, abierto en Excel, o con
+formato inconsistente rompe todo lo que viene después). Ya existe una base de
+datos (`data/bess_perfiles.db`) que resuelve esto para la ingesta; el resto
+del pipeline no la usa todavía.
+
+## Estado actual
+
+```
+Ingesta (ION Modbus, API IUSASOL, API Granja)
+        │
+        ▼
+   SQLite: perfil_carga, sync_state, sync_log, catálogo   [BD — Hecho]
+        │
+        ▼  export_csv.py (exporta histórico COMPLETO cada sync)
+   ArchivosFuente/*.csv                                    [CSV]
+        │
+        ▼  Verificar (verify.py) — incremental desde Fase 1 de esta sesión
+   ArchivosProcesados/*.csv                                [CSV]
+        │
+        ▼  Filtrar (filter.py) — intersección de fechas, reescribe completo
+   ArchivosProcesados/*_Filtrado.csv                        [CSV]
+        │
+        ▼  aggregates/{combined,daily,accumulated,granja,bess_daily}.py
+   ArchivosReporte/COMBINADO_*, ENERGIA_*_POR_DIA, ACUMULADOS_*  [CSV]
+        │
+        ▼
+   reports/*_pdf.py  +  ui/{pages,reportes_tab,generacion_tab,...}.py
+```
+
+Todo lo que está debajo de la primera línea de SQLite sigue siendo CSV de
+punta a punta. Verificar ya dejó de reprocesar el histórico completo en cada
+corrida (cursor incremental); todo lo demás en la cadena todavía lo hace.
+
+## Principio de trabajo (el que ya se siguió en Verificar)
+
+Un cambio a la vez, cada uno con: prueba de equivalencia (resultado nuevo ==
+resultado viejo, no solo "no truena"), validación contra una copia aislada de
+datos reales del repo, y commit propio. Los números que produce este sistema
+son facturación real — no vale la pena ganar velocidad a cambio de arriesgar
+un cálculo mal hecho que nadie note a tiempo.
+
+## Fases
+
+### Fase 0 — Ingesta a SQLite · Hecho
+
+`bess/data/ingest/{ion,iusasol,granja}/sync_db.py` escriben directo a
+`perfil_carga` (con `UNIQUE(medidor_id, fecha)` y cursor por medidor en
+`sync_state`). El catálogo de medidores/subestaciones/tarifas también vive en
+SQLite. Esto ya existía antes de esta sesión.
+
+### Fase 1 — Verificar incremental · Hecho (esta sesión)
+
+`bess/data/pipeline/verify.py`: cursor sobre el CSV ya procesado, solo
+verifica (dedup + huecos) las filas nuevas y las anexa. Ver commits
+`c3ba48a` y `1774799`.
+
+### Fase 2 — Exportar incremental (siguiente paso natural)
+
+**Qué cambia:** `bess/data/ingest/ion/export_csv.py` hoy exporta el
+histórico completo de `perfil_carga` a `ArchivosFuente` en cada
+sincronización — es el motivo por el que Verificar, aun siendo incremental,
+sigue leyendo un CSV fuente que creció sin necesidad. Aplicar el mismo patrón
+de cursor (`bess/data/ingest/sync_cursor.py` ya existe y hace esto para la
+ingesta; export_csv.py necesita su propio cursor de "última fila exportada",
+que puede ser tan simple como leer la última `Fecha` del CSV destino, igual
+que se hizo en verify.py).
+
+**Riesgo:** bajo. Mismo patrón ya probado, un solo archivo, no toca cálculos
+de facturación — solo decide qué filas copiar de la BD al CSV.
+
+**Beneficio:** multiplica la ganancia de Fase 1 (hoy Verificar ya no reprocesa
+el CSV completo, pero export_csv.py se lo sigue entregando completo cada vez;
+con Fase 2 ambos extremos quedan incrementales).
+
+### Fase 3 — Consolidado BESS incremental
+
+**Qué cambia:** `bess/data/pipeline/bess_consolidate.py` (68 líneas) arma
+`BESS_IUSA_X.csv` combinando BESS + ION/Banco/Consumo por subestación;
+reescribe completo en cada corrida de Verificar. Mismo patrón de cursor.
+
+**Riesgo:** bajo-medio. Archivo pequeño, pero su salida alimenta
+directamente a Filtrar — conviene tener Fase 2 y sus pruebas como plantilla
+antes de tocar este.
+
+### Fase 4 — Filtrar sin relectura completa
+
+**Qué cambia:** `bess/data/pipeline/filter.py` (248 líneas) relee
+`ArchivosProcesados/*.csv` completos, calcula la intersección de fechas
+entre BESS y cada medidor de consumo (para que los reportes no comparen
+periodos distintos), reescribe `*_Filtrado.csv` completo y **borra**
+`ArchivosFuente` al final. Es candidato a moverse a consultas directas sobre
+SQLite (o sobre las tablas/vistas que resulten de Fases 2-3) en vez de leer
+CSV — ya no solo "hacer incremental el CSV" sino empezar a no depender de él.
+
+**Riesgo:** medio. La intersección de fechas es la lógica que garantiza que
+BESS y el medidor de consumo se comparen en el mismo rango — un error aquí
+se propaga a todos los reportes de esa subestación. El propio código ya trae
+la advertencia ("Ejecute Verificar antes de Filtrar") como pista de que el
+orden y la consistencia entre pasos importa.
+
+**Nota aparte:** la limpieza de `ArchivosFuente` al final de este paso deja
+de tener sentido en cuanto Fase 2 vuelva ese CSV innecesario — hay que
+revisar esa función (`limpiar_archivos_fuente`) cuando se llegue aquí.
+
+### Fase 5 — Combinados, diarios y acumulados desde BD
+
+**Qué cambia:** `bess/data/aggregates/{combined,daily,accumulated,granja,
+bess_daily,generacion}.py` (~800 líneas en total) generan
+`COMBINADO_POR_MINUTO_*.csv`, `ENERGIA_*_POR_DIA.csv` y `ACUMULADOS_*.csv` —
+la capa que sí calcula demanda rodante, periodos CFE y kWh netos, no solo
+copia datos. Hoy cada uno relee CSV filtrado y reescribe completo. Son
+candidatos a convertirse en tablas materializadas en SQLite, recalculadas
+solo para el rango de fechas afectado por el último sync.
+
+**Riesgo:** medio-alto. Es la lógica de cálculo, no solo de transporte de
+datos — cualquier diferencia de redondeo o de agrupación aquí sí cambia un
+número que ve el cliente. Conviene dividir esta fase en sub-pasos por
+archivo (empezar por `combined.py`, que es la base de los otros tres) en vez
+de intentarlo de una vez.
+
+### Fase 6 — Reportes y UI apuntando a BD
+
+**Qué cambia:** `bess/reports/{daily_pdf,accumulated_pdf,emisiones_pdf,
+dia_tipo}.py`, `bess/charts/profile.py` y `bess/ui/{pages,generacion_tab,
+pipeline_status,reportes_tab,sidebar}.py` leen `ArchivosReporte/*.csv`
+directamente. Repuntarlos a consultas SQL (o a las tablas materializadas de
+Fase 5) cierra la cadena.
+
+**Riesgo:** alto en superficie (son ~9 archivos, varios en la capa que ve el
+usuario en vivo), aunque cada cambio individual sea mecánico. Es la fase con
+más probabilidad de que un error se note primero en pantalla que en una
+prueba — dejarla para el final, con cada archivo probado por separado.
+
+### Fase 7 — Decisión: ¿se retira el CSV?
+
+No es código, es una decisión de producto que conviene tomar cuando se
+llegue aquí, no ahora: si los CSV se eliminan del todo, o si se mantienen
+como export de solo lectura / respaldo / algo que un admin pueda abrir en
+Excel bajo demanda, pero fuera del camino crítico de escritura. Ambas son
+razonables; depende de si alguien además de la app usa esos archivos hoy.
+
+## Qué NO cambia en ninguna fase
+
+- El esquema de columnas de los CSV que sí se mantengan (compatibilidad con
+  Excel/exportes manuales).
+- Los cálculos de periodos CFE, tarifas y arbitraje (`bess/cfe/`) — esta
+  migración es de dónde vive el dato, no de cómo se calcula sobre él.
+- El lock de pipeline (`bess/data/pipeline_lock.py`) sigue siendo necesario
+  mientras haya cualquier paso que escriba archivos compartidos.

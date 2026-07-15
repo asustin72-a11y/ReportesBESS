@@ -2,6 +2,8 @@
 
 Documento de referencia para la migración de monolito (exe) a paquete modular (web).
 
+Ver también [`PLAN_MIGRACION_SQLITE.md`](PLAN_MIGRACION_SQLITE.md): la segunda migración en curso, de CSV a SQLite en cada etapa del pipeline (no solo en la ingesta).
+
 ## Situación actual
 
 | Archivo | Líneas | Rol |
@@ -75,4 +77,5 @@ Plantillas: `.streamlit/secrets.toml.example`, `.env.example`. Contraseñas en t
 
 - Cálculos CFE → `bess/cfe/`
 - Tarifas CSV → `bess/tariffs/`
-- Recibo (~700 líneas) →
+- Recibo (~700 líneas) → `bess/cfe/receipt/`
+-

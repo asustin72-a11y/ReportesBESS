@@ -41,6 +41,7 @@ python docs/generar_guia_pdf.py
 | [DOCKER.md](DOCKER.md) | Despliegue con Docker Compose en servidor |
 | [RESTAURACION_LOCAL.md](../RESTAURACION_LOCAL.md) | Restaurar datos y respaldos locales |
 | [bess/ARCHITECTURE.md](../bess/ARCHITECTURE.md) | Arquitectura del código |
+| [bess/PLAN_MIGRACION_SQLITE.md](../bess/PLAN_MIGRACION_SQLITE.md) | Plan de migración de CSV a SQLite en el pipeline |
 
 ## Herramientas ION
 
