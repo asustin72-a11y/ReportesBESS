@@ -71,23 +71,24 @@ SQLite. Esto ya existía antes de esta sesión.
 verifica (dedup + huecos) las filas nuevas y las anexa. Ver commits
 `c3ba48a` y `1774799`.
 
-### Fase 2 — Exportar incremental (siguiente paso natural)
+### Fase 2 — Exportar incremental · Hecho (esta sesión)
 
-**Qué cambia:** `bess/data/ingest/ion/export_csv.py` hoy exporta el
-histórico completo de `perfil_carga` a `ArchivosFuente` en cada
-sincronización — es el motivo por el que Verificar, aun siendo incremental,
-sigue leyendo un CSV fuente que creció sin necesidad. Aplicar el mismo patrón
-de cursor (`bess/data/ingest/sync_cursor.py` ya existe y hace esto para la
-ingesta; export_csv.py necesita su propio cursor de "última fila exportada",
-que puede ser tan simple como leer la última `Fecha` del CSV destino, igual
-que se hizo en verify.py).
+`bess/data/ingest/ion/export_csv.py`: cursor sobre el CSV ya exportado
+(última `Fecha` escrita); en cada sincronización, si no se piden `desde`/
+`hasta` explícitos, solo se consultan a `perfil_carga` las filas
+posteriores al cursor y se anexan, en vez de reexportar el histórico
+completo. Un `desde`/`hasta` explícito (re-export puntual, p.ej. para
+reparar datos) sigue sobrescribiendo el archivo completo, sin cambios.
+Incluye el caso de medidores API/Granja con relleno de medianoche
+(`gaps.py`): el contexto previo al cursor (`contexto_previo_bd`) se pasa
+igual que antes se pasaba solo cuando había un `desde` explícito, para que
+el relleno de 00:00 siga detectando el salto 23:55→00:05 aunque el corte
+de la exportación caiga a media tabla.
 
-**Riesgo:** bajo. Mismo patrón ya probado, un solo archivo, no toca cálculos
-de facturación — solo decide qué filas copiar de la BD al CSV.
-
-**Beneficio:** multiplica la ganancia de Fase 1 (hoy Verificar ya no reprocesa
-el CSV completo, pero export_csv.py se lo sigue entregando completo cada vez;
-con Fase 2 ambos extremos quedan incrementales).
+Validado con 6 pruebas de equivalencia (`tests/test_export_csv_incremental.py`,
+medidor ION y medidor API/Granja con medianoche) y contra una copia de la
+base de datos real (dos medidores, export incremental multi-corrida ==
+export completo, exacto). Suite completa: 73 pruebas.
 
 ### Fase 3 — Consolidado BESS incremental
 
@@ -162,5 +163,4 @@ razonables; depende de si alguien además de la app usa esos archivos hoy.
   Excel/exportes manuales).
 - Los cálculos de periodos CFE, tarifas y arbitraje (`bess/cfe/`) — esta
   migración es de dónde vive el dato, no de cómo se calcula sobre él.
-- El lock de pipeline (`bess/data/pipeline_lock.py`) sigue siendo necesario
-  mientras haya cualquier paso que escriba archivos compartidos.
+- El lock 

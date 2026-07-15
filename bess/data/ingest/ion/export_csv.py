@@ -7,6 +7,8 @@ import csv
 import sys
 from pathlib import Path
 
+import pandas as pd
+
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
 from bess.data.ingest.ion import db
 from bess.data.ingest.iusasol.gaps import (
@@ -29,6 +31,25 @@ COLUMNAS_BESS = [
 ]
 
 
+def _cursor_exportado(salida: Path) -> str | None:
+    """Última Fecha ya exportada en `salida`, o None si no existe/está vacío
+    o no tiene una columna Fecha legible.
+
+    exportar() siempre escribe ordenado por fecha ascendente (la consulta
+    SQL trae `ORDER BY fecha`), así que basta con el máximo de la columna.
+    """
+    if not salida.exists():
+        return None
+    try:
+        fechas = pd.read_csv(salida, usecols=['Fecha'], encoding='utf-8-sig')['Fecha']
+    except (ValueError, KeyError):
+        return None
+    fechas = fechas.dropna()
+    if fechas.empty:
+        return None
+    return str(fechas.max())
+
+
 def exportar(
     ruta_bd: Path,
     medidor_id: str,
@@ -38,9 +59,22 @@ def exportar(
     *,
     quiet: bool = False,
 ) -> int:
+    """Exporta perfil_carga -> CSV.
+
+    Incremental: si no se piden `desde`/`hasta` explícitos y ya existe un
+    CSV exportado para este medidor, solo se consultan y anexan las filas
+    posteriores al cursor (última Fecha ya exportada), en vez de releer y
+    reescribir el histórico completo en cada sincronización. Un `desde` o
+    `hasta` explícito (re-exportar un rango puntual, p.ej. para reparar
+    datos) sigue sobrescribiendo el archivo completo como antes.
+    """
     medidor_id = medidor_id_canonico(medidor_id)
     db.init_db(ruta_bd)
     salida.parent.mkdir(parents=True, exist_ok=True)
+
+    cursor = None
+    if desde is None and hasta is None:
+        cursor = _cursor_exportado(salida)
 
     query = """
         SELECT fecha, kwh_rec, kwh_ent, kvarh_q1, kvarh_q2, kvarh_q3, kvarh_q4
@@ -49,15 +83,19 @@ def exportar(
     """
     params: list[str] = [medidor_id]
 
-    if desde:
-        query += ' AND fecha >= ?'
-        inicio = desde if ' ' in desde else f'{desde} 00:00:00'
-        if not medidor_rellena_medianoche_api(medidor_id) and ' ' not in desde:
-            inicio = f'{desde} 00:05:00'
-        params.append(inicio)
-    if hasta:
-        query += ' AND fecha <= ?'
-        params.append(hasta if ' ' in hasta else f'{hasta} 23:59:59')
+    if cursor is not None:
+        query += ' AND fecha > ?'
+        params.append(cursor)
+    else:
+        if desde:
+            query += ' AND fecha >= ?'
+            inicio = desde if ' ' in desde else f'{desde} 00:00:00'
+            if not medidor_rellena_medianoche_api(medidor_id) and ' ' not in desde:
+                inicio = f'{desde} 00:05:00'
+            params.append(inicio)
+        if hasta:
+            query += ' AND fecha <= ?'
+            params.append(hasta if ' ' in hasta else f'{hasta} 23:59:59')
 
     query += ' ORDER BY fecha'
 
@@ -65,6 +103,10 @@ def exportar(
         filas = conn.execute(query, params).fetchall()
 
     if not filas:
+        if cursor is not None:
+            if not quiet:
+                print(f'  {medidor_id}: sin registros nuevos desde la última exportación')
+            return 0
         if not quiet:
             print(f'  {medidor_id}: sin registros para exportar')
         return 1
@@ -75,7 +117,7 @@ def exportar(
             filas = conn.execute(query, params).fetchall()
         df = filas_a_dataframe(filas)
         contexto = None
-        if desde and filas:
+        if (desde or cursor) and filas:
             contexto = contexto_previo_bd(medidor_id, ruta_bd, df['Fecha'].min())
         df = rellenar_slots_medianoche_api(df, contexto_prev=contexto)
         filas_export = df
@@ -84,9 +126,13 @@ def exportar(
         filas_export = filas
         usar_df = False
 
-    with salida.open('w', newline='', encoding='utf-8-sig') as f:
+    modo = 'a' if cursor is not None else 'w'
+    escribir_encabezado = cursor is None
+
+    with salida.open(modo, newline='', encoding='utf-8-sig') as f:
         writer = csv.writer(f)
-        writer.writerow(COLUMNAS_BESS)
+        if escribir_encabezado:
+            writer.writerow(COLUMNAS_BESS)
         if usar_df:
             for _, row in filas_export.iterrows():
                 fecha = row['Fecha']
@@ -114,7 +160,8 @@ def exportar(
 
     if not quiet:
         n = len(filas_export) if usar_df else len(filas)
-        print(f'  {medidor_id}: {n} registros -> {salida}')
+        etiqueta = 'nuevo(s) anexado(s)' if cursor is not None else 'registros'
+        print(f'  {medidor_id}: {n} {etiqueta} -> {salida}')
         if usar_df:
             primero = filas_export.iloc[0]['Fecha']
             ultimo = filas_export.iloc[-1]['Fecha']

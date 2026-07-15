@@ -66,7 +66,7 @@ Expander con acciones individuales:
 
 | Acción | Qué hace |
 |--------|----------|
-| **Sincronizar ahora** | Ejecuta `scripts/sincronizar_perfiles.py` (ION + API). Muestra resumen y actualiza validación de medidores. |
+| **Sincronizar ahora** | Ejecuta `scripts/sincronizar_perfiles.py` (ION + API). Muestra resumen y actualiza validación de medidores. El último paso (SQLite → ArchivosFuente) es incremental: solo exporta las filas nuevas desde la última sincronización y las anexa al CSV existente, en vez de reexportar el histórico completo cada vez. Un re-export explícito de un rango puntual (reparación de datos) sigue sobrescribiendo el archivo completo. |
 | **Verificar** | Comprueba CSV en fuente y copia a procesados. Incremental: si ya existe un CSV procesado, solo verifica (duplicados + huecos) las filas nuevas desde la última sincronización y las agrega al final, en vez de reprocesar todo el histórico. La primera vez (o si cambia el formato de columnas) procesa completo, como antes. El día opera de 00:05 a 00:00 del día siguiente (288 perfiles/día, el 00:00 es el cierre del día anterior); si falta ese perfil dentro del rango de datos reales, se rellena con cero como cualquier otro hueco, sin excepción por fuente (ION incluido). |
 | **Filtrar** | Genera archivos `*_Filtrado.csv` (intersección temporal). |
 | **Generar reportes** | Ejecuta `scripts/run_reporte_bess.py` con barra de progreso. |
