@@ -12,6 +12,7 @@ import pandas as pd
 from bess.config.subestaciones import medidor_consumo_por_prefijo
 from bess.cfe.periods import periodo_por_fecha_hora
 from bess.config.esquema_tarifa import esquema_tarifa_prefijo, normalizar_esquema_tarifa
+from bess.core.atomic_io import ruta_temporal_atomica
 from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
 from bess.core.dates import agregar_fecha_operativa
 from bess.core.demand import demanda_rodante_15min_por_mes
@@ -150,13 +151,21 @@ def _escribir_ventana_combinada(
     # sin traducir, y en Windows (donde corre este pipeline en produccion,
     # os.linesep='\r\n') eso desalinearia el fin de linea de la ventana
     # reescrita contra el resto del archivo.
-    with open(ruta_salida, 'w', encoding='utf-8') as f:
-        writer = csv.writer(f, lineterminator='\n')
-        writer.writerow(columnas_export)
-        for fila in filas_previas:
-            writer.writerow(fila)
-        for row in df_ventana[columnas_export].itertuples(index=False):
-            writer.writerow(_valor_csv(v) for v in row)
+    #
+    # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
+    # escritura a medio camino, ruta_salida conserva su contenido anterior
+    # en vez de quedar truncado -- pasó en producción con este mismo
+    # archivo (COMBINADO_POR_MINUTO_ION_Testigo_IUSA1_IUSA_1.csv perdió
+    # más de un día de datos ya guardados cuando una corrida se interrumpió
+    # a medio escribir).
+    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
+        with open(ruta_temp, 'w', encoding='utf-8') as f:
+            writer = csv.writer(f, lineterminator='\n')
+            writer.writerow(columnas_export)
+            for fila in filas_previas:
+                writer.writerow(fila)
+            for row in df_ventana[columnas_export].itertuples(index=False):
+                writer.writerow(_valor_csv(v) for v in row)
     print(
         f"OK {nombre_archivo} - ventana recalculada "
         f"({len(filas_previas)} preservada(s) + {len(df_ventana)} en ventana)"
@@ -366,7 +375,9 @@ def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo, esquema_tarif
     )
 
     os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
-    df_procesado[columnas_export].to_csv(ruta_salida, index=False)
+    # Escritura atómica (bess.core.atomic_io): ver _escribir_ventana_combinada.
+    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
+        df_procesado[columnas_export].to_csv(ruta_temp, index=False)
 
     print(f"OK {nombre_archivo} - {len(df_procesado)} registros")
     return df_procesado

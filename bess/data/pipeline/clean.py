@@ -8,6 +8,7 @@ import os
 import pandas as pd
 
 from bess.config.paths import DIRECTORIO_PROCESADOS
+from bess.core.atomic_io import ruta_temporal_atomica
 from bess.core.dates import normalizar_fecha
 from bess.core.kvarh import columnas_kvarh as _columnas_kvarh
 
@@ -90,13 +91,18 @@ def escribir_ventana_archivo_limpio(filas_previas, df_ventana, ruta_salida):
     # traducir, y en Windows (donde corre este pipeline en produccion,
     # os.linesep='\r\n') eso desalinearia el fin de linea de la ventana
     # reescrita contra el resto del archivo.
-    with open(ruta_salida, 'w', encoding='utf-8-sig') as f:
-        writer = csv.writer(f, lineterminator='\n')
-        writer.writerow(columnas)
-        for fila in filas_previas:
-            writer.writerow(fila)
-        for row in df_limpio.itertuples(index=False):
-            writer.writerow(row)
+    #
+    # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
+    # escritura a medio camino, ruta_salida conserva su contenido anterior
+    # en vez de quedar truncado.
+    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
+        with open(ruta_temp, 'w', encoding='utf-8-sig') as f:
+            writer = csv.writer(f, lineterminator='\n')
+            writer.writerow(columnas)
+            for fila in filas_previas:
+                writer.writerow(fila)
+            for row in df_limpio.itertuples(index=False):
+                writer.writerow(row)
     print(
         f"✅ Ventana recalculada guardada: {ruta_salida} "
         f"({len(filas_previas)} preservada(s) + {len(df_limpio)} en ventana)"
@@ -109,7 +115,9 @@ def generar_archivo_limpio(df, ruta_salida):
     columnas = ['Fecha', 'KWH_REC', 'KWH_ENT'] + _columnas_kvarh(df)
     df_limpio = df[columnas].copy()
     df_limpio['Fecha'] = df_limpio['Fecha'].apply(normalizar_fecha)
-    df_limpio.to_csv(ruta_salida, index=False, encoding='utf-8-sig')
+    # Escritura atómica (bess.core.atomic_io): ver escribir_ventana_archivo_limpio.
+    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
+        df_limpio.to_csv(ruta_temp, index=False, encoding='utf-8-sig')
     print(f"✅ Archivo generado: {ruta_salida} ({len(df_limpio)} registros)")
     return df_limpio
 

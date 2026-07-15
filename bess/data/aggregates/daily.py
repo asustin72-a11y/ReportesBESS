@@ -10,6 +10,7 @@ from bess.config.subestaciones import (
     medidor_consumo_por_prefijo,
     ruta_combinado_por_prefijo,
 )
+from bess.core.atomic_io import ruta_temporal_atomica
 from bess.core.consumo import kwh_neto_consumo
 from bess.cfe.periods import periodo_por_fecha_hora
 from bess.config.esquema_tarifa import esquema_tarifa_prefijo, normalizar_esquema_tarifa, usa_netmetering
@@ -351,7 +352,11 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
         df_med_diario = combinar_cola_diaria(df_med_diario, ruta_salida, COLUMNAS_DIARIO)
 
     os.makedirs(os.path.dirname(ruta_salida) or ".", exist_ok=True)
-    df_med_diario.to_csv(ruta_salida, index=False)
+    # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
+    # escritura a medio camino, ruta_salida conserva su contenido anterior
+    # en vez de quedar truncado.
+    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
+        df_med_diario.to_csv(ruta_temp, index=False)
     print(f"OK {nombre_med_dia} - {len(df_med_diario)} dias")
 
     return df_med_diario

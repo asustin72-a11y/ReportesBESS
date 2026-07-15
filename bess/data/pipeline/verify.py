@@ -10,6 +10,7 @@ import pandas as pd
 
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
 from bess.config.subestaciones import SUBESTACIONES, archivos_fuente_subestacion
+from bess.core.atomic_io import ruta_temporal_atomica
 from bess.data.pipeline.bess_consolidate import consolidar_bess_subestacion
 from bess.core.console import log
 from bess.data.ingest.identify import identificar_y_renombrar_archivos
@@ -44,7 +45,11 @@ def _guardar_perfil_procesado(
     salida = perfil.copy()
     salida['Fecha'] = salida['Fecha'].dt.strftime('%Y-%m-%d %H:%M:%S')
     try:
-        salida.to_csv(ruta_destino, index=False, encoding='utf-8-sig')
+        # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
+        # escritura a medio camino, ruta_destino conserva su contenido
+        # anterior en vez de quedar truncado.
+        with ruta_temporal_atomica(ruta_destino) as ruta_temp:
+            salida.to_csv(ruta_temp, index=False, encoding='utf-8-sig')
     except OSError as e:
         print(
             f"❌ No se pudo guardar {nombre_archivo}: {e}. "
@@ -129,13 +134,18 @@ def _guardar_ventana_procesada(
         # traducir, y en Windows (donde corre este pipeline en
         # produccion, os.linesep='\r\n') eso desalinearia el fin de linea
         # de la ventana reescrita contra el resto del archivo.
-        with open(ruta_destino, 'w', encoding='utf-8-sig') as f:
-            writer = csv.writer(f, lineterminator='\n')
-            writer.writerow(list(salida.columns))
-            for fila in filas_previas:
-                writer.writerow(fila)
-            for row in salida.itertuples(index=False):
-                writer.writerow(row)
+        #
+        # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
+        # escritura a medio camino, ruta_destino conserva su contenido
+        # anterior en vez de quedar truncado.
+        with ruta_temporal_atomica(ruta_destino) as ruta_temp:
+            with open(ruta_temp, 'w', encoding='utf-8-sig') as f:
+                writer = csv.writer(f, lineterminator='\n')
+                writer.writerow(list(salida.columns))
+                for fila in filas_previas:
+                    writer.writerow(fila)
+                for row in salida.itertuples(index=False):
+                    writer.writerow(row)
     except OSError as e:
         print(
             f"❌ No se pudo guardar {nombre_archivo}: {e}. "

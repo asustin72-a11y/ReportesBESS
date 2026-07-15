@@ -10,6 +10,7 @@ from bess.config.subestaciones import (
     medidor_consumo_por_prefijo,
     ruta_energia_dia_por_prefijo,
 )
+from bess.core.atomic_io import ruta_temporal_atomica
 from bess.data.aggregates._incremental_dia import (
     columnas_dia,
     combinar_cola_diaria,
@@ -209,7 +210,11 @@ def generar_acumulados(prefijo):
         df_acum_med = combinar_cola_diaria(df_acum_med, ruta_salida, COLUMNAS_ACUMULADO)
 
     os.makedirs(os.path.dirname(ruta_salida) or ".", exist_ok=True)
-    df_acum_med.to_csv(ruta_salida, index=False)
+    # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
+    # escritura a medio camino, ruta_salida conserva su contenido anterior
+    # en vez de quedar truncado.
+    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
+        df_acum_med.to_csv(ruta_temp, index=False)
     print(f"OK {nombre_med_acum} - {len(df_acum_med)} dias (acumulado por mes)")
 
     return df_acum_med

@@ -22,6 +22,7 @@ import pandas as pd
 _MARGEN_REEXPORTAR_DIAS = 1
 
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
+from bess.core.atomic_io import ruta_temporal_atomica
 from bess.data.ingest.ion import db
 from bess.data.ingest.iusasol.gaps import (
     contexto_previo_bd,
@@ -184,7 +185,7 @@ def exportar(
     modo = 'w' if (cursor is None or inicio_ventana is not None) else 'a'
     escribir_encabezado = modo == 'w'
 
-    with salida.open(modo, newline='', encoding='utf-8-sig') as f:
+    def _escribir_filas(f) -> None:
         writer = csv.writer(f)
         if escribir_encabezado:
             writer.writerow(COLUMNAS_BESS)
@@ -214,6 +215,30 @@ def exportar(
                     row['kvarh_q3'],
                     row['kvarh_q4'],
                 ])
+
+    try:
+        if modo == 'w':
+            # Escritura atómica (bess.core.atomic_io): el modo 'w' reemplaza
+            # el archivo completo (filas_previas + ventana recalculada) --
+            # si algo interrumpe esta escritura a medio camino, `salida`
+            # conserva su contenido anterior en vez de quedar truncado.
+            with ruta_temporal_atomica(salida) as ruta_temp:
+                with open(ruta_temp, 'w', newline='', encoding='utf-8-sig') as f:
+                    _escribir_filas(f)
+        else:
+            # Modo 'a' (anexar filas estrictamente nuevas): no reemplaza
+            # historial existente, así que una interrupción a medio camino
+            # deja como mucho una última fila incompleta -- no hace falta
+            # la protección atómica de arriba.
+            with salida.open('a', newline='', encoding='utf-8-sig') as f:
+                _escribir_filas(f)
+    except OSError as e:
+        if not quiet:
+            print(
+                f'  ❌ No se pudo guardar {medidor_id}: {e}. '
+                'Cierre Excel u otro programa que tenga abierto el CSV en ArchivosFuente.'
+            )
+        return 1
 
     if not quiet:
         n = len(filas_export) if usar_df else len(filas)

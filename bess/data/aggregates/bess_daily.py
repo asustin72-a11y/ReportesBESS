@@ -9,6 +9,7 @@ import pandas as pd
 from bess.config.subestaciones import Subestacion, medidor_consumo_por_prefijo, ruta_combinado_por_prefijo
 from bess.cfe.periods import periodo_por_fecha_hora
 from bess.config.esquema_tarifa import normalizar_esquema_tarifa
+from bess.core.atomic_io import ruta_temporal_atomica
 from bess.core.dates import agregar_fecha_operativa
 from bess.data.aggregates._incremental_dia import (
     columnas_dia,
@@ -106,7 +107,11 @@ def _bess_diario_desde_combinado_minuto(
 
 def _guardar_bess_diario(df: pd.DataFrame, ruta_salida: str, etiqueta: str) -> pd.DataFrame:
     os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
-    df.to_csv(ruta_salida, index=False)
+    # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
+    # escritura a medio camino, ruta_salida conserva su contenido anterior
+    # en vez de quedar truncado.
+    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
+        df.to_csv(ruta_temp, index=False)
     print(f"OK {etiqueta} - {len(df)} dias (desde COMBINADO_POR_MINUTO)")
     return df
 

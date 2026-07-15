@@ -9,6 +9,7 @@ import pandas as pd
 from bess.config import rutas as rutas_mod
 from bess.cfe.periods import periodo_por_fecha_hora
 from bess.config.esquema_tarifa import normalizar_esquema_tarifa
+from bess.core.atomic_io import ruta_temporal_atomica
 from bess.core.dates import agregar_fecha_operativa
 from bess.core.console import log
 from bess.data.aggregates._incremental_dia import (
@@ -70,7 +71,11 @@ def _escribir_combinado_minuto(df_min_out: pd.DataFrame, ruta_min: str) -> int:
         return len(nuevas)
 
     os.makedirs(os.path.dirname(ruta_min), exist_ok=True)
-    df_min_out.to_csv(ruta_min, index=False)
+    # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
+    # escritura a medio camino, ruta_min conserva su contenido anterior en
+    # vez de quedar truncado.
+    with ruta_temporal_atomica(ruta_min) as ruta_temp:
+        df_min_out.to_csv(ruta_temp, index=False)
     return len(df_min_out)
 
 
@@ -136,7 +141,9 @@ def generar_reportes_generacion(
         df_dia = _energia_por_dia_y_periodo(df_min_dia, columna_kwh)
         if incremental:
             df_dia = combinar_cola_diaria(df_dia, ruta_dia, _COLUMNAS_DIA_GRANJA)
-        df_dia.to_csv(ruta_dia, index=False)
+        # Escritura atómica (bess.core.atomic_io): ver _escribir_combinado_minuto.
+        with ruta_temporal_atomica(ruta_dia) as ruta_temp:
+            df_dia.to_csv(ruta_temp, index=False)
     print(f"OK {nombre_dia} - {len(df_dia)} días")
 
     return {
