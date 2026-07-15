@@ -186,31 +186,20 @@ def _filtrar_datos_impl():
             "Ejecute Verificar antes de Filtrar."
         )
 
-    print("\n" + "=" * 70)
-    print("🗑️ LIMPIANDO ARCHIVOS FUENTE")
-    print("=" * 70)
-    archivos_eliminados, errores = limpiar_archivos_fuente()
-
-    if archivos_eliminados:
-        print(f"✅ {len(archivos_eliminados)} archivos fuente eliminados:")
-        for archivo in archivos_eliminados:
-            print(f"   - {archivo}")
-    else:
-        print("ℹ️ No había archivos fuente para eliminar")
-
-    if errores:
-        for error in errores:
-            print(f"⚠️ {error}")
+    # No se limpia ArchivosFuente aquí: desde que export_csv.py exporta de
+    # forma incremental (cursor sobre la última Fecha ya exportada), ese
+    # archivo necesita persistir entre corridas para que el cursor sirva de
+    # algo. Borrarlo al final de cada Filtrar (como se hacía antes) anulaba
+    # el beneficio incremental de la exportación en el cron de 15 min, que
+    # encadena Sincronizar -> Verificar -> Filtrar -> Reportes en una sola
+    # corrida (ver bess/PLAN_MIGRACION_SQLITE.md, Fase 2).
+    # limpiar_archivos_fuente() sigue disponible para limpieza manual si
+    # alguna vez hace falta liberar espacio.
 
     print("\n" + "=" * 70)
     print("✅ PREPROCESAMIENTO COMPLETADO EXITOSAMENTE")
     print("=" * 70)
 
-    mensaje_eliminacion = (
-        f" - {len(archivos_eliminados)} archivos fuente eliminados"
-        if archivos_eliminados
-        else ""
-    )
     mensaje_omitidas = (
         f" · omitidas: {', '.join(subs_omitidas)}"
         if subs_omitidas
@@ -218,7 +207,7 @@ def _filtrar_datos_impl():
     )
     return True, (
         f"Procesadas {subestaciones_ok} subestaciones "
-        f"({total_fechas} fechas comunes en total){mensaje_eliminacion}{mensaje_omitidas}"
+        f"({total_fechas} fechas comunes en total){mensaje_omitidas}"
     )
 
 

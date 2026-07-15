@@ -88,7 +88,17 @@ de la exportación caiga a media tabla.
 Validado con 6 pruebas de equivalencia (`tests/test_export_csv_incremental.py`,
 medidor ION y medidor API/Granja con medianoche) y contra una copia de la
 base de datos real (dos medidores, export incremental multi-corrida ==
-export completo, exacto). Suite completa: 73 pruebas.
+export completo, exacto).
+
+**Hallazgo posterior:** el cron de 15 min corre `sincronizar_perfiles.py
+--procesar`, que encadena Exportar -> Verificar -> Filtrar -> Reportes en
+una sola corrida. `filter.py` borraba `ArchivosFuente` al final de cada
+Filtrar exitoso -- el mismo archivo que Fase 2 usa como cursor. Con eso,
+el cursor nunca sobrevivía al siguiente ciclo: cada corrida del cron caía
+de vuelta a exportación completa, dejando a Fase 2 correcta pero inerte
+en producción. Se quitó esa limpieza automática (`limpiar_archivos_fuente()`
+sigue disponible para uso manual); ver `tests/test_filter_conserva_fuente.py`.
+Suite completa: 75 pruebas.
 
 ### Fase 3 — Consolidado BESS incremental
 
