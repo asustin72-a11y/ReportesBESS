@@ -12,10 +12,11 @@ from bess.config.subestaciones import Subestacion
 from bess.core.kvarh import columnas_kvarh
 from bess.data.ingest.readers import leer_archivo_perfil
 from bess.data.pipeline.clean import (
-    anexar_archivo_limpio,
+    MARGEN_REEXPORTAR_DIAS,
     columnas_archivo_limpio,
     cursor_archivo_limpio,
     generar_archivo_limpio,
+    leer_previas_a_ventana,
 )
 
 _COLS_SUMA = ("KWH_REC", "KWH_ENT", "KVARH_Q1", "KVARH_Q2", "KVARH_Q3", "KVARH_Q4")
@@ -47,11 +48,15 @@ def consolidar_bess_subestacion(sub: Subestacion, *, filtrado: bool = False) -> 
     Con un solo medidor BESS por subestación equivale a copiar/renombrar.
 
     Incremental: si ya existe un BESS_{sub}.csv con cursor legible (última
-    Fecha ya escrita) y columnas compatibles, solo se suman y anexan las
-    filas nuevas de cada medidor BESS, en vez de releer y reescribir todo
-    el histórico en cada corrida. La primera vez (o si el formato de
-    columnas no coincide) se recalcula y reescribe completo, igual que
-    antes.
+    Fecha ya escrita) y columnas compatibles, solo se suman y recalculan
+    los medidores BESS en una ventana de los últimos
+    `MARGEN_REEXPORTAR_DIAS` días (no solo lo estrictamente posterior al
+    cursor), y esa ventana reemplaza lo que hubiera en el consolidado para
+    esas fechas -- en vez de releer y reescribir todo el histórico en cada
+    corrida. Esto recoge actualizaciones que verify.py trae para fechas ya
+    consolidadas (ver bess/data/pipeline/clean.py). La primera vez (o si
+    el formato de columnas no coincide) se recalcula y reescribe completo,
+    igual que antes.
     """
     cat = obtener_catalogo()
     bess_meds = [m for m in cat.medidores_subestacion(sub.id) if m.tipo_medidor == TIPO_BESS]
@@ -61,7 +66,7 @@ def consolidar_bess_subestacion(sub: Subestacion, *, filtrado: bool = False) -> 
     destino = str(sub.ruta_bess(filtrado=filtrado))
     cursor = cursor_archivo_limpio(destino)
 
-    def _leer_marcos(filtro_cursor):
+    def _leer_marcos(filtro_desde):
         marcos: list[pd.DataFrame] = []
         for m in bess_meds:
             ruta = rutas_mod.resolver_ruta_procesado(
@@ -69,8 +74,8 @@ def consolidar_bess_subestacion(sub: Subestacion, *, filtrado: bool = False) -> 
             )
             df = _leer_procesado(str(ruta), ruta.name)
             if df is not None and not df.empty:
-                if filtro_cursor is not None:
-                    df = df[df["Fecha"] > filtro_cursor]
+                if filtro_desde is not None:
+                    df = df[df["Fecha"] >= filtro_desde]
                 if not df.empty:
                     marcos.append(df)
 
@@ -80,25 +85,30 @@ def consolidar_bess_subestacion(sub: Subestacion, *, filtrado: bool = False) -> 
             )
             df = _leer_procesado(str(ruta_agg), ruta_agg.name)
             if df is not None and not df.empty:
-                if filtro_cursor is not None:
-                    df = df[df["Fecha"] > filtro_cursor]
+                if filtro_desde is not None:
+                    df = df[df["Fecha"] >= filtro_desde]
                 if not df.empty:
                     marcos.append(df)
 
         return marcos
 
     if cursor is not None:
-        marcos = _leer_marcos(cursor)
+        inicio_ventana = cursor.normalize() - pd.Timedelta(days=MARGEN_REEXPORTAR_DIAS)
+        marcos = _leer_marcos(inicio_ventana)
         if not marcos:
-            # Ya había un consolidado y no hay filas nuevas: no-op exitoso.
+            # Ya había un consolidado y no hay filas en la ventana: no-op exitoso.
             return True
         base = _sumar_marcos(marcos)
         columnas_nuevas = ["Fecha", "KWH_REC", "KWH_ENT"] + columnas_kvarh(base)
         if columnas_archivo_limpio(destino) == columnas_nuevas:
-            anexar_archivo_limpio(base, destino)
-            return True
-        # Formato de columnas distinto al existente: cae al modo completo
-        # de abajo, releyendo todo sin el filtro de cursor.
+            previas = leer_previas_a_ventana(destino, inicio_ventana)
+            if previas is not None:
+                resultado = pd.concat([previas, base], ignore_index=True)
+                resultado = resultado.sort_values("Fecha").reset_index(drop=True)
+                generar_archivo_limpio(resultado, destino)
+                return True
+        # Formato de columnas distinto al existente, o no se pudo leer lo
+        # previo: cae al modo completo de abajo, releyendo todo.
 
     marcos = _leer_marcos(None)
     if not marcos:

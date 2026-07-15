@@ -138,3 +138,73 @@ def test_consolidar_primera_vez_modo_completo(tmp_path, monkeypatch):
     destino = tmp_path / SUB_IUSA_1.id / f'BESS_{SUB_IUSA_1.id}.csv'
     df = pd.read_csv(destino, encoding='utf-8-sig')
     assert len(df) == len(fechas)
+
+
+def test_consolidar_dia_abierto_recoge_actualizacion_del_medidor(tmp_path, monkeypatch):
+    """El caso real que motivo este cambio: verify.py puede traer, en
+    corridas sucesivas, un valor actualizado para una fecha ya consolidada
+    ese mismo dia (ver bess/data/pipeline/verify.py y, mas atras,
+    bess/data/ingest/ion/export_csv.py). La siguiente consolidacion debe
+    reflejar ese valor, no quedarse pegada en lo que ya se habia escrito."""
+    monkeypatch.setattr(rutas_mod, 'DIRECTORIO_PROCESADOS', tmp_path)
+    nombre_bess = _nombre_medidor_bess(SUB_IUSA_1)
+    ruta_medidor = tmp_path / SUB_IUSA_1.id / f'{nombre_bess}.csv'
+    ruta_medidor.parent.mkdir(parents=True, exist_ok=True)
+
+    fechas = pd.date_range('2026-07-15 00:05:00', '2026-07-15 23:55:00', freq='5min')
+    df = pd.DataFrame({
+        'Fecha': fechas.strftime('%Y-%m-%d %H:%M:%S'),
+        'KWH_REC': 0.0,
+        'KWH_ENT': 0.0,
+    })
+    df.to_csv(ruta_medidor, index=False, encoding='utf-8-sig')
+    assert consolidar_bess_subestacion(SUB_IUSA_1) is True
+
+    # generar_archivo_limpio escribe Fecha en formato DD/MM/YYYY
+    # (normalizar_fecha), a diferencia del origen que usa YYYY-MM-DD.
+    destino = tmp_path / SUB_IUSA_1.id / f'BESS_{SUB_IUSA_1.id}.csv'
+    df1 = pd.read_csv(destino, encoding='utf-8-sig')
+    assert (df1['KWH_REC'] == 0).all()
+
+    # verify.py trae un valor real para una hora ya "consolidada" ese dia.
+    df.loc[df['Fecha'] == '2026-07-15 12:15:00', 'KWH_REC'] = 129.6
+    df.to_csv(ruta_medidor, index=False, encoding='utf-8-sig')
+
+    assert consolidar_bess_subestacion(SUB_IUSA_1) is True
+    df2 = pd.read_csv(destino, encoding='utf-8-sig')
+    fila = df2[df2['Fecha'] == '15/07/2026 12:15:00']
+    assert len(fila) == 1, "la fila se duplico o se perdio al recalcular la ventana"
+    assert fila.iloc[0]['KWH_REC'] == 129.6
+    assert len(df2) == len(df1), "la cantidad de filas no debia cambiar, solo el valor"
+
+
+def test_consolidar_dias_cerrados_no_se_tocan_al_recalcular_ventana(tmp_path, monkeypatch):
+    """Un dia bien anterior a la ventana de recalculo no debe verse
+    afectado por cambios en el medidor fuera de esa ventana -- solo los
+    ultimos MARGEN_REEXPORTAR_DIAS dias se vuelven a sumar y sobrescribir
+    en cada corrida incremental."""
+    monkeypatch.setattr(rutas_mod, 'DIRECTORIO_PROCESADOS', tmp_path)
+    nombre_bess = _nombre_medidor_bess(SUB_IUSA_1)
+    ruta_medidor = tmp_path / SUB_IUSA_1.id / f'{nombre_bess}.csv'
+
+    fechas = pd.date_range('2026-08-01 00:05:00', '2026-08-10 00:00:00', freq='5min')
+    _escribir_procesado(ruta_medidor, fechas)
+    assert consolidar_bess_subestacion(SUB_IUSA_1) is True
+
+    destino = tmp_path / SUB_IUSA_1.id / f'BESS_{SUB_IUSA_1.id}.csv'
+    df1 = pd.read_csv(destino, encoding='utf-8-sig')
+
+    # "Corromper" el medidor para un dia bien cerrado, fuera de la ventana.
+    df_medidor = pd.read_csv(ruta_medidor, encoding='utf-8-sig')
+    mask = df_medidor['Fecha'].str.startswith('2026-08-02')
+    df_medidor.loc[mask, 'KWH_REC'] = 999.0
+    df_medidor.to_csv(ruta_medidor, index=False, encoding='utf-8-sig')
+
+    assert consolidar_bess_subestacion(SUB_IUSA_1) is True
+    df2 = pd.read_csv(destino, encoding='utf-8-sig')
+    # destino usa Fecha en formato DD/MM/YYYY (normalizar_fecha).
+    dia2_antes = df1[df1['Fecha'].str.startswith('02/08/2026')].reset_index(drop=True)
+    dia2_despues = df2[df2['Fecha'].str.startswith('02/08/2026')].reset_index(drop=True)
+    assert len(dia2_antes) > 0, "la prueba no esta comparando nada -- revisar el formato de Fecha"
+    assert dia2_despues.equals(dia2_antes)
+    assert not (dia2_despues['KWH_REC'] == 999.0).any()
