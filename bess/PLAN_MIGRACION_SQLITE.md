@@ -34,7 +34,7 @@ Ingesta (ION Modbus, API IUSASOL, API Granja)
         ▼  Verificar (verify.py) — incremental desde Fase 1 de esta sesión
    ArchivosProcesados/*.csv                                [CSV]
         │
-        ▼  Filtrar (filter.py) — intersección de fechas, reescribe completo
+        ▼  Filtrar (filter.py) — intersección de fechas, incremental (Fase 4)
    ArchivosProcesados/*_Filtrado.csv                        [CSV]
         │
         ▼  aggregates/{combined,daily,accumulated,granja,bess_daily}.py
@@ -45,8 +45,11 @@ Ingesta (ION Modbus, API IUSASOL, API Granja)
 ```
 
 Todo lo que está debajo de la primera línea de SQLite sigue siendo CSV de
-punta a punta. Verificar ya dejó de reprocesar el histórico completo en cada
-corrida (cursor incremental); todo lo demás en la cadena todavía lo hace.
+punta a punta. Cada etapa desde Verificar hasta los agregados ya dejó de
+reprocesar el histórico completo en cada corrida (cursor/ventana
+incremental, ver Fases 1-6); export_csv.py (Fase 2) es la única que sigue
+siendo un caso especial, porque su fuente es la propia base de datos, no
+otro CSV.
 
 ## Principio de trabajo (el que ya se siguió en Verificar)
 
@@ -291,6 +294,64 @@ columnas, y equivalencia con el combinado real de IUSA_1.
 filtrado de generación/cogeneración: un `COMBINADO_POR_MINUTO_*.csv`
 (passthrough de FECHA/FECHA_HORA/KWH, sin columnas derivadas ni
 dependencia entre filas) y un `ENERGIA_Generacion_*_POR_DIA.csv`
-(agregado por día). El primero solo necesitaba un cursor simple sobre
-`FECHA_HORA` para anexar filas nuevas (reutilizando los helpers
-`_cursor_combinado()`/`_columnas_combinado()` de combined.py, ya 
+(agregado por día). El primero solo necesitaba un curs
+### Fase 6 — Corrección: días abiertos que no se refrescaban · Hecho (esta sesión)
+
+**El bug:** desde la Fase 1 en adelante, cada etapa incremental usaba el
+patrón "solo procesar filas con `fecha > cursor`, anexar". Eso es correcto
+si el origen nunca cambia una fecha ya vista -- pero la API ISOL (origen de
+ION) sí lo hace: el día en curso se exporta primero con ceros de relleno y
+se va completando con valores reales a medida que el día avanza. Con
+`fecha > cursor` estricto, en cuanto una fecha del día en curso se procesaba
+una vez (aunque fuera en cero), el cursor avanzaba más allá y esa fecha
+quedaba huérfana: cualquier corrección posterior de la API nunca se volvía
+a leer, en ningún punto de la cadena. El síntoma visible: el día de hoy se
+quedaba pegado en cero (o en el primer valor visto) en los reportes, aunque
+el medidor ya tuviera datos reales para esas horas.
+
+**El arreglo:** el mismo patrón, aplicado de punta a punta de la cadena
+(`export_csv.py` → `verify.py`/`clean.py` → `bess_consolidate.py` →
+`filter.py` → `combined.py`): en vez de `fecha > cursor`, cada etapa
+recalcula una **ventana** de `MARGEN_REEXPORTAR_DIAS = 1` día
+(`fecha >= cursor.normalize() - 1 día`) y **reemplaza** esa ventana en el
+archivo de salida, en vez de solo anexar. Lo anterior a la ventana (días ya
+cerrados) se preserva **crudo** -- vía `csv.reader`/`csv.writer` en vez de
+`pandas.read_csv`/`to_csv` -- para no arriesgar que reparsear y reescribir
+un float ya cerrado cambie su último dígito por redondeo de punto flotante
+(un cambio de bytes sin sentido en datos que ya estaban correctos).
+
+En `combined.py` (la única etapa con dependencia entre filas -- la demanda
+rodante), la ventana además arrastra `_CONTEXTO_FILAS = 2` filas previas al
+inicio de la ventana (no solo previas a la primera fila nueva, como en la
+Fase 5.1) para que el rolling dé el mismo resultado que una corrida
+completa; esas filas de contexto se descartan del archivo final.
+
+**Hallazgo de paso:** el primer intento de igualar el fin de línea entre la
+escritura por `csv.writer` (ventana recalculada) y `pandas.to_csv()` (modo
+completo) usó `open(..., newline='')` + `lineterminator='\n'`, fijando LF
+literal -- por coincidencia igual a lo que escribe `pandas.to_csv()` en
+este sandbox Linux, pero **distinto** de lo que escribe en la máquina de
+producción (Windows): ahí, `pandas.to_csv()` deja que Python traduzca cada
+`\n` interno a `os.linesep` (`\r\n`), porque abre el archivo con
+`newline=None` (el default). Con `newline=''` esa traducción se desactiva,
+así que la ventana reescrita habría quedado en LF mientras el resto del
+archivo (escrito por pandas) queda en CRLF -- una mezcla de fin de línea
+dentro del mismo archivo, invisible en este sandbox pero real en
+producción. Corregido quitando `newline=''` del lado de escritura en
+`clean.py` y `verify.py` (commit `530821a`); `combined.py` (Fase 6, más
+reciente) ya se escribió bien desde el inicio con este aprendizaje.
+
+**Por qué no hace falta el mismo arreglo en daily.py/accumulated.py/
+bess_daily.py/granja.py (Fases 5.2-5.5):** esos módulos ya recalculaban el
+"último día ya escrito, por si seguía abierto" en cada corrida (ver
+`_incremental_dia.py`), que es exactamente este mismo patrón pero con una
+ventana de un día en vez de un margen configurable -- no tenían el bug.
+
+Validado con pruebas nuevas en cada módulo tocado (`test_export_csv_
+incremental.py`, `test_bess_consolidate_incremental.py`,
+`test_filter_incremental.py`, `test_combined_incremental.py`): que una
+fecha ya procesada recoge una actualización posterior del origen, y que
+los días fuera del margen no se tocan al recalcular la ventana (con guardas
+explícitas contra comparaciones vacías que pasarían "por accidente").
+Suite completa: 127 pruebas. Commits `93dc8bf`, `01bb952`, `e25c5dc`,
+`46f043f`, `c82c99b`, `530821a`, `14b5250`.
