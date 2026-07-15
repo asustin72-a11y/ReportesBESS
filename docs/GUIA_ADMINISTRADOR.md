@@ -69,7 +69,7 @@ Expander con acciones individuales:
 | **Sincronizar ahora** | Ejecuta `scripts/sincronizar_perfiles.py` (ION + API). Muestra resumen y actualiza validación de medidores. El último paso (SQLite → ArchivosFuente) es incremental: solo exporta las filas nuevas desde la última sincronización y las anexa al CSV existente, en vez de reexportar el histórico completo cada vez. Un re-export explícito de un rango puntual (reparación de datos) sigue sobrescribiendo el archivo completo. |
 | **Verificar** | Comprueba CSV en fuente y copia a procesados. Incremental: si ya existe un CSV procesado, solo verifica (duplicados + huecos) las filas nuevas desde la última sincronización y las agrega al final, en vez de reprocesar todo el histórico. La primera vez (o si cambia el formato de columnas) procesa completo, como antes. El día opera de 00:05 a 00:00 del día siguiente (288 perfiles/día, el 00:00 es el cierre del día anterior); si falta ese perfil dentro del rango de datos reales, se rellena con cero como cualquier otro hueco, sin excepción por fuente (ION incluido). El consolidado BESS (suma de medidores tipo BESS por subestación) también es incremental: solo suma y anexa las filas nuevas. |
 | **Filtrar** | Genera archivos `*_Filtrado.csv` (intersección temporal). Ya no borra `ArchivosFuente` al terminar: ese archivo debe persistir para que la exportación incremental (paso "Sincronizar ahora") tenga cursor la próxima vez. Incremental: si el archivo filtrado ya existe, solo calcula y anexa el tramo de fechas comunes que todavía no se había escrito, en vez de recalcular y reescribir todo el histórico filtrado en cada corrida. La primera vez (o si cambia el formato de columnas) procesa completo, como antes. |
-| **Generar reportes** | Ejecuta `scripts/run_reporte_bess.py` con barra de progreso. El combinado por minuto (`COMBINADO_POR_MINUTO_*.csv`, el que calcula demanda rodante de 15 min y periodos CFE) es incremental: si ya existe con cursor legible y columnas compatibles, solo procesa y anexa las filas nuevas -- incluyendo el contexto necesario para que la demanda rodante no cambie de resultado. El diario (`ENERGIA_*_POR_DIA.csv`) también es incremental: cada día es independiente, así que solo se recalcula el último día ya escrito (por si seguía abierto) más los días nuevos; los días ya cerrados no se tocan. Los acumulados (`ACUMULADOS_*.csv`) también son incrementales: heredan el cumsum y el máximo corrido del día anterior (si es del mismo mes) y solo recalculan desde el último día ya escrito. |
+| **Generar reportes** | Ejecuta `scripts/run_reporte_bess.py` con barra de progreso. El combinado por minuto (`COMBINADO_POR_MINUTO_*.csv`, el que calcula demanda rodante de 15 min y periodos CFE) es incremental: si ya existe con cursor legible y columnas compatibles, solo procesa y anexa las filas nuevas -- incluyendo el contexto necesario para que la demanda rodante no cambie de resultado. El diario (`ENERGIA_*_POR_DIA.csv`) también es incremental: cada día es independiente, así que solo se recalcula el último día ya escrito (por si seguía abierto) más los días nuevos; los días ya cerrados no se tocan. Los acumulados (`ACUMULADOS_*.csv`) también son incrementales: heredan el cumsum y el máximo corrido del día anterior (si es del mismo mes) y solo recalculan desde el último día ya escrito. El diario de BESS (`ENERGIA_BESS_*_POR_DIA.csv`) usa el mismo esquema incremental que el diario general. Los reportes de generación/granja (`COMBINADO_POR_MINUTO_Generacion_*.csv` y `ENERGIA_Generacion_*_POR_DIA.csv`, subestación IUSA 2) también son incrementales, con la misma lógica de cursor y de "último día se recalcula por si seguía abierto". |
 
 Use este modo cuando necesite diagnosticar en qué paso falló el pipeline.
 
@@ -180,17 +180,4 @@ data/
 Scripts:
 
 - `scripts/sincronizar_perfiles.py` — sync ION + API  
-- `scripts/run_reporte_bess.py` — generación masiva de reportes  
-
----
-
-## 10. Soporte y despliegue
-
-- Docker: [DOCKER.md](DOCKER.md)  
-- Restauración local: [RESTAURACION_LOCAL.md](../RESTAURACION_LOCAL.md)  
-- Versión 5.9.0: [RELEASE_NOTES_5.9.0.md](../RELEASE_NOTES_5.9.0.md)
-- Versión 5.8.0: [RELEASE_NOTES_5.8.0.md](../RELEASE_NOTES_5.8.0.md)  
-
----
-
-*Guía para administradores del sistema BESS — IUSASOL.*
+- `scripts/run_reporte_bess.py` — generación masiva de reporte

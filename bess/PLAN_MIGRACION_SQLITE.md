@@ -155,7 +155,7 @@ de BESS/medidores de consumo a consultas directas sobre SQLite en vez de
 `ArchivosProcesados/*.csv` completos -- eso es un cambio más grande que
 "hacer incremental el CSV" y se deja para cuando se ataque esa capa.
 
-### Fase 5 — Combinados, diarios y acumulados desde BD
+### Fase 5 — Combinados, diarios y acumulados desde BD · Hecho (esta sesión)
 
 **Qué cambia:** `bess/data/aggregates/{combined,daily,accumulated,granja,
 bess_daily,generacion}.py` (~800 líneas en total) generan
@@ -267,36 +267,30 @@ al reabrirse (cumsum crece lo esperado), no-op sin días nuevos, fallback a
 completo si cambia el formato de columnas, y equivalencia con la energía
 diaria real de IUSA_1. Suite completa: 106 pruebas.
 
-Pendiente dentro de esta misma fase: `bess_daily.py` y `granja.py`.
-`generacion.py` en realidad no genera nada -- es una consulta de solo
-lectura sobre `ENERGIA_Generacion_*_POR_DIA.csv` ya generado, así que no
-necesita cambios.
+#### Fase 5.4 — bess_daily.py incremental · Hecho (esta sesión)
 
-### Fase 6 — Reportes y UI apuntando a BD
+`generar_bess_diario_subestacion()` agrupa el combinado por minuto por
+FECHA (+ PERIODO) igual que daily.py -- cada día es independiente, sin
+ventana ni acumulado entre días -- así que reutiliza el mismo
+`_incremental_dia.py` de la Fase 5.2: recalcula solo el último día ya
+escrito (por si seguía abierto) más los días nuevos, conservando los días
+ya cerrados. Más simple que daily.py: no hay pivots de demanda máxima, y
+el pivot de energía por periodo ya tenía el relleno de columnas ausentes
+desde antes, así que no había ningún bug latente equivalente al de la
+Fase 5.2 esperando a manifestarse aquí.
 
-**Qué cambia:** `bess/reports/{daily_pdf,accumulated_pdf,emisiones_pdf,
-dia_tipo}.py`, `bess/charts/profile.py` y `bess/ui/{pages,generacion_tab,
-pipeline_status,reportes_tab,sidebar}.py` leen `ArchivosReporte/*.csv`
-directamente. Repuntarlos a consultas SQL (o a las tablas materializadas de
-Fase 5) cierra la cadena.
+Validado con 6 pruebas (`tests/test_bess_daily_incremental.py`), con la
+misma estructura que las de daily.py: primera corrida completa,
+incremental multi-corrida == completo, último día reabierto se recalcula,
+no-op sin días nuevos, fallback a completo si cambia el formato de
+columnas, y equivalencia con el combinado real de IUSA_1.
 
-**Riesgo:** alto en superficie (son ~9 archivos, varios en la capa que ve el
-usuario en vivo), aunque cada cambio individual sea mecánico. Es la fase con
-más probabilidad de que un error se note primero en pantalla que en una
-prueba — dejarla para el final, con cada archivo probado por separado.
+#### Fase 5.5 — granja.py incremental (y generacion.py sin cambios) · Hecho (esta sesión)
 
-### Fase 7 — Decisión: ¿se retira el CSV?
-
-No es código, es una decisión de producto que conviene tomar cuando se
-llegue aquí, no ahora: si los CSV se eliminan del todo, o si se mantienen
-como export de solo lectura / respaldo / algo que un admin pueda abrir en
-Excel bajo demanda, pero fuera del camino crítico de escritura. Ambas son
-razonables; depende de si alguien además de la app usa esos archivos hoy.
-
-## Qué NO cambia en ninguna fase
-
-- El esquema de columnas de los CSV que sí se mantengan (compatibilidad con
-  Excel/exportes manuales).
-- Los cálculos de periodos CFE, tarifas y arbitraje (`bess/cfe/`) — esta
-  migración es de dónde vive el dato, no de cómo se calcula sobre él.
-- El lock 
+`generar_reportes_generacion()` escribe dos archivos a partir del CSV
+filtrado de generación/cogeneración: un `COMBINADO_POR_MINUTO_*.csv`
+(passthrough de FECHA/FECHA_HORA/KWH, sin columnas derivadas ni
+dependencia entre filas) y un `ENERGIA_Generacion_*_POR_DIA.csv`
+(agregado por día). El primero solo necesitaba un cursor simple sobre
+`FECHA_HORA` para anexar filas nuevas (reutilizando los helpers
+`_cursor_combinado()`/`_columnas_combinado()` de combined.py, ya 

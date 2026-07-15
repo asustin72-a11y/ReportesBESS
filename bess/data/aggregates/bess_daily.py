@@ -10,9 +10,27 @@ from bess.config.subestaciones import Subestacion, medidor_consumo_por_prefijo, 
 from bess.cfe.periods import periodo_por_fecha_hora
 from bess.config.esquema_tarifa import normalizar_esquema_tarifa
 from bess.core.dates import agregar_fecha_operativa
+from bess.data.aggregates._incremental_dia import (
+    columnas_dia,
+    combinar_cola_diaria,
+    cursor_dia,
+)
 from bess.core.console import log
 
 print = log
+
+# Fijo: permite comparar contra el encabezado de un ENERGIA_BESS_*.csv
+# existente para decidir si el recálculo incremental aplica (ver
+# _incremental_dia.py).
+COLUMNAS_BESS_DIARIO = [
+    "FECHA",
+    "BASE_REC",
+    "INTERMEDIO_REC",
+    "PUNTA_REC",
+    "BASE_ENT",
+    "INTERMEDIO_ENT",
+    "PUNTA_ENT",
+]
 
 
 def _pivot_bess_periodos(df_bess_dia: pd.DataFrame) -> pd.DataFrame:
@@ -43,8 +61,17 @@ def _pivot_bess_periodos(df_bess_dia: pd.DataFrame) -> pd.DataFrame:
     return df_bess_diario.sort_values("FECHA_DT").drop("FECHA_DT", axis=1)
 
 
-def _bess_diario_desde_combinado_minuto(prefijo: str, esquema_tarifa_id: str) -> pd.DataFrame | None:
-    """Carga/descarga BESS por periodo desde COMBINADO_POR_MINUTO (5 min)."""
+def _bess_diario_desde_combinado_minuto(
+    prefijo: str, esquema_tarifa_id: str, *, cursor: "pd.Timestamp | None" = None
+) -> pd.DataFrame | None:
+    """Carga/descarga BESS por periodo desde COMBINADO_POR_MINUTO (5 min).
+
+    Si `cursor` no es None, solo se agregan las filas con FECHA >= cursor
+    (recálculo incremental: el último día ya escrito, por si seguía
+    abierto, más los días nuevos). Devuelve un DataFrame vacío (con las
+    columnas esperadas) si no hay filas en ese rango -- "sin días nuevos",
+    no un error.
+    """
     med = medidor_consumo_por_prefijo(prefijo)
     if not med:
         return None
@@ -64,6 +91,12 @@ def _bess_diario_desde_combinado_minuto(prefijo: str, esquema_tarifa_id: str) ->
             lambda fh: periodo_por_fecha_hora(fh, esquema_tarifa_id)
         )
 
+    if cursor is not None:
+        fecha_dt = pd.to_datetime(df["FECHA"], format="%d/%m/%Y")
+        df = df[fecha_dt >= cursor]
+        if df.empty:
+            return pd.DataFrame(columns=COLUMNAS_BESS_DIARIO)
+
     df_bess_dia = df.groupby(["FECHA", "PERIODO"], as_index=False).agg(
         KWH_REC=("KWH_REC_BESS", "sum"),
         KWH_ENT=("KWH_ENT_BESS", "sum"),
@@ -79,7 +112,14 @@ def _guardar_bess_diario(df: pd.DataFrame, ruta_salida: str, etiqueta: str) -> p
 
 
 def generar_bess_diario_subestacion(sub: Subestacion):
-    """Genera ENERGIA_BESS_{sub}.csv desde el combinado del medidor de facturación."""
+    """Genera ENERGIA_BESS_{sub}.csv desde el combinado del medidor de
+    facturación.
+
+    Incremental: igual que daily.py, cada día es independiente (sin
+    ventana ni acumulado entre días), así que si el reporte ya existe con
+    cursor legible y columnas compatibles, solo se recalcula el último
+    día ya escrito (por si seguía abierto) en adelante.
+    """
     if not sub.medidores_consumo:
         return None
     med_fact = sub.medidor_facturacion
@@ -90,10 +130,23 @@ def generar_bess_diario_subestacion(sub: Subestacion):
     print(f"\n--- GENERANDO {nombre} ({sub.id}) ---")
 
     esquema = normalizar_esquema_tarifa(sub.esquema_tarifa_id)
-    df_bess_diario = _bess_diario_desde_combinado_minuto(med_fact.prefijo, esquema)
+
+    cursor = cursor_dia(ruta_salida)
+    incremental = cursor is not None and columnas_dia(ruta_salida) == COLUMNAS_BESS_DIARIO
+
+    df_bess_diario = _bess_diario_desde_combinado_minuto(
+        med_fact.prefijo, esquema, cursor=cursor if incremental else None
+    )
     if df_bess_diario is None:
         print(f"ERROR: No se pudo generar desde combinado de {med_fact.nombre}")
         return None
+
+    if incremental:
+        if df_bess_diario.empty:
+            print(f"  Sin días nuevos para {nombre} (cursor {cursor.date()})")
+            return pd.read_csv(ruta_salida)
+        df_bess_diario = combinar_cola_diaria(df_bess_diario, ruta_salida, COLUMNAS_BESS_DIARIO)
+
     return _guardar_bess_diario(df_bess_diario, ruta_salida, nombre)
 
 
