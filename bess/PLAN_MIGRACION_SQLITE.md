@@ -100,23 +100,32 @@ en producción. Se quitó esa limpieza automática (`limpiar_archivos_fuente()`
 sigue disponible para uso manual); ver `tests/test_filter_conserva_fuente.py`.
 Suite completa: 75 pruebas.
 
-### Fase 3 — Consolidado BESS incremental
+### Fase 3 — Consolidado BESS incremental · Hecho (esta sesión)
 
-**Qué cambia:** `bess/data/pipeline/bess_consolidate.py` (68 líneas) arma
-`BESS_IUSA_X.csv` combinando BESS + ION/Banco/Consumo por subestación;
-reescribe completo en cada corrida de Verificar. Mismo patrón de cursor.
+`bess/data/pipeline/bess_consolidate.py`: cursor sobre `BESS_{sub}.csv`
+(vía los nuevos helpers compartidos en `clean.py`: `cursor_archivo_limpio`,
+`columnas_archivo_limpio`, `anexar_archivo_limpio`). Si ya existe un
+consolidado con cursor legible y columnas compatibles, solo se suman y
+anexan las filas nuevas de cada medidor BESS; la primera vez (o si cambia
+el formato) recalcula completo, igual que antes.
 
-**Riesgo:** bajo-medio. Archivo pequeño, pero su salida alimenta
-directamente a Filtrar — conviene tener Fase 2 y sus pruebas como plantilla
-antes de tocar este.
+Bug encontrado y corregido de paso: `cursor_archivo_limpio` parseaba la
+Fecha sin `dayfirst=True`, pero `normalizar_fecha()` escribe DD/MM/YYYY
+-- ambiguo para pandas cuando el día es ≤ 12 (p.ej. `01/02/2026`).
+
+Validado con 4 pruebas (`tests/test_bess_consolidate_incremental.py`,
+incluye la suma por outer-join como función pura) y contra el medidor
+BESS real de IUSA_1 (5 sincronizaciones incrementales == una corrida
+completa, exacto). Suite completa: 79 pruebas.
 
 ### Fase 4 — Filtrar sin relectura completa
 
-**Qué cambia:** `bess/data/pipeline/filter.py` (248 líneas) relee
+**Qué cambia:** `bess/data/pipeline/filter.py` (~230 líneas) relee
 `ArchivosProcesados/*.csv` completos, calcula la intersección de fechas
 entre BESS y cada medidor de consumo (para que los reportes no comparen
-periodos distintos), reescribe `*_Filtrado.csv` completo y **borra**
-`ArchivosFuente` al final. Es candidato a moverse a consultas directas sobre
+periodos distintos) y reescribe `*_Filtrado.csv` completo (ya no borra
+`ArchivosFuente` al final -- ver nota en Fase 2). Es candidato a moverse
+a consultas directas sobre
 SQLite (o sobre las tablas/vistas que resulten de Fases 2-3) en vez de leer
 CSV — ya no solo "hacer incremental el CSV" sino empezar a no depender de él.
 
