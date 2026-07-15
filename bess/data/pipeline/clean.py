@@ -81,13 +81,16 @@ def escribir_ventana_archivo_limpio(filas_previas, df_ventana, ruta_salida):
     columnas = ['Fecha', 'KWH_REC', 'KWH_ENT'] + _columnas_kvarh(df_ventana)
     df_limpio = df_ventana[columnas].copy()
     df_limpio['Fecha'] = df_limpio['Fecha'].apply(normalizar_fecha)
-    # lineterminator='\n': pandas.to_csv() (usado en generar_archivo_limpio
-    # y anexar_archivo_limpio, y el que escribio originalmente el archivo
-    # existente) escribe '\n' en este entorno, no el '\r\n' del dialecto
-    # 'excel' por defecto de csv.writer -- sin esto, cada corrida
-    # incremental cambiaria el fin de linea de todo el archivo aunque los
-    # datos no cambien.
-    with open(ruta_salida, 'w', newline='', encoding='utf-8-sig') as f:
+    # Sin newline='' aqui (a diferencia de la lectura): con newline=None
+    # (el default), Python traduce cada '\n' escrito al separador de
+    # linea del sistema (os.linesep) -- exactamente lo mismo que hace
+    # pandas.to_csv() internamente (usado en generar_archivo_limpio y
+    # anexar_archivo_limpio, y el que escribio originalmente el archivo
+    # existente). Con newline='' el '\n' se escribiria literal sin
+    # traducir, y en Windows (donde corre este pipeline en produccion,
+    # os.linesep='\r\n') eso desalinearia el fin de linea de la ventana
+    # reescrita contra el resto del archivo.
+    with open(ruta_salida, 'w', encoding='utf-8-sig') as f:
         writer = csv.writer(f, lineterminator='\n')
         writer.writerow(columnas)
         for fila in filas_previas:

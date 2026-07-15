@@ -120,13 +120,16 @@ def _guardar_ventana_procesada(
     salida = perfil_ventana.copy()
     salida['Fecha'] = salida['Fecha'].dt.strftime('%Y-%m-%d %H:%M:%S')
     try:
-        # lineterminator='\n': pandas.to_csv() (usado en el modo completo,
-        # y el que escribio originalmente el archivo existente) escribe
-        # '\n' en este entorno, no el '\r\n' del dialecto 'excel' por
-        # defecto de csv.writer -- sin esto, cada corrida incremental
-        # cambiaria el fin de linea de todo el archivo aunque los datos no
-        # cambien.
-        with open(ruta_destino, 'w', newline='', encoding='utf-8-sig') as f:
+        # Sin newline='' aqui (a diferencia de la lectura): con
+        # newline=None (el default), Python traduce cada '\n' escrito al
+        # separador de linea del sistema (os.linesep) -- exactamente lo
+        # mismo que hace pandas.to_csv() internamente (usado en el modo
+        # completo, y el que escribio originalmente el archivo
+        # existente). Con newline='' el '\n' se escribiria literal sin
+        # traducir, y en Windows (donde corre este pipeline en
+        # produccion, os.linesep='\r\n') eso desalinearia el fin de linea
+        # de la ventana reescrita contra el resto del archivo.
+        with open(ruta_destino, 'w', encoding='utf-8-sig') as f:
             writer = csv.writer(f, lineterminator='\n')
             writer.writerow(list(salida.columns))
             for fila in filas_previas:
