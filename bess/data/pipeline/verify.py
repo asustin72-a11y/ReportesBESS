@@ -8,9 +8,7 @@ from datetime import timedelta
 
 import pandas as pd
 
-from bess.config import rutas as rutas_mod
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
-from bess.config.catalog import obtener_catalogo
 from bess.config.subestaciones import SUBESTACIONES, archivos_fuente_subestacion
 from bess.data.pipeline.bess_consolidate import consolidar_bess_subestacion
 from bess.core.console import log
@@ -18,13 +16,6 @@ from bess.data.ingest.identify import identificar_y_renombrar_archivos
 from bess.data.ingest.readers import leer_archivo_perfil
 
 print = log
-
-# Solo ION (Modbus). BESS, Banco 1 y granja (API) deben conservar/rellenar 00:00.
-_ARCHIVOS_SALTAR_MEDIANOCHE_ION = frozenset(
-    rutas_mod.nombre_archivo_medidor(m.nombre)
-    for m in obtener_catalogo().medidores
-    if m.descarga == "ION"
-)
 
 
 def _guardar_perfil_procesado(
@@ -118,11 +109,19 @@ def _completar_rango(
     datos: pd.DataFrame,
     fi: "pd.Timestamp",
     ff: "pd.Timestamp",
-    usar_salto_medianoche: bool,
     columnas: list[str],
     frecuencia_min: int = 5,
 ) -> tuple[pd.DataFrame, int]:
     """Rellena huecos de `datos` (ya sin duplicados) entre fi y ff inclusive.
+
+    Regla de negocio: el dia opera de 00:05 a 00:00 del dia siguiente
+    (288 perfiles/dia); el 00:00 es el perfil de cierre del dia anterior,
+    no el inicio del dia entrante. Como `fi`/`ff` ya delimitan el rango
+    real presente en el origen (nunca incluyen un 00:00 fuera de rango,
+    p.ej. el del dia antes del primer registro), cualquier 00:00 que caiga
+    *dentro* de [fi, ff] y falte en `datos` es un hueco real y se rellena
+    con cero igual que cualquier otro slot -- sin excepcion por fuente
+    (ION incluido).
 
     Vectorizado: calcula la rejilla completa de `frecuencia_min` y resta
     las fechas reales en una sola pasada (antes se armaba con un
@@ -130,22 +129,6 @@ def _completar_rango(
     perfiles largos). Devuelve (perfil_completo, cantidad_faltantes).
     """
     rango_completo = pd.date_range(fi, ff, freq=f'{frecuencia_min}min')
-
-    if usar_salto_medianoche:
-        # No exigir el slot 00:00 cuando el medidor legitimamente empieza
-        # el dia en 00:05 (medidores ION). Si el archivo si trae 00:00,
-        # ese registro ya esta en fechas_reales y no se toca.
-        fechas_reales = set(datos['Fecha'])
-        medianoches = rango_completo[
-            (rango_completo.hour == 0) & (rango_completo.minute == 0)
-        ]
-        siguiente = medianoches + timedelta(minutes=frecuencia_min)
-        medianoches_a_excluir = medianoches[
-            (~medianoches.isin(fechas_reales)) & siguiente.isin(fechas_reales)
-        ]
-        if len(medianoches_a_excluir):
-            rango_completo = rango_completo.difference(medianoches_a_excluir)
-
     fechas_faltantes = rango_completo.difference(pd.DatetimeIndex(datos['Fecha']))
     faltantes = len(fechas_faltantes)
 
@@ -192,7 +175,6 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
         print(f"📏 Registros originales: {len(perfil)}")
 
         columnas = perfil.columns.tolist()
-        usar_salto_medianoche = nombre_archivo in _ARCHIVOS_SALTAR_MEDIANOCHE_ION
         Frecuencia_Perfil_MIN = 5
 
         cursor = _cursor_procesado(ruta_completa_destino)
@@ -220,7 +202,7 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
             print(f"📊 Registros nuevos: {len(nuevos)}")
 
             perfil_completo, faltantes = _completar_rango(
-                nuevos, fi, ff, usar_salto_medianoche, columnas, Frecuencia_Perfil_MIN
+                nuevos, fi, ff, columnas, Frecuencia_Perfil_MIN
             )
             print(f"📝 Registros faltantes insertados: {faltantes}")
 
@@ -251,7 +233,7 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
         print("\n⏳ Verificando registros faltantes...")
 
         perfil_completo, faltantes = _completar_rango(
-            perfil_sin_duplicados, fi, ff, usar_salto_medianoche, columnas,
+            perfil_sin_duplicados, fi, ff, columnas,
             Frecuencia_Perfil_MIN,
         )
 

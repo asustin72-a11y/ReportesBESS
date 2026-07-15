@@ -10,39 +10,22 @@ sobre el dataset combinado -- esa equivalencia es la propiedad que no
 se puede romper: es la que garantiza que el cambio no altera los datos
 que alimentan la facturacion.
 
-_ARCHIVOS_SALTAR_MEDIANOCHE_ION se calcula al importar bess.data.pipeline.verify
-consultando el catalogo real (SQLite). Aqui se sustituye obtener_catalogo()
-por un catalogo falso ANTES de importar verify, para que la prueba no
-dependa de la base de datos real ni de su disponibilidad.
+Regla de negocio: el dia opera de 00:05 a 00:00 del dia siguiente (288
+perfiles/dia); el 00:00 es el cierre del dia anterior, no el inicio del
+entrante. Por eso cualquier 00:00 que falte *dentro* del rango real de
+datos es un hueco como cualquier otro y se rellena con cero -- sin
+excepcion por fuente (antes ION tenia una excepcion aqui; se alineo con
+esta regla para que los 288 perfiles/dia se cumplan siempre que el dia
+completo este en rango).
 """
 
 from __future__ import annotations
-
-import os
-import shutil
-import tempfile
-from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 import pytest
 
-import bess.config.catalog as catalog_mod
-
-
-class _FakeCatalogo:
-    medidores = [SimpleNamespace(nombre="ION_TEST", descarga="ION")]
-
-
-catalog_mod.obtener_catalogo = lambda: _FakeCatalogo()
-
-from bess.config import rutas as rutas_mod  # noqa: E402
-from bess.data.pipeline.verify import (  # noqa: E402
-    _ARCHIVOS_SALTAR_MEDIANOCHE_ION,
-    procesar_archivo_verificacion,
-)
-
-NOMBRE_ION = rutas_mod.nombre_archivo_medidor("ION_TEST")
+from bess.data.pipeline.verify import procesar_archivo_verificacion
 
 
 def _escribir_csv(path, fechas, seed_a, seed_b):
@@ -78,17 +61,10 @@ def _correr_incremental_vs_completo(tmp_path, nombre_archivo, fechas_reales, cor
     return df_inc, df_full
 
 
-def test_catalogo_falso_aplicado():
-    # Confirma que el import de verify.py uso el catalogo falso (frozenset
-    # con un solo medidor ION) y no el catalogo real -- si esto falla, el
-    # resto de las pruebas de este archivo no son confiables.
-    assert _ARCHIVOS_SALTAR_MEDIANOCHE_ION == frozenset({NOMBRE_ION})
-
-
 def test_incremental_equivale_a_completo_con_huecos(tmp_path):
-    """Archivo NO-ION con huecos aleatorios, verificado en 3 sincronizaciones."""
+    """Archivo con huecos aleatorios, verificado en 3 sincronizaciones."""
     rng = np.random.default_rng(42)
-    fechas_completas = pd.date_range('2026-01-01 00:00:00', '2026-01-10 23:55:00', freq='5min')
+    fechas_completas = pd.date_range('2026-01-01 00:05:00', '2026-01-11 00:00:00', freq='5min')
     fechas_reales = fechas_completas[rng.random(len(fechas_completas)) > 0.05]
     cortes = [
         pd.Timestamp('2026-01-04 23:55:00'),
@@ -97,7 +73,7 @@ def test_incremental_equivale_a_completo_con_huecos(tmp_path):
     ]
 
     df_inc, df_full = _correr_incremental_vs_completo(
-        tmp_path, 'ARCHIVO_NOION.csv', fechas_reales, cortes
+        tmp_path, 'ARCHIVO_CONSUMO.csv', fechas_reales, cortes
     )
 
     assert df_inc.equals(df_full)
@@ -105,9 +81,16 @@ def test_incremental_equivale_a_completo_con_huecos(tmp_path):
     assert len(df_inc) > len(fechas_reales)
 
 
-def test_incremental_equivale_a_completo_con_salto_medianoche_ion(tmp_path):
-    """Archivo ION (con salto de 00:00 real) verificado en 3 sincronizaciones."""
-    fechas_reales = pd.date_range('2026-02-01 00:05:00', '2026-02-08 23:55:00', freq='5min')
+def test_incremental_rellena_medianoche_faltante_dentro_del_rango(tmp_path):
+    """Si falta el 00:00 de un dia que si esta en rango (no el primero del
+    historico), se rellena con cero como cualquier otro hueco -- para
+    cualquier archivo, ION incluido (ya no hay excepcion por fuente)."""
+    fechas_completas = pd.date_range('2026-02-01 00:05:00', '2026-02-08 00:00:00', freq='5min')
+    # Quitar especificamente el 00:00 del 2026-02-04 (dia intermedio, con
+    # datos antes y despues dentro del mismo rango) para simular el hueco.
+    medianoche_faltante = pd.Timestamp('2026-02-04 00:00:00')
+    fechas_reales = fechas_completas[fechas_completas != medianoche_faltante]
+
     cortes = [
         pd.Timestamp('2026-02-03 23:55:00'),
         pd.Timestamp('2026-02-06 10:00:00'),
@@ -115,18 +98,13 @@ def test_incremental_equivale_a_completo_con_salto_medianoche_ion(tmp_path):
     ]
 
     df_inc, df_full = _correr_incremental_vs_completo(
-        tmp_path, NOMBRE_ION, fechas_reales, cortes
+        tmp_path, 'ION_Testigo_IUSA1.csv', fechas_reales, cortes
     )
 
     assert df_inc.equals(df_full)
-    # La regla ION solo permite saltar una medianoche si tampoco esta en los
-    # datos reales; aqui la unica ausente de verdad es la del primer dia
-    # (fechas_reales arranca en 00:05). Las demas medianoches del rango si
-    # vienen en fechas_reales (el paso fijo de 5 min las genera de forma
-    # natural) y deben seguir presentes -- no se debio insertar de mas ni
-    # de menos.
-    assert '2026-02-01 00:00:00' not in set(df_inc['Fecha'])
-    assert '2026-02-02 00:00:00' in set(df_inc['Fecha'])
+    fila = df_inc[df_inc['Fecha'] == '2026-02-04 00:00:00']
+    assert len(fila) == 1
+    assert (fila[['KWH_REC', 'KWH_ENT']] == 0).all(axis=None)
 
 
 def test_sync_sin_datos_nuevos_es_no_op(tmp_path):
@@ -141,7 +119,6 @@ def test_sync_sin_datos_nuevos_es_no_op(tmp_path):
     _escribir_csv(origen / nombre, fechas_reales, seed_a=1, seed_b=2)
     assert procesar_archivo_verificacion(str(origen), str(dest), nombre)
     contenido_antes = (dest / nombre).read_bytes()
-    mtime_antes = (dest / nombre).stat().st_mtime_ns
 
     # Mismo archivo fuente (sin datos nuevos) -- debe detectarse como no-op.
     assert procesar_archivo_verificacion(str(origen), str(dest), nombre)
@@ -188,3 +165,36 @@ def test_primera_verificacion_usa_modo_completo(tmp_path):
     origen = tmp_path / 'fuente'
     dest = tmp_path / 'procesado'
     origen.mkdir()
+    dest.mkdir()
+    nombre = 'ARCHIVO_PRIMERA_VEZ.csv'
+
+    _escribir_csv(origen / nombre, fechas_reales, seed_a=1, seed_b=2)
+    assert procesar_archivo_verificacion(str(origen), str(dest), nombre)
+
+    df = pd.read_csv(dest / nombre, encoding='utf-8-sig')
+    assert len(df) == len(fechas_reales)
+    assert list(df.columns) == ['Fecha', 'KWH_REC', 'KWH_ENT']
+
+
+def test_primer_dia_no_exige_medianoche_fuera_de_rango(tmp_path):
+    """El 00:00 del dia anterior al primer registro real no existe en el
+    origen (pertenece a un dia fuera de rango) y no debe contarse como
+    hueco -- ni en modo completo ni incremental."""
+    # Primer registro real: 2026-06-01 00:05 (no hay 2026-06-01 00:00: ese
+    # perfil cerraria el 2026-05-31, que no esta en los datos).
+    fechas_reales = pd.date_range('2026-06-01 00:05:00', '2026-06-02 00:00:00', freq='5min')
+    origen = tmp_path / 'fuente'
+    dest = tmp_path / 'procesado'
+    origen.mkdir()
+    dest.mkdir()
+    nombre = 'ARCHIVO_PRIMER_DIA.csv'
+
+    _escribir_csv(origen / nombre, fechas_reales, seed_a=1, seed_b=2)
+    assert procesar_archivo_verificacion(str(origen), str(dest), nombre)
+
+    df = pd.read_csv(dest / nombre, encoding='utf-8-sig')
+    # 288 perfiles exactos: ni de mas (no se inserto un 2026-05-31 23:55 o
+    # 2026-06-01 00:00 fantasma) ni de menos.
+    assert len(df) == 288
+    assert df['Fecha'].iloc[0] == '2026-06-01 00:05:00'
+    assert df['Fecha'].iloc[-1] == '2026-06-02 00:00:00'
