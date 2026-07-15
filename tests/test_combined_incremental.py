@@ -4,15 +4,22 @@ generar_combinado_por_minuto() calculaba columnas derivadas (HORA, PERIODO,
 kW, demanda rodante 15 min con reinicio mensual...) sobre el histórico
 completo en cada corrida y reescribía COMBINADO_POR_MINUTO_*.csv entero.
 Ahora, si el destino ya tiene un cursor legible (última FECHA_HORA) y
-columnas compatibles, solo procesa y anexa las filas nuevas -- incluyendo
-el contexto de hasta 2 filas previas que la demanda rodante (rolling de 3
-filas) necesita para dar el mismo resultado que una corrida completa.
+columnas compatibles, solo procesa y reescribe una ventana de los últimos
+`_MARGEN_REEXPORTAR_DIAS` días (no solo lo estrictamente posterior al
+cursor) -- incluyendo el contexto de hasta 2 filas previas que la demanda
+rodante (rolling de 3 filas) necesita para dar el mismo resultado que una
+corrida completa -- y esa ventana reemplaza lo que hubiera en el combinado
+para esas fechas. Esto recoge actualizaciones que el origen (BESS/medidor)
+trae para fechas ya combinadas (p.ej. ION corrigiendo el día en curso), en
+vez de quedarse pegado al primer valor que vio para esa fecha.
 
 Las pruebas cubren: primera corrida completa, incremental == completo con
 un split a mitad de mes, incremental == completo con un split justo en la
 frontera de un mes (para ejercitar el reinicio de la demanda rodante), no-op
-sin filas nuevas, fallback a completo si cambia el formato de columnas, una
-comparación con datos reales de IUSA_1 (ION ∩ BESS), y una corrida real de
+sin filas en la ventana, fallback a completo si cambia el formato de
+columnas, una comparación con datos reales de IUSA_1 (ION ∩ BESS), que un
+día abierto recoge una actualización posterior del origen, que los días
+cerrados no se tocan al recalcular la ventana, y una corrida real de
 procesar_grupo() (combinado -> diario -> acumulados) dos veces seguidas
 para confirmar que "sin filas nuevas" no se confunde con un fallo.
 """
@@ -106,9 +113,9 @@ def test_generar_combinado_incremental_equivale_a_completo_split_mitad(tmp_path,
 def test_generar_combinado_incremental_equivale_a_completo_split_frontera_mes(tmp_path, monkeypatch):
     """Split justo donde termina enero y empieza febrero: ejercita el caso
     donde las filas de contexto (fin de enero) quedan en un grupo de mes
-    distinto al de las filas nuevas (inicio de febrero) -- el rolling debe
-    reiniciar en 0 para las primeras filas de febrero, igual que en una
-    corrida completa."""
+    distinto al de las filas de la ventana (inicio de febrero) -- el
+    rolling debe reiniciar en 0 para las primeras filas de febrero, igual
+    que en una corrida completa."""
     fechas = pd.date_range("2026-01-31 23:45:00", "2026-02-01 01:00:00", freq="5min")
     corte = fechas[fechas < pd.Timestamp("2026-02-01 00:05:00")]
     assert 0 < len(corte) < len(fechas)
@@ -232,6 +239,75 @@ def test_generar_combinado_incremental_equivale_a_completo_datos_reales(tmp_path
     salida_full = pd.read_csv(MED_ION.ruta_combinado())
 
     pd.testing.assert_frame_equal(salida_inc, salida_full)
+
+
+def test_generar_combinado_dia_abierto_recoge_actualizacion_posterior(tmp_path, monkeypatch):
+    """Si el origen (BESS/medidor) trae un valor actualizado para una fecha
+    que ya se había combinado en una corrida anterior -- p.ej. porque ION
+    corrigió el día en curso -- la siguiente corrida debe recoger el nuevo
+    valor, no quedarse pegada al primero que vio."""
+    monkeypatch.setattr(rutas_mod, "DIRECTORIO_REPORTES", tmp_path)
+    fechas = pd.date_range("2026-05-01 00:05:00", "2026-05-02 00:00:00", freq="5min")
+    ruta_bess = tmp_path / "bess.csv"
+    ruta_med = tmp_path / "medidor.csv"
+    _escribir_perfil(ruta_bess, fechas, base_rec=2.0, escala=0.001)
+    _escribir_perfil(ruta_med, fechas, base_rec=5.0, escala=0.002)
+
+    generar_combinado_por_minuto(str(ruta_bess), str(ruta_med), MED_ION.prefijo)
+
+    fila_objetivo = "01/05/2026 12:00"
+    salida_antes = pd.read_csv(MED_ION.ruta_combinado())
+    valores_antes = salida_antes.loc[salida_antes["FECHA_HORA"] == fila_objetivo, "BESS_REC_kW"]
+    assert len(valores_antes) == 1
+    valor_antes = valores_antes.iloc[0]
+
+    # Actualizacion del origen para una fecha ya combinada (dentro del
+    # margen de reexportacion).
+    df_bess = pd.read_csv(ruta_bess, encoding="utf-8-sig")
+    idx = df_bess.index[df_bess["Fecha"] == "2026-05-01 12:00:00"]
+    assert len(idx) == 1
+    df_bess.loc[idx, "KWH_REC"] = 999.0
+    df_bess.to_csv(ruta_bess, index=False, encoding="utf-8-sig")
+
+    generar_combinado_por_minuto(str(ruta_bess), str(ruta_med), MED_ION.prefijo)
+
+    salida_despues = pd.read_csv(MED_ION.ruta_combinado())
+    valores_despues = salida_despues.loc[salida_despues["FECHA_HORA"] == fila_objetivo, "BESS_REC_kW"]
+    assert len(valores_despues) == 1
+    valor_despues = valores_despues.iloc[0]
+
+    assert valor_despues != valor_antes
+    assert valor_despues == pytest.approx(999.0 * 12)
+
+
+def test_generar_combinado_dias_cerrados_no_se_tocan_al_recalcular_ventana(tmp_path, monkeypatch):
+    """Al recalcular la ventana de los últimos días, los días ya cerrados
+    (fuera del margen de reexportación) deben quedar exactamente igual --
+    se preservan crudos, no se vuelven a calcular ni reformatear."""
+    monkeypatch.setattr(rutas_mod, "DIRECTORIO_REPORTES", tmp_path)
+    fechas = pd.date_range("2026-06-01 00:05:00", "2026-06-05 00:00:00", freq="5min")
+    ruta_bess = tmp_path / "bess.csv"
+    ruta_med = tmp_path / "medidor.csv"
+    _escribir_perfil(ruta_bess, fechas, base_rec=2.0, escala=0.0001)
+    _escribir_perfil(ruta_med, fechas, base_rec=5.0, escala=0.0002)
+
+    generar_combinado_por_minuto(str(ruta_bess), str(ruta_med), MED_ION.prefijo)
+
+    salida_antes = pd.read_csv(MED_ION.ruta_combinado())
+    dia1_antes = salida_antes[salida_antes["FECHA"] == "01/06/2026"].reset_index(drop=True)
+    assert len(dia1_antes) > 0, "la prueba no esta comparando nada: revisar el formato de FECHA"
+
+    # Se agrega un día más (día 6): dispara una nueva corrida incremental
+    # cuya ventana cubre solo los últimos días, no el día 1.
+    fechas_ext = pd.date_range("2026-06-01 00:05:00", "2026-06-06 00:00:00", freq="5min")
+    _escribir_perfil(ruta_bess, fechas_ext, base_rec=2.0, escala=0.0001)
+    _escribir_perfil(ruta_med, fechas_ext, base_rec=5.0, escala=0.0002)
+    generar_combinado_por_minuto(str(ruta_bess), str(ruta_med), MED_ION.prefijo)
+
+    salida_despues = pd.read_csv(MED_ION.ruta_combinado())
+    dia1_despues = salida_despues[salida_despues["FECHA"] == "01/06/2026"].reset_index(drop=True)
+
+    pd.testing.assert_frame_equal(dia1_antes, dia1_despues)
 
 
 def test_procesar_grupo_segunda_corrida_sin_datos_nuevos_no_es_fallo():

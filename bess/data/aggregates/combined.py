@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import csv
 import os
 
 from datetime import datetime
@@ -21,12 +22,22 @@ from bess.core.console import log
 print = log
 
 # Ventana de la demanda rodante (bess.core.demand.demanda_rodante_15min_por_mes):
-# 15 min / 5 min = 3 filas. Para que la primera fila nueva de una corrida
+# 15 min / 5 min = 3 filas. Para que la primera fila de una ventana
 # incremental calcule el mismo rolling que una corrida completa, hacen falta
 # las 2 filas previas como contexto (si pertenecen a otro mes operativo, el
 # groupby por mes las separa solas y no contaminan el rolling del mes nuevo).
 _VENTANA_DEMANDA_FILAS = 15 // 5
 _CONTEXTO_FILAS = _VENTANA_DEMANDA_FILAS - 1
+
+# El origen (BESS x medidor, vía merge en cada corrida) puede traer, para
+# corridas sucesivas, valores actualizados para fechas que ya se habían
+# combinado en una corrida anterior -- la actualización se origina más
+# arriba en la cadena (verify.py/clean.py reverifican una ventana de los
+# últimos días en cada corrida en vez de solo anexar filas estrictamente
+# nuevas). Si aquí solo se anexara lo estrictamente posterior al cursor,
+# esas actualizaciones nunca se propagarían al combinado. Mismo margen que
+# el resto de los módulos de la cadena.
+_MARGEN_REEXPORTAR_DIAS = 1
 
 
 def _cursor_combinado(ruta_salida) -> "pd.Timestamp | None":
@@ -55,10 +66,107 @@ def _columnas_combinado(ruta_salida) -> list[str] | None:
         return None
 
 
+def _leer_previas_a_ventana_combinado(
+    ruta_salida: str,
+    inicio_ventana: "pd.Timestamp",
+) -> "list[list[str]] | None":
+    """Filas crudas (via csv.reader, SIN reparsear los valores numericos)
+    ya escritas en `ruta_salida` con FECHA_HORA anterior a `inicio_ventana`
+    -- se preservan tal cual estaban al recalcular una ventana incremental.
+
+    Deliberadamente NO se devuelve un DataFrame: reparsear una columna
+    numerica ya escrita y volver a serializarla via pandas puede producir
+    una representacion de texto ligeramente distinta para el mismo
+    float64 -- un cambio de bytes sin sentido en datos que ya estaban
+    cerrados. Igual que en el resto de la cadena (export_csv.py, clean.py,
+    verify.py), se preservan las filas crudas y solo se reparsea/reformatea
+    la ventana que realmente se recalcula.
+
+    A diferencia de esos módulos, FECHA_HORA no es la primera columna del
+    archivo (es la segunda, después de FECHA) -- se ubica por nombre en el
+    encabezado en vez de asumir una posición fija.
+
+    Devuelve None si el archivo no existe, no tiene una columna FECHA_HORA,
+    o no se puede leer; quien llama debe caer al modo completo en ese caso.
+    """
+    if not os.path.exists(ruta_salida):
+        return None
+    try:
+        with open(ruta_salida, 'r', newline='', encoding='utf-8') as f:
+            lector = csv.reader(f)
+            encabezado = next(lector, None)
+            if not encabezado or "FECHA_HORA" not in encabezado:
+                return None
+            idx_fecha_hora = encabezado.index("FECHA_HORA")
+            filas = [fila for fila in lector if fila]
+    except OSError:
+        return None
+    if not filas:
+        return []
+    fechas = pd.to_datetime(
+        [fila[idx_fecha_hora] for fila in filas],
+        format="%d/%m/%Y %H:%M", errors="coerce",
+    )
+    return [
+        fila for fila, fecha in zip(filas, fechas)
+        if pd.notna(fecha) and fecha < inicio_ventana
+    ]
+
+
+def _valor_csv(valor):
+    """Igual que el na_rep='' por defecto de pandas.to_csv(): NaN/None se
+    escriben como celda vacia en vez de la cadena "nan" que produciria
+    csv.writer por si solo via str(valor)."""
+    if valor is None:
+        return ''
+    try:
+        if pd.isna(valor):
+            return ''
+    except (TypeError, ValueError):
+        pass
+    return valor
+
+
+def _escribir_ventana_combinada(
+    filas_previas: "list[list[str]]",
+    df_ventana: pd.DataFrame,
+    columnas_export: list[str],
+    ruta_salida: str,
+    nombre_archivo: str,
+) -> None:
+    """Escribe `ruta_salida` completo: `filas_previas` (crudas, preservadas
+    tal cual via _leer_previas_a_ventana_combinado) + `df_ventana`
+    (la ventana recalculada, columnas ya en `columnas_export`) -- reemplaza
+    lo que hubiera en el archivo para las fechas de la ventana, sin tocar
+    el formato de lo anterior.
+    """
+    os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
+    # Sin newline='' aqui (a diferencia de la lectura): con newline=None
+    # (el default), Python traduce cada '\n' escrito al separador de
+    # linea del sistema (os.linesep) -- exactamente lo mismo que hace
+    # pandas.to_csv() internamente (usado en el modo completo, sin
+    # encoding= explicito -- utf-8 sin BOM -- y que escribio originalmente
+    # el archivo existente). Con newline='' el '\n' se escribiria literal
+    # sin traducir, y en Windows (donde corre este pipeline en produccion,
+    # os.linesep='\r\n') eso desalinearia el fin de linea de la ventana
+    # reescrita contra el resto del archivo.
+    with open(ruta_salida, 'w', encoding='utf-8') as f:
+        writer = csv.writer(f, lineterminator='\n')
+        writer.writerow(columnas_export)
+        for fila in filas_previas:
+            writer.writerow(fila)
+        for row in df_ventana[columnas_export].itertuples(index=False):
+            writer.writerow(_valor_csv(v) for v in row)
+    print(
+        f"OK {nombre_archivo} - ventana recalculada "
+        f"({len(filas_previas)} preservada(s) + {len(df_ventana)} en ventana)"
+    )
+
+
 def _calcular_derivados(df_lote, prefijo, esquema, col_con, col_sin):
     """Agrega a `df_lote` las columnas derivadas (HORA, PERIODO, kW, kWh
     netos, mejora BESS y demanda rodante). `df_lote` puede ser el histórico
-    completo (primera corrida) o una porción con contexto (corrida
+    completo (primera corrida) o una porción con contexto (ventana
     incremental) -- la función no distingue, solo necesita que las filas
     estén en orden cronológico."""
     horas = []
@@ -115,20 +223,29 @@ def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo, esquema_tarif
     """Genera COMBINADO_POR_MINUTO.csv con resolución de 5 minutos.
 
     Incremental: si el archivo de salida ya existe con cursor legible
-    (última FECHA_HORA escrita) y columnas compatibles, solo se calculan y
-    anexan las columnas derivadas (HORA, PERIODO, kW, demanda rodante...)
-    para las filas nuevas, en vez de recalcular y reescribir todo el
-    histórico en cada corrida. Para la demanda rodante (rolling de 3 filas,
-    reinicio mensual) se incluyen también las filas de contexto necesarias
-    (ver _CONTEXTO_FILAS) antes de la primera fila nueva. La primera vez (o
-    si cambia el formato de columnas) procesa completo, como antes.
+    (última FECHA_HORA escrita) y columnas compatibles, solo se recalculan
+    y reescriben las columnas derivadas (HORA, PERIODO, kW, demanda
+    rodante...) para una ventana de los últimos `_MARGEN_REEXPORTAR_DIAS`
+    días (no solo lo estrictamente posterior al cursor), y esa ventana
+    reemplaza lo que hubiera en el combinado para esas fechas -- en vez de
+    releer y reescribir todo el histórico en cada corrida. Esto recoge
+    actualizaciones que verify.py/clean.py traen para fechas ya combinadas.
+    Lo anterior a la ventana se preserva crudo
+    (_leer_previas_a_ventana_combinado), sin reparsear sus valores
+    numéricos, para no arriesgar diferencias de redondeo en datos ya
+    cerrados. Para la demanda rodante (rolling de 3 filas, reinicio
+    mensual) se incluyen también las filas de contexto necesarias antes
+    del inicio de la ventana (ver _CONTEXTO_FILAS), que se descartan del
+    archivo final -- solo sirven para que el rolling arranque igual que en
+    una corrida completa. La primera vez (o si cambia el formato de
+    columnas) procesa completo, como antes.
 
     El DataFrame devuelto siempre es el resultado del merge BESS×medidor
     completo (para que quien llama pueda verificar `len(...) == 0` igual
-    que antes, incluso en una corrida incremental sin filas nuevas); en modo
-    incremental no trae las columnas derivadas del histórico ya escrito,
-    solo las de la lectura fuente -- ese contrato ya era el único que usa
-    `bess.data.orchestrator.procesar_grupo`.
+    que antes, incluso en una corrida incremental sin filas en la
+    ventana); en modo incremental no trae las columnas derivadas del
+    histórico ya escrito, solo las de la lectura fuente -- ese contrato ya
+    era el único que usa `bess.data.orchestrator.procesar_grupo`.
     """
     print("\n" + "=" * 60)
     print(f"GENERANDO COMBINADO_POR_MINUTO_{prefijo}.csv")
@@ -220,23 +337,28 @@ def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo, esquema_tarif
     incremental = cursor is not None and _columnas_combinado(ruta_salida) == columnas_export
 
     if incremental:
-        idx_nuevos = df_combinado.index[df_combinado["_DT"] > cursor]
-        if len(idx_nuevos) == 0:
-            print(f"  Sin filas nuevas para {nombre_archivo} (cursor {cursor})")
+        inicio_ventana = cursor.normalize() - pd.Timedelta(days=_MARGEN_REEXPORTAR_DIAS)
+        idx_ventana = df_combinado.index[df_combinado["_DT"] >= inicio_ventana]
+        if len(idx_ventana) == 0:
+            print(f"  Sin filas en ventana para {nombre_archivo} (desde {inicio_ventana})")
             return df_combinado.drop(columns=["_DT"])
 
-        primer_nuevo = int(idx_nuevos.min())
-        inicio_lote = max(0, primer_nuevo - _CONTEXTO_FILAS)
+        primer_ventana = int(idx_ventana.min())
+        inicio_lote = max(0, primer_ventana - _CONTEXTO_FILAS)
         df_lote = df_combinado.iloc[inicio_lote:].copy()
 
         print("\n--- Calculando demanda rodante incremental (rolling 15 min) ---")
         df_lote = _calcular_derivados(df_lote, prefijo, esquema, col_con, col_sin)
-        df_nuevas = df_lote[df_lote["_DT"] > cursor]
+        df_ventana = df_lote[df_lote["_DT"] >= inicio_ventana]
 
-        os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
-        df_nuevas[columnas_export].to_csv(ruta_salida, index=False, header=False, mode="a")
-        print(f"OK {nombre_archivo} - {len(df_nuevas)} registro(s) nuevo(s) anexado(s)")
-        return df_combinado.drop(columns=["_DT"])
+        previas = _leer_previas_a_ventana_combinado(ruta_salida, inicio_ventana)
+        if previas is not None:
+            _escribir_ventana_combinada(
+                previas, df_ventana, columnas_export, ruta_salida, nombre_archivo
+            )
+            return df_combinado.drop(columns=["_DT"])
+        # No se pudo leer lo previo (formato inesperado pese al chequeo de
+        # columnas): cae al modo completo de abajo, releyendo todo.
 
     print("\n--- Calculando demanda rodante (rolling 15 min, reinicio mensual) ---")
     df_procesado = _calcular_derivados(
