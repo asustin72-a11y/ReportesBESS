@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import shutil
-from datetime import timedelta
 
 import pandas as pd
 
@@ -16,6 +15,18 @@ from bess.data.ingest.identify import identificar_y_renombrar_archivos
 from bess.data.ingest.readers import leer_archivo_perfil
 
 print = log
+
+# El origen (ArchivosFuente) puede traer, en corridas sucesivas, valores
+# actualizados para fechas que ya se habian verificado ese mismo dia --
+# tipicamente porque export_csv.py reexporta una ventana de los ultimos
+# dias en cada corrida para reflejar correcciones de la API ISOL sobre el
+# dia en curso (ver bess/data/ingest/ion/export_csv.py). Si aqui solo se
+# miraran filas estrictamente posteriores al cursor, esas actualizaciones
+# nunca se volverian a leer del origen. Por eso el modo incremental no
+# anexa solo lo nuevo: siempre vuelve a verificar y sobrescribir una
+# ventana de los ultimos `_MARGEN_REEXPORTAR_DIAS` dias, preservando
+# intacto todo lo anterior a esa ventana.
+_MARGEN_REEXPORTAR_DIAS = 1
 
 
 def _guardar_perfil_procesado(
@@ -44,31 +55,50 @@ def _guardar_perfil_procesado(
     return True
 
 
-def _anexar_perfil_procesado(
-    perfil_nuevo: pd.DataFrame,
+def _leer_previas_a_ventana(
+    ruta_destino: str,
+    inicio_ventana: "pd.Timestamp",
+) -> pd.DataFrame:
+    """Filas ya procesadas en `ruta_destino` con Fecha anterior a
+    `inicio_ventana` -- se conservan intactas. El motor de escritura
+    (pandas to_csv) es el mismo que las escribio originalmente, asi que
+    reparsearlas y reescribirlas junto con la ventana reverificada es un
+    no-op de formato para esas filas (a diferencia de un CSV fuente
+    externo, este archivo siempre lo escribimos nosotros).
+    """
+    df = pd.read_csv(ruta_destino, encoding='utf-8-sig')
+    df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+    df = df.dropna(subset=['Fecha'])
+    return df[df['Fecha'] < inicio_ventana].reset_index(drop=True)
+
+
+def _guardar_ventana_procesada(
+    resultado: pd.DataFrame,
     ruta_destino: str,
     nombre_archivo: str,
 ) -> bool:
-    """Agrega filas nuevas al final de un CSV ya procesado (sin reescribirlo).
+    """Escribe ruta_destino completo: filas preservadas antes de la
+    ventana + la ventana reverificada, reemplazando lo que hubiera para
+    esas fechas.
 
-    A diferencia de _guardar_perfil_procesado, no toca las filas existentes
-    ni crea backup: el archivo ya estaba verificado hasta el cursor y solo
-    se le suma lo nuevo. El lock del pipeline (bess.data.pipeline_lock)
-    ya garantiza que nadie mas escribe este archivo al mismo tiempo.
+    A diferencia de _guardar_perfil_procesado, no crea backup: esto corre
+    en cada sincronizacion incremental normal (no solo al reprocesar todo
+    el historico), y el lock del pipeline ya garantiza que nadie mas
+    escribe este archivo al mismo tiempo.
     """
-    salida = perfil_nuevo.copy()
+    os.makedirs(os.path.dirname(ruta_destino), exist_ok=True)
+    salida = resultado.copy()
     salida['Fecha'] = salida['Fecha'].dt.strftime('%Y-%m-%d %H:%M:%S')
     try:
-        salida.to_csv(
-            ruta_destino, index=False, header=False, mode='a', encoding='utf-8-sig'
-        )
+        salida.to_csv(ruta_destino, index=False, encoding='utf-8-sig')
     except OSError as e:
         print(
-            f"❌ No se pudo anexar a {nombre_archivo}: {e}. "
+            f"❌ No se pudo guardar {nombre_archivo}: {e}. "
             "Cierre Excel u otro programa que tenga abierto el CSV en ArchivosProcesados."
         )
         return False
-    print(f"✅ {len(salida)} registro(s) nuevo(s) anexado(s) a: {ruta_destino}")
+    print(f"✅ Ventana reverificada guardada: {ruta_destino}")
+    print(f"📊 Registros finales: {len(salida)}")
     return True
 
 
@@ -92,6 +122,29 @@ def _cursor_procesado(ruta_destino: str) -> "pd.Timestamp | None":
     if fechas.empty:
         return None
     return fechas.max()
+
+
+def _primera_fecha_procesada(ruta_destino: str) -> "pd.Timestamp | None":
+    """Primera Fecha ya escrita en el CSV procesado, o None si no existe/esta vacio.
+
+    Solo lee la columna Fecha, igual que _cursor_procesado. Se usa para
+    acotar la ventana de reverificacion: si `_inicio_ventana` cae antes
+    del inicio real del historico (archivo recien agregado, a menos de
+    `_MARGEN_REEXPORTAR_DIAS` dias de su primer registro), no hay que
+    fabricar un dia que nunca existio -- ver procesar_archivo_verificacion.
+    """
+    if not os.path.exists(ruta_destino):
+        return None
+    try:
+        fechas = pd.read_csv(
+            ruta_destino, usecols=['Fecha'], encoding='utf-8-sig'
+        )['Fecha']
+    except (ValueError, KeyError):
+        return None
+    fechas = pd.to_datetime(fechas, errors='coerce').dropna()
+    if fechas.empty:
+        return None
+    return fechas.min()
 
 
 def _columnas_compatibles(ruta_destino: str, columnas_nuevas: list[str]) -> bool:
@@ -149,11 +202,15 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
     Procesa un archivo CSV verificando duplicados y registros faltantes.
 
     Incremental: si ya existe un CSV procesado para este archivo, solo se
-    verifican (dedup + relleno de huecos) las filas del origen posteriores
-    al cursor (la ultima Fecha ya escrita), y se anexan al final en vez de
-    releer y reescribir todo el historico en cada sincronizacion. La
-    primera vez (o si el formato no coincide) se procesa completo, igual
-    que antes.
+    verifica (dedup + relleno de huecos) una ventana de los ultimos
+    `_MARGEN_REEXPORTAR_DIAS` dias del origen (no solo lo estrictamente
+    posterior al cursor), y esa ventana reemplaza lo que hubiera en el
+    archivo procesado para esas fechas -- en vez de releer y reescribir
+    todo el historico en cada sincronizacion. Esto recoge actualizaciones
+    que el origen trae para fechas ya verificadas (p.ej. la API ISOL, via
+    export_csv.py, completando con valores reales un dia que ya se habia
+    exportado en cero). La primera vez (o si el formato no coincide) se
+    procesa completo, igual que antes.
     """
     ruta_completa_origen = os.path.join(ruta_origen, nombre_archivo)
     ruta_completa_destino = os.path.join(ruta_destino, nombre_archivo)
@@ -183,10 +240,13 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
         )
 
         if modo_incremental:
+            inicio_ventana = cursor.normalize() - pd.Timedelta(days=_MARGEN_REEXPORTAR_DIAS)
             print(f"📌 Cursor: ya verificado hasta {cursor.strftime('%Y-%m-%d %H:%M:%S')}")
-            nuevos = perfil[perfil['Fecha'] > cursor]
+            print(f"🔁 Ventana a reverificar: desde {inicio_ventana.strftime('%Y-%m-%d %H:%M:%S')}")
+
+            nuevos = perfil[perfil['Fecha'] >= inicio_ventana]
             nuevos = nuevos.drop_duplicates(subset=['Fecha'], keep='first')
-            renglones_duplicados = len(perfil[perfil['Fecha'] > cursor]) - len(nuevos)
+            renglones_duplicados = len(perfil[perfil['Fecha'] >= inicio_ventana]) - len(nuevos)
             if renglones_duplicados:
                 print(f"🗑️ Renglones duplicados eliminados: {renglones_duplicados}")
 
@@ -195,19 +255,31 @@ def procesar_archivo_verificacion(ruta_origen, ruta_destino, nombre_archivo):
                 return True
 
             nuevos = nuevos.sort_values(by='Fecha', ascending=True).reset_index(drop=True)
-            fi = cursor + timedelta(minutes=Frecuencia_Perfil_MIN)
+            # Acotar fi para no fabricar un dia que nunca existio: si el
+            # archivo tiene menos de _MARGEN_REEXPORTAR_DIAS dias de
+            # historia (recien agregado), inicio_ventana puede caer antes
+            # del primer registro real (tanto el ya procesado como el que
+            # trae ahora el origen) -- en ese caso fi es ese primer
+            # registro real, igual que en el modo completo.
+            primera_conocida = nuevos['Fecha'].min()
+            primera_destino = _primera_fecha_procesada(ruta_completa_destino)
+            if primera_destino is not None:
+                primera_conocida = min(primera_conocida, primera_destino)
+            fi = max(inicio_ventana, primera_conocida)
             ff = nuevos['Fecha'].max()
 
-            print(f"📅 Rango nuevo: {fi.strftime('%Y-%m-%d %H:%M:%S')} a {ff.strftime('%Y-%m-%d %H:%M:%S')}")
-            print(f"📊 Registros nuevos: {len(nuevos)}")
+            print(f"📅 Rango a reverificar: {fi.strftime('%Y-%m-%d %H:%M:%S')} a {ff.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"📊 Registros en ventana (origen): {len(nuevos)}")
 
             perfil_completo, faltantes = _completar_rango(
                 nuevos, fi, ff, columnas, Frecuencia_Perfil_MIN
             )
             print(f"📝 Registros faltantes insertados: {faltantes}")
 
-            return _anexar_perfil_procesado(
-                perfil_completo, ruta_completa_destino, nombre_archivo
+            previas = _leer_previas_a_ventana(ruta_completa_destino, inicio_ventana)
+            resultado = pd.concat([previas, perfil_completo], ignore_index=True)
+            return _guardar_ventana_procesada(
+                resultado, ruta_completa_destino, nombre_archivo
             )
 
         # Modo completo: primera vez que se procesa este archivo, o el CSV
@@ -336,43 +408,4 @@ def _verificar_datos_fuente_impl():
     fallidos = [a for a, ok in resultados.items() if ok is False]
     omitidos = [a for a, ok in resultados.items() if ok is None]
 
-    if not verificados:
-        return False, (
-            "No se verificó ningún archivo. "
-            "Copie los CSV en data/ArchivosFuente y vuelva a intentar."
-        )
-    if fallidos:
-        return False, (
-            f"Error al verificar: {', '.join(fallidos)}. "
-            "Cierre Excel u otros programas que tengan abiertos los CSV."
-        )
-
-    return True, _mensaje_verificacion_ok(verificados, omitidos)
-
-
-def _mensaje_verificacion_ok(verificados: list[str], omitidos: list[str]) -> str:
-    """Mensaje de éxito agrupado por subestación (incluye granja IUSA 2)."""
-    partes: list[str] = []
-    for sub in SUBESTACIONES:
-        archivos_sub = archivos_fuente_subestacion(sub)
-        ok_sub = [a for a in archivos_sub if a in verificados]
-        if not ok_sub:
-            continue
-        nombres = []
-        for med in sub.medidores_consumo:
-            if med.consumo_csv in ok_sub:
-                nombres.append(med.etiqueta)
-        if sub.bess_csv in ok_sub:
-            nombres.append("BESS")
-        if sub.granja_csv and sub.granja_csv in ok_sub:
-            nombres.append("Granja (20 MEGA)")
-        if sub.cogeneracion_csv and sub.cogeneracion_csv in ok_sub:
-            nombres.append("Generación")
-        partes.append(f"{sub.nombre}: {', '.join(nombres)}")
-
-    mensaje = "Verificación completada — " + "; ".join(partes) if partes else (
-        f"Verificación OK ({len(verificados)} archivo(s)): {', '.join(verificados)}"
-    )
-    if omitidos:
-        mensaje += f". Sin archivo en fuente: {', '.join(omitidos)}"
-    return mensaje
+    i

@@ -198,3 +198,72 @@ def test_primer_dia_no_exige_medianoche_fuera_de_rango(tmp_path):
     assert len(df) == 288
     assert df['Fecha'].iloc[0] == '2026-06-01 00:05:00'
     assert df['Fecha'].iloc[-1] == '2026-06-02 00:00:00'
+
+
+def test_verify_dia_abierto_recoge_actualizacion_de_la_fuente(tmp_path):
+    """El caso real que motivo este cambio: el origen (ArchivosFuente)
+    puede traer, en corridas sucesivas, un valor actualizado para una
+    fecha que ya se habia verificado ese mismo dia -- tipicamente porque
+    export_csv.py reexporta la ventana abierta con un valor real que antes
+    era cero (ver bess/data/ingest/ion/export_csv.py). La siguiente
+    verificacion incremental debe reflejar ese valor, no quedarse pegada
+    en lo que ya se habia escrito para esa fecha."""
+    fechas_reales = pd.date_range('2026-07-15 00:05:00', '2026-07-15 23:55:00', freq='5min')
+    origen = tmp_path / 'fuente'
+    dest = tmp_path / 'procesado'
+    origen.mkdir()
+    dest.mkdir()
+    nombre = 'ARCHIVO_DIA_ABIERTO.csv'
+
+    df = pd.DataFrame({
+        'Fecha': fechas_reales.strftime('%Y-%m-%d %H:%M:%S'),
+        'KWH_REC': 0.0,
+        'KWH_ENT': 0.0,
+    })
+    df.to_csv(origen / nombre, index=False, encoding='utf-8-sig')
+    assert procesar_archivo_verificacion(str(origen), str(dest), nombre)
+    df1 = pd.read_csv(dest / nombre, encoding='utf-8-sig')
+    assert (df1['KWH_REC'] == 0).all()
+
+    # El origen se actualiza con un valor real para una hora ya "verificada".
+    df.loc[df['Fecha'] == '2026-07-15 12:15:00', 'KWH_REC'] = 129.6
+    df.to_csv(origen / nombre, index=False, encoding='utf-8-sig')
+
+    assert procesar_archivo_verificacion(str(origen), str(dest), nombre)
+    df2 = pd.read_csv(dest / nombre, encoding='utf-8-sig')
+    fila = df2[df2['Fecha'] == '2026-07-15 12:15:00']
+    assert len(fila) == 1, "la fila se duplico o se perdio al reverificar la ventana"
+    assert fila.iloc[0]['KWH_REC'] == 129.6
+    assert len(df2) == len(df1), "la cantidad de filas no debia cambiar, solo el valor"
+
+
+def test_verify_dias_cerrados_no_se_tocan_al_recalcular_ventana(tmp_path):
+    """Un dia bien anterior a la ventana de reverificacion no debe verse
+    afectado por cambios en el origen fuera de esa ventana (p.ej. una
+    correccion o purga de un dia viejo en ArchivosFuente) -- solo los
+    ultimos `_MARGEN_REEXPORTAR_DIAS` dias se vuelven a leer y sobrescribir
+    en cada corrida incremental."""
+    fechas_reales = pd.date_range('2026-08-01 00:05:00', '2026-08-10 00:00:00', freq='5min')
+    origen = tmp_path / 'fuente'
+    dest = tmp_path / 'procesado'
+    origen.mkdir()
+    dest.mkdir()
+    nombre = 'ARCHIVO_DIAS_CERRADOS.csv'
+
+    _escribir_csv(origen / nombre, fechas_reales, seed_a=1, seed_b=2)
+    assert procesar_archivo_verificacion(str(origen), str(dest), nombre)
+    df1 = pd.read_csv(dest / nombre, encoding='utf-8-sig')
+
+    # "Corromper" el origen para un dia bien cerrado, fuera de la ventana
+    # de reverificacion -- no debe propagarse al archivo procesado.
+    df_origen = pd.read_csv(origen / nombre, encoding='utf-8-sig')
+    mask = df_origen['Fecha'].str.startswith('2026-08-02')
+    df_origen.loc[mask, 'KWH_REC'] = 999.0
+    df_origen.to_csv(origen / nombre, index=False, encoding='utf-8-sig')
+
+    assert procesar_archivo_verificacion(str(origen), str(dest), nombre)
+    df2 = pd.read_csv(dest / nombre, encoding='utf-8-sig')
+    dia2_antes = df1[df1['Fecha'].str.startswith('2026-08-02')].reset_index(drop=True)
+    dia2_despues = df2[df2['Fecha'].str.startswith('2026-08-02')].reset_index(drop=True)
+    assert dia2_despues.equals(dia2_antes)
+    assert not (dia2_despues['KWH_REC'] == 999.0).any()
