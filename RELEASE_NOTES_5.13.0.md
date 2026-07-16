@@ -2,7 +2,7 @@
 
 ## Resumen
 
-Sesión centrada en confiabilidad de datos: tres bugs reales de producción corregidos (degradación a cero en syncs en vivo, truncado por escritura no atómica, y un cursor incremental que dejaba ceros de relleno fijos para siempre en reportes de generación), un aviso nuevo en la app para detectar reportes desactualizados respecto al último sync, y un primer paso de rediseño visual. Todos los cambios de código incluyen pruebas nuevas; la suite completa se corrió antes de cada commit.
+Sesión centrada en confiabilidad de datos: cuatro bugs reales de producción corregidos (degradación a cero en syncs en vivo, truncado por escritura no atómica, un cursor incremental que dejaba ceros de relleno fijos para siempre en reportes de generación, y el relleno de ceros por adelantado de la API que contaminaba `sync_state`), un aviso nuevo en la app para detectar reportes desactualizados respecto al último sync, y un primer paso de rediseño visual. Todos los cambios de código incluyen pruebas nuevas; la suite completa se corrió antes de cada commit.
 
 **No se modificó `__version__` en `bess/__init__.py` ni se creó tag de release.** Este documento describe lo ya commiteado en `main`; el corte formal de la versión (bump + tag + build) queda pendiente de que decidas hacerlo.
 
@@ -46,6 +46,14 @@ Al usar el aviso anterior se detectó un cuarto bug real: el combinado de genera
   - El límite inferior solo consideraba el mínimo de la demanda real, ignorando la magnitud de la descarga BESS graficada aparte — si la descarga bajaba más que la demanda real, esa línea se cortaba por abajo.
   → `tests/test_profile_yaxis_range.py` (6 pruebas)
 
+### Eliminación del relleno de ceros por adelantado (causa raíz)
+
+Después de corregir el cursor de `granja.py`, el aviso de reporte desactualizado seguía disparándose a diario para IUSA_1 · Generación e IUSA_2 · Generación, con "sincronizado hasta" en 23:55/00:00 — valores sospechosamente redondos. Se confirmó revisando directamente `Cogeneracion.csv` y `GENERACION_ARAGON.csv`: ambos tienen datos reales hasta la hora real del último sync y, de ahí en adelante, ceros ya escritos hasta el final del día.
+
+- **Causa**: al pedir el día en curso, la API ISOL (y la API Farm de la granja IUSA_2) regresa el día completo, con los slots que todavía no ocurren en tiempo real rellenados con cero. Nada filtraba esas filas futuras antes de guardarlas en SQLite (`perfil_carga`), así que `sync_state` quedaba "sincronizado" hasta una hora que en realidad era solo relleno — no un dato real. El aviso de la sección anterior comparaba correctamente contra ese valor, pero el valor mismo estaba contaminado.
+- **Arreglo**: `iusasol/sync_db.py` y `granja/sync_db.py` descartan ahora, antes de guardar nada, cualquier fila con fecha posterior a la hora real del sync (`_recortar_slots_futuros` / `_recortar_registros_futuros`). No toca `export_csv.py` (ya era un espejo fiel de SQLite) ni `granja.py`/`combined.py` (el cursor incremental ya estaba corregido). El efecto: SQLite y ArchivosFuente dejan de avanzar a horas futuras sin datos reales, y el aviso de "reporte desactualizado" deja de dispararse por este motivo — solo se disparará ahora si hay un desfase real (p.ej. olvidar correr Reportes tras un sync).
+  → `tests/test_recorte_relleno_futuro.py` (6 pruebas nuevas)
+
 ### Interfaz: primer paso de rediseño visual
 
 - **`bess/ui/styles.py`**: se quitaron sombras y degradados decorativos (tarjetas, panel de navegación, botones, callouts) a favor de un look plano. Sin cambios funcionales ni de paleta de colores semántica (Base/Intermedio/Punta, carga/descarga BESS se dejaron intactos). Primer paso de una serie acordada con el usuario; capas siguientes (tipografía, tarjetas de métricas) quedan pendientes.
@@ -63,10 +71,11 @@ Durante esta sesión, al correr la suite de pruebas completa en el entorno de tr
 - `tests/test_profile_yaxis_range.py`
 - `tests/test_pipeline_status_desfase.py`
 - `tests/test_granja_relleno_ceros.py`
+- `tests/test_recorte_relleno_futuro.py`
 
 ## Archivos modificados
 
-- `bess/data/ingest/iusasol/sync_db.py`, `bess/data/ingest/granja/sync_db.py`, `bess/data/ingest/ion/sync.py`
+- `bess/data/ingest/iusasol/sync_db.py` (protección no_degradar_a_ceros + recorte de relleno futuro), `bess/data/ingest/granja/sync_db.py` (ídem), `bess/data/ingest/ion/sync.py`
 - `bess/data/pipeline/verify.py`, `bess/data/pipeline/clean.py`
 - `bess/data/aggregates/combined.py`, `bess/data/aggregates/granja.py`, `bess/data/aggregates/bess_daily.py`, `bess/data/aggregates/accumulated.py`, `bess/data/aggregates/daily.py`
 - `bess/data/ingest/ion/export_csv.py`
@@ -75,11 +84,11 @@ Durante esta sesión, al correr la suite de pruebas completa en el entorno de tr
 
 ## Pruebas
 
-38 pruebas nuevas en 7 archivos, más verificación de no regresión en la suite existente relevante (incluye comparación contra datos reales del repo donde ya existía esa práctica, p. ej. `test_granja_incremental.py`). Todas corridas antes de cada commit.
+44 pruebas nuevas en 8 archivos, más verificación de no regresión en la suite existente relevante (incluye comparación contra datos reales del repo donde ya existía esa práctica, p. ej. `test_granja_incremental.py`). Todas corridas antes de cada commit.
 
 ## Pendiente / no incluido en esta sesión
 
-- Investigación separada, aún no iniciada: qué tan seguro es eliminar de raíz el relleno de ceros por adelantado de la API ISOL (en vez de solo corregir cómo el pipeline lo reescribe) — decidido explícitamente posponer por el alcance/riesgo más amplio.
+- Limpieza de relleno de ceros ya escrito históricamente en SQLite/ArchivosFuente antes de este arreglo: el cambio evita que se guarden ceros de relleno *nuevos* a partir de ahora, pero no borra los que ya quedaron guardados en corridas anteriores (se van a autocorregir solos conforme el margen de solapamiento/reexportación de 1 día los vuelva a pisar con datos reales, o pueden limpiarse a mano si se necesita antes).
 - Migración CSV → base de datos: pausada antes de esta sesión, sigue pendiente.
 - Rediseño visual: solo se aplicó la primera capa (aplanado). Tipografía y tarjetas de métricas quedan para una siguiente pasada.
 - Bump de versión y tag de release: no se hizo; queda a tu criterio cuándo cortar 5.13.0 formalmente.
