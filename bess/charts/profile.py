@@ -111,13 +111,23 @@ def _rango_y_perfil(
     *,
     tiene_demanda_real: bool = False,
 ) -> list[float] | None:
-    """Reserva espacio bajo el eje cero para descarga BESS y demanda real negativa."""
+    """Reserva espacio bajo el eje cero para descarga BESS y demanda real negativa.
+
+    pos_cols debe cubrir exactamente las mismas series que graficar_perfil()
+    dibuja por encima de cero: 'Demanda real' (tiene_demanda_real) y
+    'kW recibidos'/'IUSA Con BESS' (perfil_rec_ent / col_con) se grafican
+    de forma independiente -- no son mutuamente excluyentes -- así que el
+    cálculo del rango tampoco debe tratarlas como tal. Antes usaba
+    if/elif y, en sitios con demanda real Y consumo neto a la vez (p.ej.
+    IUSA_ARAGON, GDMTH), el pico real de 'kW recibidos' quedaba fuera del
+    rango calculado y la línea se cortaba por arriba.
+    """
     pos_cols: list[str] = ['BESS_REC_kW']
     if 'KW_GENERACION' in df_plot.columns:
         pos_cols = ['KW_GENERACION', *pos_cols]
     if tiene_demanda_real and 'KW_DEMANDA_REAL' in df_plot.columns:
         pos_cols = ['KW_DEMANDA_REAL', *pos_cols]
-    elif perfil_rec_ent:
+    if perfil_rec_ent:
         pos_cols = ['KW_REC_ION', *pos_cols]
     elif col_con in df_plot.columns:
         pos_cols = [col_con, *pos_cols]
