@@ -102,6 +102,11 @@ def graficar_tendencia_consumo_periodo(df, rango_label):
 
 
 def graficar_tendencia_con_sin_bess(df, rango_label):
+    total_con = pd.to_numeric(df['TOTAL_CON'], errors='coerce').fillna(0)
+    total_sin = pd.to_numeric(df['TOTAL_SIN'], errors='coerce').fillna(0)
+    y_max = float(max(total_con.max(), total_sin.max())) if len(df) else 0
+    yaxis_range = [0, y_max * 1.08] if y_max > 0 else None
+
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=df['FECHA_DT'], y=df['TOTAL_CON'], name='Con BESS',
@@ -141,7 +146,7 @@ def graficar_tendencia_con_sin_bess(df, rango_label):
         bargap=0.35,
     )
     return _aplicar_estilo_grafica_tendencia(
-        fig, f'Consumo con vs sin BESS · {rango_label}', 'kWh', yaxis_range=[0, 300_000],
+        fig, f'Consumo con vs sin BESS · {rango_label}', 'kWh', yaxis_range=yaxis_range,
     )
 
 
@@ -176,8 +181,10 @@ def graficar_tendencia_bess_operacion(df_bess, rango_label):
         hovertemplate='<b>Descarga BESS</b><br>%{x|%d/%m/%Y}<br>%{y:,.0f} kWh<extra></extra>',
     ))
     fig.update_layout(barmode='group', bargap=0.15, bargroupgap=0.08)
+    y_max = float(max(carga.max(), descarga.max())) if len(df_bess) else 0
+    yaxis_range = [0, y_max * 1.08] if y_max > 0 else None
     return _aplicar_estilo_grafica_tendencia(
-        fig, f'Carga y descarga BESS · {rango_label}', 'kWh', yaxis_range=[0, 30_000],
+        fig, f'Carga y descarga BESS · {rango_label}', 'kWh', yaxis_range=yaxis_range,
     )
 
 
