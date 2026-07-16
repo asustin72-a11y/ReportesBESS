@@ -40,6 +40,30 @@ def _resolver_medidor_bd(medidor: str) -> str:
     return resolver_medidor_bd_desde_api(medidor)
 
 
+def _ahora_local() -> datetime:
+    """Hora actual naive en America/Mexico_City."""
+    return datetime.now(ZONA_API).replace(tzinfo=None)
+
+
+def _recortar_slots_futuros(df, ahora: datetime):
+    """Descarta filas con Fecha posterior a `ahora`.
+
+    La API ISOL, al pedir el dia en curso, regresa el dia completo
+    rellenado con ceros por adelantado para los slots que todavia no
+    ocurren en tiempo real (se van reemplazando por datos reales conforme
+    pasan las horas). Si esos ceros de relleno se guardan tal cual en
+    SQLite, `sync_state` queda "sincronizado" hasta una hora futura que en
+    realidad nunca tuvo un dato real -- eso producia avisos falsos de
+    reporte desactualizado (bess/ui/pipeline_status.py) y, antes de
+    corregirse en granja.py, dejaba el cursor incremental de reportes de
+    generacion apuntando a un cero de relleno para siempre. Se descartan
+    aqui, antes de guardar nada: solo se persiste lo que ya ocurrio.
+    """
+    if df.empty:
+        return df
+    return df[df["Fecha"] <= ahora].reset_index(drop=True)
+
+
 def _dataframe_a_registros(df) -> list[dict[str, Any]]:
     registros: list[dict[str, Any]] = []
     for _, fila in df.iterrows():
@@ -213,6 +237,7 @@ def sincronizar_medidor_api(
         contexto = contexto_previo_bd(medidor_bd, ruta_bd, df['Fecha'].min())
         df = rellenar_slots_medianoche_api(df, contexto_prev=contexto)
         df = df[df['Fecha'].dt.date <= fin_date].copy()
+        df = _recortar_slots_futuros(df, _ahora_local())
     registros = _dataframe_a_registros(df)
 
     insertados = 0

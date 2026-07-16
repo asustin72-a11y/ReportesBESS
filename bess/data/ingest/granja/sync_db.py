@@ -16,13 +16,20 @@ from bess.data.ingest.ion import db
 from bess.data.ingest.iusasol import IusasolClient, cargar_config_iusasol
 from bess.data.ingest.iusasol.client import IusasolError
 from bess.data.ingest.iusasol.gaps import persistir_slots_medianoche_bd
-from bess.data.ingest.iusasol.sync_db import DIAS_SOLAPAMIENTO_API, fecha_fin_api
+from bess.data.ingest.iusasol.sync_db import DIAS_SOLAPAMIENTO_API, _ahora_local, fecha_fin_api
 from bess.data.sync_cursor import inicio_api_con_solapamiento, punto_sync_api, registrar_exito_sync
 
 FECHA_INICIO_DEFAULT = "2026-05-01"
 LOTE = 500
 ZONA = ZoneInfo("America/Mexico_City")
 CANTIDAD_MEGA_DEFAULT = 20
+
+
+def _recortar_registros_futuros(registros: list[dict[str, Any]], ahora_txt: str) -> list[dict[str, Any]]:
+    """Descarta registros con fecha posterior a `ahora_txt` (mismo motivo
+    que `_recortar_slots_futuros` en iusasol/sync_db.py: la API Farm rellena
+    el dia en curso completo con ceros por adelantado)."""
+    return [r for r in registros if r["fecha"] <= ahora_txt]
 
 
 def _rango_fechas(desde: date, hasta: date) -> list[date]:
@@ -148,6 +155,8 @@ def sincronizar_granja_iusa2(
                 time.sleep(pausa_seg)
 
     registros = totales_a_registros_bess(totales)
+    ahora_txt = _ahora_local().strftime("%Y-%m-%d %H:%M:%S")
+    registros = _recortar_registros_futuros(registros, ahora_txt)
     insertados = 0
     actualizados = 0
 
