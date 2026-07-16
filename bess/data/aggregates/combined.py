@@ -56,6 +56,13 @@ def _cursor_combinado(ruta_salida) -> "pd.Timestamp | None":
     return dt.max()
 
 
+def ultima_fecha_hora_escrita(ruta_salida) -> "pd.Timestamp | None":
+    """Última FECHA_HORA ya escrita en un COMBINADO_POR_MINUTO_*.csv (API
+    publica, usada por bess.ui.pipeline_status para detectar reportes
+    desactualizados respecto a la ultima sincronizacion)."""
+    return _cursor_combinado(ruta_salida)
+
+
 def _columnas_combinado(ruta_salida) -> list[str] | None:
     """Encabezado de un COMBINADO_POR_MINUTO_*.csv existente, o None si no
     existe o no se puede leer."""

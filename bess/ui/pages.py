@@ -1435,6 +1435,10 @@ def main():
         )
     _normalizar_medidor_sesion()
 
+    from bess.ui.pipeline_status import render_aviso_reporte_desactualizado
+
+    render_aviso_reporte_desactualizado()
+
     with st.container(border=True):
         render_barra_superior(rol)
         st.markdown(

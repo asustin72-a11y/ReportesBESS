@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Literal
 
 import streamlit as st
@@ -17,6 +18,15 @@ from bess.config.subestaciones import (
 from bess.ui.catalog_check import medidores_pendientes_validacion
 
 EstadoPaso = Literal["ok", "pendiente", "parcial"]
+
+# Umbral a partir del cual el desfase entre "última sincronización" y
+# "última fecha en el reporte" se considera notable y se avisa en la app.
+# Se puso por encima del rezago normal de un flujo manual paso a paso
+# (sincronizar y luego, minutos/horas después, procesar) para no generar
+# ruido, pero lo bastante bajo para atrapar el caso real que lo motivó:
+# reportes regenerados con datos de un respaldo viejo mientras el sync
+# ya había avanzado más de un día.
+UMBRAL_DESFASE_REPORTE = timedelta(hours=3)
 
 
 @dataclass(frozen=True)
@@ -141,6 +151,98 @@ def evaluar_pipeline() -> EstadoPipeline:
         siguiente_clave=siguiente,
         puede_procesar_todo=True,
         mensaje_bloqueo=bloqueo,
+    )
+
+
+@dataclass(frozen=True)
+class DesfaseReporte:
+    sub_id: str
+    sub_nombre: str
+    ultima_sync: datetime | None
+    ultima_reporte: datetime | None
+
+    @property
+    def desfase(self) -> timedelta | None:
+        if self.ultima_sync is None or self.ultima_reporte is None:
+            return None
+        return self.ultima_sync - self.ultima_reporte
+
+
+def _parse_fecha_sync(texto: str | None) -> datetime | None:
+    if not texto:
+        return None
+    txt = texto.strip()
+    if not txt:
+        return None
+    try:
+        dt = datetime.fromisoformat(txt)
+    except ValueError:
+        return None
+    return dt.replace(tzinfo=None)
+
+
+def evaluar_desfase_reportes() -> list[DesfaseReporte]:
+    """Compara, por subestación, la última fecha ya sincronizada (sync_state
+    en SQLite) contra la última fecha escrita en su reporte combinado.
+
+    Detecta el caso "el sync sigue avanzando incremental pero el reporte se
+    quedó congelado en un corte viejo" -- p. ej. un reporte regenerado justo
+    después de restaurar un respaldo, antes de que el sync se pusiera al día,
+    y nunca vuelto a regenerar tras los sync posteriores.
+    """
+    from bess.ui.db_tools.service import resumen_medidores
+    from bess.data.aggregates.combined import ultima_fecha_hora_escrita
+
+    try:
+        resumen = {r.medidor_id: r for r in resumen_medidores()}
+    except Exception:
+        return []
+
+    resultado: list[DesfaseReporte] = []
+    for sub in SUBESTACIONES:
+        med = sub.medidor_facturacion
+        if not med:
+            continue
+        info = resumen.get(med.nombre)
+        ultima_sync = _parse_fecha_sync(info.ultima_sync) if info else None
+
+        ultima_reporte: datetime | None = None
+        try:
+            ts = ultima_fecha_hora_escrita(med.ruta_combinado())
+        except Exception:
+            ts = None
+        if ts is not None:
+            ultima_reporte = ts.to_pydatetime()
+
+        resultado.append(DesfaseReporte(sub.id, sub.nombre, ultima_sync, ultima_reporte))
+    return resultado
+
+
+def render_aviso_reporte_desactualizado():
+    """Aviso persistente (a diferencia de render_banner_pipeline, no se
+    borra al mostrarse) si algún reporte quedó notablemente atrás respecto
+    a su última sincronización. Se evalúa en cada render de página."""
+    desfases = evaluar_desfase_reportes()
+    atrasados = [
+        d for d in desfases
+        if d.desfase is not None and d.desfase > UMBRAL_DESFASE_REPORTE
+    ]
+    if not atrasados:
+        return
+
+    lineas = []
+    for d in atrasados:
+        horas = d.desfase.total_seconds() / 3600
+        lineas.append(
+            f"- **{d.sub_nombre}**: reporte hasta "
+            f"{d.ultima_reporte:%d/%m/%Y %H:%M}, sincronizado hasta "
+            f"{d.ultima_sync:%d/%m/%Y %H:%M} (≈{horas:.0f} h de diferencia)"
+        )
+    st.warning(
+        "⚠️ **El reporte mostrado no incluye los datos ya sincronizados "
+        "más recientes:**\n\n"
+        + "\n".join(lineas)
+        + "\n\nUse **Procesar todo** en la barra lateral para actualizarlo."
     )
 
 
