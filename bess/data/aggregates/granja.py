@@ -17,7 +17,13 @@ from bess.data.aggregates._incremental_dia import (
     combinar_cola_diaria,
     cursor_dia,
 )
-from bess.data.aggregates.combined import _columnas_combinado, _cursor_combinado
+from bess.data.aggregates.combined import (
+    _columnas_combinado,
+    _cursor_combinado,
+    _escribir_ventana_combinada,
+    _leer_previas_a_ventana_combinado,
+    _MARGEN_REEXPORTAR_DIAS,
+)
 from bess.data.ingest.readers import leer_sin_agrupar
 
 print = log
@@ -55,20 +61,45 @@ def _energia_por_dia_y_periodo(df_min: pd.DataFrame, columna_kwh: str = "KWH_REC
 
 def _escribir_combinado_minuto(df_min_out: pd.DataFrame, ruta_min: str) -> int:
     """Escribe COMBINADO_POR_MINUTO_{prefijo}.csv de granja/cogeneración de
-    forma incremental: a diferencia de combined.py (Fase 5.1) no hay
-    columnas derivadas ni demanda rodante aquí -- es un passthrough de
-    FECHA/FECHA_HORA/KWH_REC -- así que un cursor simple sobre la última
-    FECHA_HORA ya escrita alcanza (sin filas de contexto). Devuelve la
-    cantidad de filas nuevas escritas."""
+    forma incremental: igual que combined.py (Fase 5.1), vuelve a calcular
+    y reemplazar una ventana de los últimos _MARGEN_REEXPORTAR_DIAS días en
+    vez de solo anexar lo estrictamente posterior al cursor. Devuelve la
+    cantidad de filas en la ventana reescrita (0 si no había nada que
+    reescribir).
+
+    Bug real que motivó este cambio (encontrado en producción con
+    GENERACION_ARAGON): el anexo estrictamente incremental ("solo lo con
+    FECHA_HORA > cursor") se rompe cuando la fuente (API ISOL) rellena el
+    día con ceros por adelantado y los va reemplazando con datos reales
+    conforme pasan las horas. La última fila ya escrita en el combinado
+    podía ser un cero de relleno de una hora futura (p.ej. 19:10) mientras
+    llegaban datos reales para horas anteriores a esa pero posteriores a
+    la última corrida (p.ej. 08:20-12:00) -- esos nunca se anexaban porque
+    no eran "más nuevos" que ese cursor, y el archivo se quedaba con el
+    cero viejo para siempre en vez del dato real (el combinado mostraba el
+    último real en 08:20 pese a que el Filtrado ya llevaba hasta las
+    12:00). A diferencia de un anexo puro, reescribir una ventana de varios
+    días hacia atrás sí permite que un dato real sustituya a un cero de
+    relleno ya escrito la siguiente vez que corre Reportes -- mismo
+    mecanismo, y misma razón, que combined.py ya usa para el lado de
+    consumo."""
     cursor = _cursor_combinado(ruta_min)
     if cursor is not None and _columnas_combinado(ruta_min) == _COLUMNAS_MIN_GRANJA:
         fecha_hora_dt = pd.to_datetime(df_min_out["FECHA_HORA"], format="%d/%m/%Y %H:%M")
-        nuevas = df_min_out[fecha_hora_dt > cursor]
-        if nuevas.empty:
+        inicio_ventana = cursor.normalize() - pd.Timedelta(days=_MARGEN_REEXPORTAR_DIAS)
+        df_ventana = df_min_out[fecha_hora_dt >= inicio_ventana]
+        if df_ventana.empty:
             return 0
-        os.makedirs(os.path.dirname(ruta_min), exist_ok=True)
-        nuevas.to_csv(ruta_min, index=False, header=False, mode="a")
-        return len(nuevas)
+
+        previas = _leer_previas_a_ventana_combinado(ruta_min, inicio_ventana)
+        if previas is not None:
+            _escribir_ventana_combinada(
+                previas, df_ventana, _COLUMNAS_MIN_GRANJA, ruta_min,
+                os.path.basename(ruta_min),
+            )
+            return len(df_ventana)
+        # No se pudo leer lo previo (formato inesperado pese al chequeo de
+        # columnas): cae al modo completo de abajo, releyendo todo.
 
     os.makedirs(os.path.dirname(ruta_min), exist_ok=True)
     # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
@@ -122,7 +153,7 @@ def generar_reportes_generacion(
     nombre_min = f"COMBINADO_POR_MINUTO_{prefijo}.csv"
     ruta_min = str(rutas_mod.ruta_reporte(subestacion, nombre_min))
     filas_nuevas_min = _escribir_combinado_minuto(df_min_out, ruta_min)
-    print(f"OK {nombre_min} - {filas_nuevas_min} registro(s) nuevo(s)")
+    print(f"OK {nombre_min} - {filas_nuevas_min} registro(s) en la ventana reescrita")
 
     nombre_dia = f"ENERGIA_Generacion_{subestacion}_POR_DIA.csv"
     ruta_dia = str(rutas_mod.ruta_reporte(subestacion, nombre_dia))
