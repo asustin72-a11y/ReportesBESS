@@ -15,6 +15,7 @@ from bess.config.subestaciones import (
     archivos_fuente_subestacion,
     ruta_combinado_por_prefijo,
 )
+from bess.config import subestaciones as subestaciones_mod
 from bess.ui.catalog_check import medidores_pendientes_validacion
 
 EstadoPaso = Literal["ok", "pendiente", "parcial"]
@@ -157,7 +158,7 @@ def evaluar_pipeline() -> EstadoPipeline:
 @dataclass(frozen=True)
 class DesfaseReporte:
     sub_id: str
-    sub_nombre: str
+    etiqueta: str
     ultima_sync: datetime | None
     ultima_reporte: datetime | None
 
@@ -181,14 +182,41 @@ def _parse_fecha_sync(texto: str | None) -> datetime | None:
     return dt.replace(tzinfo=None)
 
 
+def _evaluar_reporte(
+    sub_id: str,
+    etiqueta: str,
+    medidor_id: str,
+    ruta_reporte,
+    resumen: dict,
+    ultima_fecha_hora_escrita,
+) -> "DesfaseReporte":
+    info = resumen.get(medidor_id)
+    ultima_sync = _parse_fecha_sync(info.ultima_sync) if info else None
+
+    ultima_reporte: datetime | None = None
+    try:
+        ts = ultima_fecha_hora_escrita(ruta_reporte)
+    except Exception:
+        ts = None
+    if ts is not None:
+        ultima_reporte = ts.to_pydatetime()
+
+    return DesfaseReporte(sub_id, etiqueta, ultima_sync, ultima_reporte)
+
+
 def evaluar_desfase_reportes() -> list[DesfaseReporte]:
     """Compara, por subestación, la última fecha ya sincronizada (sync_state
-    en SQLite) contra la última fecha escrita en su reporte combinado.
+    en SQLite) contra la última fecha escrita en su reporte combinado --
+    tanto el de consumo (medidor de facturación) como el de generación
+    (granja o cogeneración/individual), si la subestación tiene uno.
 
-    Detecta el caso "el sync sigue avanzando incremental pero el reporte se
+    Detecta el caso "el sync (o Filtrar) sigue avanzando pero Reportes se
     quedó congelado en un corte viejo" -- p. ej. un reporte regenerado justo
     después de restaurar un respaldo, antes de que el sync se pusiera al día,
-    y nunca vuelto a regenerar tras los sync posteriores.
+    y nunca vuelto a regenerar tras los sync/filtrados posteriores. Caso real
+    que motivó cubrir también generación: GENERACION_ARAGON con Filtrado al
+    corriente (11:25) y su combinado congelado varias horas atrás (08:20),
+    sin que el aviso original (solo consumo) lo detectara.
     """
     from bess.ui.db_tools.service import resumen_medidores
     from bess.data.aggregates.combined import ultima_fecha_hora_escrita
@@ -201,20 +229,21 @@ def evaluar_desfase_reportes() -> list[DesfaseReporte]:
     resultado: list[DesfaseReporte] = []
     for sub in SUBESTACIONES:
         med = sub.medidor_facturacion
-        if not med:
-            continue
-        info = resumen.get(med.nombre)
-        ultima_sync = _parse_fecha_sync(info.ultima_sync) if info else None
+        if med:
+            resultado.append(_evaluar_reporte(
+                sub.id, sub.nombre, med.nombre, med.ruta_combinado(),
+                resumen, ultima_fecha_hora_escrita,
+            ))
 
-        ultima_reporte: datetime | None = None
-        try:
-            ts = ultima_fecha_hora_escrita(med.ruta_combinado())
-        except Exception:
-            ts = None
-        if ts is not None:
-            ultima_reporte = ts.to_pydatetime()
-
-        resultado.append(DesfaseReporte(sub.id, sub.nombre, ultima_sync, ultima_reporte))
+        recurso = subestaciones_mod.recurso_generacion_subestacion(sub.id)
+        if recurso:
+            ruta_gen = rutas_mod.ruta_reporte(
+                sub.id, f"COMBINADO_POR_MINUTO_{recurso.prefijo_reporte}.csv"
+            )
+            resultado.append(_evaluar_reporte(
+                sub.id, f"{sub.nombre} · Generación", recurso.prefijo_reporte,
+                ruta_gen, resumen, ultima_fecha_hora_escrita,
+            ))
     return resultado
 
 
@@ -234,7 +263,7 @@ def render_aviso_reporte_desactualizado():
     for d in atrasados:
         horas = d.desfase.total_seconds() / 3600
         lineas.append(
-            f"- **{d.sub_nombre}**: reporte hasta "
+            f"- **{d.etiqueta}**: reporte hasta "
             f"{d.ultima_reporte:%d/%m/%Y %H:%M}, sincronizado hasta "
             f"{d.ultima_sync:%d/%m/%Y %H:%M} (≈{horas:.0f} h de diferencia)"
         )
