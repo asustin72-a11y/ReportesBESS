@@ -143,7 +143,14 @@ def _rango_y_perfil(
         )
         if dem_min < 0:
             y_max = max(y_max, 0.0)
-            y_min = dem_min * 1.12
+            # 'Descarga BESS' se grafica como -BESS_ENT_kW, de forma
+            # independiente a 'Demanda real' -- el límite inferior debe
+            # cubrir la más negativa de las dos, no solo dem_min (antes
+            # ignoraba la descarga BESS por completo cuando ésta bajaba
+            # más que la demanda real; confirmado con datos reales de
+            # IUSA_ARAGON del 06/05: descarga hasta -70.6 kW recortada a
+            # un piso de -30.3 kW calculado solo desde dem_min).
+            y_min = min(dem_min, -ent_max) * 1.12
             referencia = max(y_max, ent_max, abs(y_min))
             pad_sup = referencia * 0.06 if referencia > 0 else ent_max * 0.06
             pad_inf = abs(y_min) * 0.06

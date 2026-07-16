@@ -84,3 +84,40 @@ def test_sitio_con_col_con_y_demanda_real_cubre_ambos_picos():
 
     assert y_range is not None
     assert y_range[1] >= df['IUSA_CON_BESS_x_kW'].max()
+
+
+def test_no_recorta_descarga_bess_cuando_demanda_real_tambien_es_negativa():
+    """Reproduce el segundo bug real de IUSA_ARAGON (06/05): con demanda
+    real negativa Y descarga BESS al mismo tiempo, el límite inferior solo
+    consideraba dem_min e ignoraba la descarga -- si ésta bajaba más,
+    'Descarga BESS' (graficada como -BESS_ENT_kW) se cortaba por abajo."""
+    df = pd.DataFrame({
+        'KW_DEMANDA_REAL': [-25.56, 10.0, -5.0],
+        'KW_REC_ION': [15.0, 118.8, 20.0],
+        'KW_GENERACION': [0.0, 0.0, 0.0],
+        'BESS_REC_kW': [0.0, 0.0, 0.0],
+        'BESS_ENT_kW': [0.0, 70.56, 0.0],  # descarga BESS: se grafica como -70.56
+    })
+    y_range = _rango_y_perfil(df, 'col_con_no_usado', True, tiene_demanda_real=True)
+
+    descarga_graficada_min = -df['BESS_ENT_kW'].max()
+    assert y_range is not None
+    assert y_range[0] <= descarga_graficada_min
+    assert y_range[0] <= df['KW_DEMANDA_REAL'].min()
+
+
+def test_descarga_bess_sin_demanda_real_negativa_sigue_cubierta():
+    """Si la demanda real nunca baja de cero pero sí hay descarga BESS, el
+    límite inferior debe seguir cubriéndola (vía el camino ya existente
+    para sitios sin tiene_demanda_real, sin cambio de comportamiento)."""
+    df = pd.DataFrame({
+        'KW_DEMANDA_REAL': [5.0, 10.0],
+        'KW_REC_ION': [15.0, 20.0],
+        'BESS_REC_kW': [0.0, 0.0],
+        'BESS_ENT_kW': [0.0, 40.0],
+    })
+    y_range = _rango_y_perfil(df, 'col_con_no_usado', True, tiene_demanda_real=True)
+
+    assert y_range is not None
+    assert y_range[0] <= -df['BESS_ENT_kW'].max()
+
