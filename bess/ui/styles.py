@@ -21,8 +21,7 @@ def aplicar_estilos():
             border-radius: 12px;
             padding: 20px 24px;
             margin-bottom: 20px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-            border: 1px solid #f0f0f0;
+            border: 1px solid #e2e8f0;
         }
         .section-title {
             font-size: 17px;
@@ -148,7 +147,6 @@ def aplicar_estilos():
             border-color: #e2e8f0 !important;
             border-width: 1px !important;
             margin-bottom: 18px;
-            box-shadow: 0 1px 6px rgba(26, 82, 118, 0.05);
         }
         div[data-testid="stTabs"] {
             margin-top: 4px;
@@ -173,7 +171,7 @@ def aplicar_estilos():
             padding: 2px 10px;
         }
         .fecha-resumen {
-            background: linear-gradient(135deg, #e8f4f8 0%, #d4e9f7 100%);
+            background: #eaf4fb;
             border-radius: 8px;
             padding: 10px 16px;
             border-left: 4px solid #1a5276;
@@ -187,7 +185,6 @@ def aplicar_estilos():
             padding: 16px;
             text-align: center;
             border: 1px solid #e8ecef;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.04);
         }
         .metric-card .icon { display: none; }
         .metric-card .label { font-size: 13px; color: #718096; font-weight: 500; }
@@ -386,12 +383,12 @@ def aplicar_estilos():
             align-items: center;
             border-radius: 12px;
             padding: 14px 10px;
-            background: linear-gradient(135deg, #e8f8ef 0%, #d4efdf 100%);
+            background: #e8f8ef;
             border: 2px solid #27ae60;
             text-align: center;
         }
         .cap-centro.negativo {
-            background: linear-gradient(135deg, #fdecea 0%, #fadbd8 100%);
+            background: #fdecea;
             border-color: #e74c3c;
         }
         .cap-ahorro-valor {
@@ -447,9 +444,8 @@ def aplicar_estilos():
         /* —— Navegación principal y sub-pestañas —— */
         [data-testid="stVerticalBlockBorderWrapper"]:has(.bess-nav-panel-marker),
         [data-testid="stVerticalBlockBorderWrapper"]:has(.bess-subnav-panel-marker) {
-            background: linear-gradient(180deg, #e8f4fc 0%, #f8fbfe 100%) !important;
+            background: #eef6fc !important;
             border-color: #a8d4ee !important;
-            box-shadow: 0 2px 10px rgba(26, 82, 118, 0.1) !important;
             padding: 12px 14px 10px !important;
             margin-bottom: 14px !important;
         }
@@ -604,13 +600,12 @@ def aplicar_estilos():
         div[data-testid="column"]:has(.bess-subnav-col-marker) [data-testid="stButton"] button {
             border-radius: 10px !important;
             font-size: 0.92rem !important;
-            font-weight: 700 !important;
+            font-weight: 600 !important;
             min-height: 3rem !important;
             background: #ffffff !important;
-            border: 2px solid #2e86c1 !important;
+            border: 1.5px solid #cbe1f2 !important;
             color: #1a5276 !important;
-            box-shadow: 0 1px 3px rgba(26, 82, 118, 0.12) !important;
-            transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease !important;
+            transition: background 0.15s ease, border-color 0.15s ease !important;
         }
         div[data-testid="column"]:has(.bess-nav-col-marker) [data-testid="stButton"] button {
             padding: 0.55rem 0.65rem !important;
@@ -625,19 +620,17 @@ def aplicar_estilos():
             background: #dbeafe !important;
             border-color: #1a5276 !important;
             color: #154360 !important;
-            box-shadow: 0 3px 10px rgba(26, 82, 118, 0.18) !important;
         }
         div[data-testid="column"]:has(.bess-nav-active) [data-testid="stButton"] button,
         div[data-testid="column"]:has(.bess-subnav-active) [data-testid="stButton"] button {
-            background: linear-gradient(180deg, #2e86c1 0%, #1a5276 100%) !important;
-            border: 2px solid #154360 !important;
+            background: #1a5276 !important;
+            border: 1.5px solid #1a5276 !important;
             color: #ffffff !important;
-            box-shadow: 0 4px 14px rgba(26, 82, 118, 0.35) !important;
         }
         div[data-testid="column"]:has(.bess-nav-active) [data-testid="stButton"] button:hover,
         div[data-testid="column"]:has(.bess-subnav-active) [data-testid="stButton"] button:hover {
-            background: linear-gradient(180deg, #1a5276 0%, #154360 100%) !important;
-            border-color: #0e3a5c !important;
+            background: #154360 !important;
+            border-color: #154360 !important;
             color: #ffffff !important;
         }
 
@@ -679,7 +672,6 @@ def aplicar_estilos():
             border-top: 1px solid #e2e8f0 !important;
         }
         div[data-testid="stVerticalBlockBorderWrapper"]:has(.bess-cta-procesar-marker) [data-testid="stButton"] button {
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
             font-size: 0.95rem !important;
         }
 
@@ -1038,7 +1030,6 @@ def aplicar_estilos_login():
         [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) {
             background: white;
             border-radius: 12px;
-            box-shadow: 0 1px 6px rgba(26, 82, 118, 0.05);
             border: 1px solid #e2e8f0 !important;
             border-top: 3px solid #1a5276 !important;
             padding: 20px 18px;
