@@ -76,6 +76,28 @@ class IusasolClient:
         """GET Reports/ISOL/Meters."""
         return self._get('Reports/ISOL/Meters', {'company': self.company})
 
+    def listar_contratos(self, *, company: str | None = None) -> Any:
+        """GET Reports/ISOL/Contracts — contratos activos."""
+        return self._get(
+            'Reports/ISOL/Contracts',
+            {'company': company or self.company},
+        )
+
+    def listar_medidores_contrato(
+        self,
+        contract_id: str,
+        *,
+        company: str | None = None,
+    ) -> Any:
+        """GET Reports/ISOL/Contract — medidores de un contrato."""
+        return self._get(
+            'Reports/ISOL/Contract',
+            {
+                'id': contract_id,
+                'company': company or self.company,
+            },
+        )
+
     def obtener_perfil(
         self,
         meter_id: str,
