@@ -21,6 +21,11 @@ CSV destino: `C:\BESS\data\ArchivosFuente\`
 **Base de datos:** `C:\BESS\data\bess_perfiles.db`  
 **Dependencia:** `pymodbus>=3.6.0` (`pip install -r requirements.txt`)
 
+> **Interfaz superadmin:** estas operaciones también están disponibles en
+> **Mantenimiento DB**. La importación UI marca `fuente=csv`, alinea
+> `sync_state` con `Ultima_Sincronizacion.csv` y puede ejecutar Rebuild CSV.
+> Consulte [GUIA_ADMINISTRADOR.md](GUIA_ADMINISTRADOR.md#37--mantenimiento-db-solo-superadmin).
+
 ---
 
 ## Flujo recomendado

@@ -8,6 +8,7 @@ from pathlib import Path
 from bess.config.paths import DIRECTORIO_BASE
 from bess.data.ingest.granja.consolidar import totales_a_registros_bess
 from bess.data.ingest.ion import db
+from bess.data.sync_cursor import registrar_exito_sync
 
 LOTE = 500
 RUTA_MEGA_TOTAL_DEFAULT = DIRECTORIO_BASE / "perfiles_granja" / "MEGA_total_20.csv"
@@ -84,10 +85,14 @@ def importar_mega_total(
         print(f"  Guardados {min(i + LOTE, len(registros))}/{len(registros)}...")
 
     with db.conectar_bd(ruta_bd) as conn:
-        if registros:
-            db.actualizar_sync_state(conn, medidor_id, registros[-1]["fecha"])
-        conn.commit()
         total_bd = db.contar_registros(conn, medidor_id)
+
+    # Misma política que ion/import_csv: alinear cursor de petición y dejar
+    # fuente='csv' para que el sync API no pise correcciones con energía.
+    if registros:
+        cursor = registrar_exito_sync(medidor_id, ruta_bd)
+        if cursor:
+            print(f"Cursor sync alineado: {cursor}")
 
     print(
         f"Medidor: {medidor_id} | Nuevos: {insertados} | "

@@ -184,7 +184,7 @@ def _sidebar_admin_catalogo():
 def _sidebar_mantenimiento_db():
     en_bd = st.session_state.get("modo_vista") == "mantenimiento_db"
     with st.expander("🗄️ Mantenimiento DB", expanded=en_bd):
-        st.caption("SQLite: importar, exportar y purgar perfiles.")
+        st.caption("SQLite: importar, exportar, reconciliar, rebuild CSV y purgar.")
         etiqueta = "Volver al reporteador" if en_bd else "Abrir herramientas BD"
         if st.button(etiqueta, use_container_width=True, key="toggle_mantenimiento_db"):
             if en_bd:

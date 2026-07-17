@@ -1,5 +1,5 @@
 """
-Genera GUIA_USUARIO.pdf (manual del reporteador, v5.8).
+Genera GUIA_USUARIO.pdf (manual del reporteador).
 
 Requisitos opcionales para capturas: app en http://localhost:8501
 Uso:
@@ -122,7 +122,7 @@ def _build_story() -> list:
                 "5. Análisis",
                 "6. Participación y Generación",
                 "7. Tendencia",
-                "8. Reportes y Recibo",
+                "8. Reportes, Recibo y Emisiones",
                 "9. Arbitraje",
                 "10. Redondeo y datos",
                 "11. Preguntas frecuentes",
@@ -163,7 +163,7 @@ def _build_story() -> list:
     s.append(
         p(
             "3.3 Navegación: botones Ir a la sección (Operación, Análisis, Participación, "
-            "Tendencia, Generación, Reportes, Recibo). Participación y Generación solo "
+            "Tendencia, Generación, Reportes, Recibo, Emisiones). Participación y Generación solo "
             "si aplican a la subestación. Ayuda flotante al mantener el cursor ~2 s.",
             "body",
         )
@@ -173,7 +173,7 @@ def _build_story() -> list:
             [
                 ["Selector", "Secciones", "Uso"],
                 ["Rango Desde/Hasta", "Operación, Tendencia", "Uno o varios días."],
-                ["Fecha única", "Análisis, Reportes, Recibo", "Día de corte o PDF."],
+                ["Fecha única", "Análisis, Reportes, Recibo, Emisiones", "Día de corte o PDF."],
             ],
             [1.5 * inch, 2.2 * inch, 2.8 * inch],
         )
@@ -251,13 +251,15 @@ def _build_story() -> list:
     s.extend(img_block(CAPTURAS, "06b-consumo-bess.png", "Comparativa con/sin BESS", 7))
     s.extend(img_block(CAPTURAS, "06c-operacion-bess.png", "Carga, descarga y arbitraje diario", 8))
 
-    s.extend(section("8", "Reportes y Recibo"))
+    s.extend(section("8", "Reportes, Recibo y Emisiones"))
     s.extend(img_block(CAPTURAS, "07-reporte.png", "Reporte diario y PDF", 9))
     s.append(
         p(
             "<b>Reporte diario:</b> fecha, vista previa, opción incluir generación en PDF, descarga. "
             "<b>Reporte acumulado:</b> ahorros BESS en periodo (Shapley solo parte BESS). "
-            "<b>Recibo CFE:</b> estimación mensual con/sin BESS y PDF.",
+            "<b>Recibo CFE:</b> estimación mensual con/sin BESS y PDF. "
+            "<b>Emisiones:</b> huella Scope 2, comparación por periodo, generación local "
+            "y PDF con factores de emisión.",
             "body",
         )
     )
@@ -308,6 +310,13 @@ def _build_story() -> list:
     s.append(
         p(
             "<b>¿Consumo mensual en un solo día?</b> Es acumulado del mes natural hasta esa fecha.",
+            "body",
+        )
+    )
+    s.append(
+        p(
+            "<b>¿Reporte desactualizado?</b> Un operador debe ejecutar Procesar todo. "
+            "Si persiste, un superadmin debe reconciliar SQLite con Fuente y usar Rebuild CSV.",
             "body",
         )
     )

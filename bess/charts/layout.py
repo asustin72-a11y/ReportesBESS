@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from bess.config.theme import COLORES
 
-MARGEN_SUPERIOR_CON_LEYENDA = 118
-MARGEN_SUPERIOR_SIN_LEYENDA = 62
-LEYENDA_Y_EXTERNA = 0.945
+MARGEN_SUPERIOR_CON_LEYENDA = 132
+MARGEN_SUPERIOR_SIN_LEYENDA = 70
+LEYENDA_Y_EXTERNA = 0.90
 
 
 def _titulo_y_leyenda_externos(titulo, font_size=16, show_legend=True):
@@ -20,7 +20,7 @@ def _titulo_y_leyenda_externos(titulo, font_size=16, show_legend=True):
         yref='container',
         yanchor='top',
         font=dict(size=font_size, color='#1a202c'),
-        pad=dict(t=8, b=4),
+        pad=dict(t=8, b=10),
     )
     legend_cfg = None
     margin_t = MARGEN_SUPERIOR_SIN_LEYENDA
@@ -37,6 +37,8 @@ def _titulo_y_leyenda_externos(titulo, font_size=16, show_legend=True):
             bgcolor='rgba(255,255,255,0.85)',
             bordercolor='#e2e8f0',
             borderwidth=1,
+            itemclick='toggle',
+            itemdoubleclick='toggleothers',
         )
         margin_t = MARGEN_SUPERIOR_CON_LEYENDA
     return title_cfg, legend_cfg, margin_t

@@ -139,9 +139,11 @@ def inicializar_desde_bd(
 def registrar_exito_sync(
     medidor_id: str,
     ruta_bd: Path = RUTA_BD_PERFILES,
-    ruta_csv: Path = RUTA_ULTIMA_SINCRONIZACION,
+    ruta_csv: Path | None = None,
 ) -> str | None:
-    """Tras sync OK: cursor CSV = último registro en BD."""
+    """Tras sync/import OK: cursor CSV = último registro en BD."""
+    if ruta_csv is None:
+        ruta_csv = RUTA_ULTIMA_SINCRONIZACION
     mx = _max_fecha_bd(medidor_id, ruta_bd)
     if not mx:
         return None
@@ -209,6 +211,94 @@ def punto_sync_ion(
         zona,
         umbral_redescarga=UMBRAL_REDESCARGA_ION,
     )
+
+
+def _fecha_sync_state(medidor_id: str, ruta_bd: Path) -> str | None:
+    canon = medidor_id_canonico(medidor_id)
+    if not ruta_bd.is_file():
+        return None
+    with sqlite3.connect(ruta_bd) as conn:
+        row = conn.execute(
+            "SELECT ultima_fecha FROM sync_state WHERE medidor_id = ?",
+            (canon,),
+        ).fetchone()
+    if not row or not row[0]:
+        return None
+    return str(row[0])
+
+
+def divergencias_cursores(
+    *,
+    ruta_bd: Path = RUTA_BD_PERFILES,
+    ruta_csv: Path | None = None,
+    umbral: timedelta = timedelta(minutes=5),
+) -> list[dict]:
+    """Compara sync_state.ultima_fecha vs Ultima_Sincronizacion.csv.
+
+    Devuelve solo medidores donde ambos existen y difieren más que `umbral`,
+    o donde uno existe y el otro no (con datos en BD).
+    """
+    if ruta_csv is None:
+        ruta_csv = RUTA_ULTIMA_SINCRONIZACION
+    mapa_csv = leer_mapa(ruta_csv) if ruta_csv.is_file() else {}
+    ids = sorted(set(_medidores_conocidos()) | set(mapa_csv))
+    out: list[dict] = []
+    for medidor_id in ids:
+        csv_txt = mapa_csv.get(medidor_id) or mapa_csv.get(medidor_id_canonico(medidor_id))
+        state_txt = _fecha_sync_state(medidor_id, ruta_bd)
+        max_bd = _max_fecha_bd(medidor_id, ruta_bd)
+        if not csv_txt and not state_txt and not max_bd:
+            continue
+        if csv_txt == state_txt:
+            continue
+        motivo = "distintos"
+        desfase_seg: float | None = None
+        if csv_txt and state_txt:
+            try:
+                csv_dt = _parse_fecha(csv_txt, ZONA_DEFAULT)
+                state_dt = _parse_fecha(state_txt, ZONA_DEFAULT)
+                desfase_seg = abs((state_dt - csv_dt).total_seconds())
+                if desfase_seg <= umbral.total_seconds():
+                    continue
+                if csv_dt < state_dt:
+                    motivo = "CSV atrás de sync_state (riesgo de redescarga)"
+                else:
+                    motivo = "CSV adelante de sync_state"
+            except ValueError:
+                motivo = "fechas no parseables"
+        elif csv_txt and not state_txt:
+            motivo = "solo en Ultima_Sincronizacion"
+        elif state_txt and not csv_txt:
+            motivo = "solo en sync_state"
+        out.append(
+            {
+                "medidor_id": medidor_id,
+                "sync_state": state_txt,
+                "ultima_sincronizacion_csv": csv_txt,
+                "max_perfil_carga": max_bd,
+                "desfase_segundos": desfase_seg,
+                "motivo": motivo,
+            }
+        )
+    return out
+
+
+def alinear_cursores_a_bd(
+    medidores: list[str] | None = None,
+    *,
+    ruta_bd: Path = RUTA_BD_PERFILES,
+    ruta_csv: Path | None = None,
+) -> list[dict]:
+    """Pone Ultima_Sincronizacion = MAX(fecha) en BD (y refresca sync_state)."""
+    if ruta_csv is None:
+        ruta_csv = RUTA_ULTIMA_SINCRONIZACION
+    ids = medidores or _medidores_conocidos()
+    hechos: list[dict] = []
+    for medidor_id in ids:
+        mx = registrar_exito_sync(medidor_id, ruta_bd, ruta_csv)
+        if mx:
+            hechos.append({"medidor_id": medidor_id, "cursor": mx})
+    return hechos
 
 
 def inicio_api_con_solapamiento(ultima: datetime) -> str:

@@ -121,77 +121,98 @@ def sincronizar_granja_iusa2(
             f"{len(dias)} día(s) {inicio} -> {fin}"
         )
 
-    cfg = cargar_config_iusasol()
-    api = client or IusasolClient(cfg)
-    api.autenticar()
-    farm_api = FarmClient(api)
-
-    granjas = farm_api.listar_granjas()
-    if not granjas:
-        raise IusasolError("No hay granjas en Reports/Farms")
-
-    if farm_idcode:
-        granja = next((g for g in granjas if g.get("idcode") == farm_idcode), None)
-        if not granja:
-            raise IusasolError(f"Granja {farm_idcode!r} no encontrada")
-    else:
-        granja = granjas[0]
-
-    farm_id = str(granja["idcode"])
-    medidores = farm_api.listar_medidores(farm_id)[:cantidad_medidores]
-    if not medidores:
-        raise IusasolError("La granja no tiene medidores")
-
-    totales: dict[str, float] = {}
-    peticiones = 0
-
-    for dia in dias:
-        for medidor in medidores:
-            meter_id = str(medidor["idcode"])
-            perfiles = farm_api.perfil_medidor_dia(meter_id, dia)
-            acumular_kw(totales, kw_desde_perfil(perfiles))
-            peticiones += 1
-            if pausa_seg > 0:
-                time.sleep(pausa_seg)
-
-    registros = totales_a_registros_bess(totales)
-    ahora_txt = _ahora_local().strftime("%Y-%m-%d %H:%M:%S")
-    registros = _recortar_registros_futuros(registros, ahora_txt)
-    insertados = 0
-    actualizados = 0
-
+    log_id: int | None = None
     with db.conectar_bd(ruta_bd) as conn:
-        for i in range(0, len(registros), LOTE):
-            lote = registros[i : i + LOTE]
-            # no_degradar_a_ceros=True: mismo motivo que en
-            # iusasol/sync_db.py -- una falla transitoria del API de granja
-            # puede devolver un lote entero en cero sin que el medidor real
-            # haya dejado de generar; sin esta proteccion eso pisaba
-            # silenciosamente lecturas reales ya guardadas.
-            resultado = db.upsert_registros(
-                conn, medidor_id, lote, fuente="farm_api", no_degradar_a_ceros=True
-            )
-            insertados += resultado.insertados
-            actualizados += resultado.actualizados
-        if registros:
-            db.actualizar_sync_state(conn, medidor_id, registros[-1]["fecha"])
+        log_id = db.iniciar_sync_log(
+            conn, medidor_id, inicio.isoformat(), fin.isoformat()
+        )
         conn.commit()
 
-    if registros:
-        registrar_exito_sync(medidor_id, ruta_bd)
+    leidos = 0
+    insertados = 0
+    actualizados = 0
+    peticiones = 0
+    try:
+        cfg = cargar_config_iusasol()
+        api = client or IusasolClient(cfg)
+        api.autenticar()
+        farm_api = FarmClient(api)
 
-    medianoche_persistidos = persistir_slots_medianoche_bd(medidor_id, ruta_bd)
-    if medianoche_persistidos and not quiet:
-        print(f"  {medidor_id}: {medianoche_persistidos} slot(s) 00:00 rellenados en BD")
+        granjas = farm_api.listar_granjas()
+        if not granjas:
+            raise IusasolError("No hay granjas en Reports/Farms")
 
-    return {
-        "medidor": medidor_id,
-        "desde": inicio.isoformat(),
-        "hasta": fin.isoformat(),
-        "leidos": len(registros),
-        "insertados": insertados,
-        "actualizados": actualizados,
-        "medidores_mega": len(medidores),
-        "peticiones_api": peticiones,
-        "mensaje": "OK",
-    }
+        if farm_idcode:
+            granja = next((g for g in granjas if g.get("idcode") == farm_idcode), None)
+            if not granja:
+                raise IusasolError(f"Granja {farm_idcode!r} no encontrada")
+        else:
+            granja = granjas[0]
+
+        farm_id = str(granja["idcode"])
+        medidores = farm_api.listar_medidores(farm_id)[:cantidad_medidores]
+        if not medidores:
+            raise IusasolError("La granja no tiene medidores")
+
+        totales: dict[str, float] = {}
+
+        for dia in dias:
+            for medidor in medidores:
+                meter_id = str(medidor["idcode"])
+                perfiles = farm_api.perfil_medidor_dia(meter_id, dia)
+                acumular_kw(totales, kw_desde_perfil(perfiles))
+                peticiones += 1
+                if pausa_seg > 0:
+                    time.sleep(pausa_seg)
+
+        registros = totales_a_registros_bess(totales)
+        ahora_txt = _ahora_local().strftime("%Y-%m-%d %H:%M:%S")
+        registros = _recortar_registros_futuros(registros, ahora_txt)
+        leidos = len(registros)
+
+        with db.conectar_bd(ruta_bd) as conn:
+            for i in range(0, len(registros), LOTE):
+                lote = registros[i : i + LOTE]
+                # no_degradar_a_ceros=True: mismo motivo que en
+                # iusasol/sync_db.py -- una falla transitoria del API de granja
+                # puede devolver un lote entero en cero sin que el medidor real
+                # haya dejado de generar; sin esta proteccion eso pisaba
+                # silenciosamente lecturas reales ya guardadas.
+                resultado = db.upsert_registros(
+                    conn, medidor_id, lote, fuente="farm_api", no_degradar_a_ceros=True
+                )
+                insertados += resultado.insertados
+                actualizados += resultado.actualizados
+            if registros:
+                db.actualizar_sync_state(conn, medidor_id, registros[-1]["fecha"])
+            db.cerrar_sync_log(
+                conn, log_id, "ok", leidos, insertados, actualizados
+            )
+            conn.commit()
+
+        if registros:
+            registrar_exito_sync(medidor_id, ruta_bd)
+
+        medianoche_persistidos = persistir_slots_medianoche_bd(medidor_id, ruta_bd)
+        if medianoche_persistidos and not quiet:
+            print(f"  {medidor_id}: {medianoche_persistidos} slot(s) 00:00 rellenados en BD")
+
+        return {
+            "medidor": medidor_id,
+            "desde": inicio.isoformat(),
+            "hasta": fin.isoformat(),
+            "leidos": leidos,
+            "insertados": insertados,
+            "actualizados": actualizados,
+            "medidores_mega": len(medidores),
+            "peticiones_api": peticiones,
+            "mensaje": "OK",
+        }
+    except Exception as exc:
+        if log_id is not None:
+            with db.conectar_bd(ruta_bd) as conn:
+                db.cerrar_sync_log(
+                    conn, log_id, "error", leidos, insertados, actualizados, str(exc)
+                )
+                conn.commit()
+        raise

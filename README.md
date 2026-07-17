@@ -2,7 +2,7 @@
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
 
-**Versión actual:** 5.12.0 — Sección Emisiones CO₂ (huella Scope 2, cogen/solar vs red, PDF).
+**Versión actual:** 5.14.0 — Mantenimiento DB: pcarga Ethernet, Rebuild CSV, reconciliar e import protegido.
 
 ## Documentación
 
@@ -10,7 +10,7 @@ Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS 
 |-----------|-------------|
 | [docs/INDICE_DOCUMENTACION.md](docs/INDICE_DOCUMENTACION.md) | Índice de manuales y notas de versión |
 | [docs/GUIA_USUARIO.md](docs/GUIA_USUARIO.md) · [PDF](docs/GUIA_USUARIO.pdf) | Manual del reporteador |
-| [docs/GUIA_ADMINISTRADOR.md](docs/GUIA_ADMINISTRADOR.md) · [PDF](docs/GUIA_ADMINISTRADOR.pdf) | Pipeline, sidebar y catálogo |
+| [docs/GUIA_ADMINISTRADOR.md](docs/GUIA_ADMINISTRADOR.md) · [PDF](docs/GUIA_ADMINISTRADOR.pdf) | Pipeline, superadmin, catálogo, cursores, reconciliación y Rebuild CSV |
 | [docs/DOCKER.md](docs/DOCKER.md) | Despliegue Docker |
 
 Regenerar PDFs: `python docs/generar_guia_pdf.py` y `python docs/generar_guia_admin_pdf.py` (app en `localhost:8501` para capturas nuevas).
@@ -47,7 +47,9 @@ pytest
 | admin   | admin123   | Admin |
 | user    | user123    | User  |
 
-Cambia estas contraseñas antes de compartir la app en producción.
+El rol `superadmin` se configura en `deploy/secrets.toml` o desde el catálogo
+de usuarios. No se publica una contraseña predeterminada en este documento.
+Cambia todas las credenciales iniciales antes de compartir la app.
 
 ### Despliegue en servidor Linux (Docker)
 
@@ -67,4 +69,8 @@ C:\BESS\dist\descargar_ion.exe 172.16.111.209 2026-05-01
 
 ### Datos
 
-La app incluye CSV procesados en `data/` para arrancar con datos de ejemplo. El rol **admin** puede subir archivos fuente y regenerar reportes desde el sidebar.
+La app incluye CSV procesados en `data/` para arrancar con datos de ejemplo.
+El rol **admin** puede sincronizar, subir fuentes y regenerar reportes. El rol
+**superadmin** agrega catálogo, usuarios y Mantenimiento DB: importar/exportar
+SQLite, revisar cursores y `sync_log`, reconciliar BD↔Fuente, ejecutar Rebuild
+CSV y purgar perfiles.

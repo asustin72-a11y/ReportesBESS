@@ -1,6 +1,6 @@
 # Guía de usuario — Sistema BESS
 
-**Versión:** 5.9.0  
+**Versión:** 5.14.0  
 **Aplicación:** Monitoreo, análisis y reportes de sistemas BESS para subestaciones **IUSA 1**, **IUSA 2** e **IUSA ARAGON**.
 
 > **PDF con capturas:** `docs/GUIA_USUARIO.pdf`  
@@ -70,6 +70,7 @@ Botones horizontales **Ir a la sección** (no pestañas del navegador):
 | ☀️ **Generación** | Energía del recurso de generación *(si aplica)* |
 | 📄 **Reportes** | PDF diario y reporte acumulado |
 | 🧾 **Recibo** | Recibo CFE estimado con/sin BESS |
+| 🌿 **Emisiones** | Huella Scope 2 con/sin BESS y PDF |
 
 Pase el cursor sobre un botón ~2 segundos para ver una ayuda flotante con descripción y capacidades.
 
@@ -78,7 +79,7 @@ Pase el cursor sobre un botón ~2 segundos para ver una ayuda flotante con descr
 | Tipo | Secciones | Uso |
 |------|-----------|-----|
 | **Rango** (Desde / Hasta) | Operación, Tendencia | Uno o varios días |
-| **Fecha única** | Análisis, Reportes, Recibo | Día de corte o del PDF |
+| **Fecha única** | Análisis, Reportes, Recibo, Emisiones | Día de corte o del PDF |
 
 Por defecto suele proponerse el **día anterior**, dentro del rango de datos disponibles.
 
@@ -112,7 +113,7 @@ Vista principal de operación BESS para el rango elegido.
 | **Carga BESS** | Energía absorbida (kWh) | Suma `KWH_REC_BESS` en el rango |
 | **Descarga BESS** | Energía entregada (kWh) | Suma `KWH_ENT_BESS` |
 | **Eficiencia** | Descarga ÷ Carga (%) | «Óptima» si ≥ 80 % |
-| **Arbitraje** | Beneficio (MXN) | Ver [§9 Arbitraje](#9-arbitraje-beneficio-económico) |
+| **Arbitraje** | Beneficio (MXN) | Ver [§12 Arbitraje](#12-arbitraje-beneficio-económico) |
 
 ### 4.2 Perfil de carga
 
@@ -237,7 +238,24 @@ Recibo mensual estimado **con BESS** y **sin BESS**: energía, capacidad, factor
 
 ---
 
-## 11. Arbitraje (beneficio económico)
+## 11. Sección «Emisiones»
+
+Reporte mensual de emisiones de CO₂ hasta la fecha de corte:
+
+- comparación **Con BESS vs Sin BESS** por periodo tarifario;
+- huella mensual total;
+- energía de red y generación local;
+- beneficio o incremento de emisiones atribuible a la operación;
+- descarga en PDF con factores de emisión y referencias.
+
+Las gráficas muestran el título y la leyenda en bandas separadas para mantener
+legibles las series. Si cambian datos históricos mediante una importación o
+Rebuild, Emisiones y Recibo CFE se recalculan a partir de los reportes diarios
+regenerados; sus fórmulas no cambian.
+
+---
+
+## 12. Arbitraje (beneficio económico)
 
 **Método principal** (con datos sin BESS):
 
@@ -256,7 +274,7 @@ Valor positivo = ahorro; negativo = mayor costo con BESS en ese periodo.
 
 ---
 
-## 12. Reglas de redondeo
+## 13. Reglas de redondeo
 
 | Magnitud | Regla |
 |----------|--------|
@@ -267,7 +285,7 @@ Valor positivo = ahorro; negativo = mayor costo con BESS en ese periodo.
 
 ---
 
-## 13. Fuentes de datos (referencia)
+## 14. Fuentes de datos (referencia)
 
 | Archivo | Contenido |
 |---------|-----------|
@@ -280,7 +298,7 @@ Valor positivo = ahorro; negativo = mayor costo con BESS en ese periodo.
 
 ---
 
-## 14. Preguntas frecuentes
+## 15. Preguntas frecuentes
 
 **¿Por qué no veo Participación o Generación?**  
 Esas secciones se ocultan automáticamente si la subestación seleccionada no aplica.
@@ -294,12 +312,22 @@ Los CSV deben incluir columnas `*_SIN_BESS`. Contacte al administrador.
 **¿No hay gráficas?**  
 El administrador debe ejecutar **Procesar todo** (o el pipeline paso a paso). Si usted es visualizador, verá un mensaje para contactar al administrador.
 
+**¿Qué significa “el reporte mostrado no incluye los datos ya sincronizados”?**  
+La app detectó más de 3 horas entre la última sincronización y el CSV mostrado.
+Un operador debe ejecutar **Procesar todo**. Si persiste, un superadmin debe
+reconciliar SQLite con Fuente y reconstruir la cadena CSV.
+
+**¿Por qué una gráfica histórica sigue en cero después de importar datos?**  
+Importar actualiza SQLite. Para reflejar una corrección histórica en gráficas,
+Recibo, Emisiones y PDFs también debe ejecutarse **Rebuild CSV** o regenerar los
+reportes. Esta operación es exclusiva del superadmin.
+
 **¿El arbitraje del dashboard y el PDF diario coinciden?**  
 Sí, para **un solo día** en Operación. En rangos de varios días, Operación integra todo el periodo.
 
 ---
 
-## 15. Soporte
+## 16. Soporte
 
 Problemas de acceso o datos faltantes: contacte al **administrador del sistema**.  
 Documentación técnica: [INDICE_DOCUMENTACION.md](INDICE_DOCUMENTACION.md).

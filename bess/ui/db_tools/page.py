@@ -109,12 +109,60 @@ def _tab_resumen():
         st.dataframe(df, use_container_width=True, hide_index=True)
 
     with st.container(border=True):
-        section_header("Últimas sincronizaciones", "Entradas recientes del log de sync API/Modbus.")
+        section_header("Últimas sincronizaciones", "Entradas recientes del log de sync (ION, API y Granja).")
         logs = service.ultimos_sync_log()
         if logs:
             st.dataframe(pd.DataFrame(logs), use_container_width=True, hide_index=True)
         else:
             st.caption("Sin entradas en sync_log.")
+
+    with st.container(border=True):
+        section_header(
+            "Cursores sync_state ↔ Ultima_Sincronizacion",
+            "Si el CSV de petición está atrás de sync_state, el próximo sync API "
+            "puede forzar redescarga y solapar el día completo.",
+        )
+        if st.button("🔍 Evaluar cursores", key="cur_btn_eval"):
+            st.session_state["cur_divergencias"] = service.divergencias_cursores_sync()
+
+        divergencias = st.session_state.get("cur_divergencias")
+        if divergencias is None:
+            st.caption("Pulse Evaluar para comparar.")
+        elif not divergencias:
+            st.success("✅ Cursores alineados (o sin datos).")
+        else:
+            st.warning(f"⚠️ {len(divergencias)} medidor(es) con cursores divergentes.")
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Medidor": d["medidor_id"],
+                            "sync_state": d["sync_state"] or "—",
+                            "Ultima_Sincronizacion": d["ultima_sincronizacion_csv"] or "—",
+                            "MAX perfil_carga": d["max_perfil_carga"] or "—",
+                            "Motivo": d["motivo"],
+                        }
+                        for d in divergencias
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+            ids = [d["medidor_id"] for d in divergencias]
+            confirmar = st.checkbox(
+                "Confirmo alinear Ultima_Sincronizacion a MAX(fecha) en BD",
+                key="cur_confirmar",
+            )
+            if st.button(
+                "🔗 Alinear a BD",
+                type="primary",
+                disabled=not confirmar,
+                key="cur_btn_alinear",
+            ):
+                hechos = service.alinear_cursores_a_bd(ids)
+                st.success(f"✅ Alineados {len(hechos)} medidor(es).")
+                st.session_state["cur_divergencias"] = service.divergencias_cursores_sync()
+                st.rerun()
 
 
 def _tab_importar():
@@ -124,6 +172,12 @@ def _tab_importar():
         section_header(
             "Importar CSV a SQLite",
             "Suba un archivo con columnas Fecha, KWH_REC, KWH_ENT, KVARH_Q1…Q4.",
+        )
+        st.info(
+            "Tras importar: se alinea el cursor de sync (`Ultima_Sincronizacion`) "
+            "y las filas quedan con `fuente=csv`. El sync API trae días completos, "
+            "pero **no pisa** filas `csv` con energía real (`respetar_fuente=csv` + "
+            "`no_degradar_a_ceros`). Filas `csv` en cero sí pueden corregirse por la API."
         )
 
         medidor = st.selectbox("Medidor destino", medidores, key="imp_medidor")
@@ -142,6 +196,21 @@ def _tab_importar():
             help="Desactiva el filtro que descarta el registro de las 00:05.",
         )
 
+        rebuild_despues = st.checkbox(
+            "Después del import: Rebuild CSV (reexportar + verificar/filtrar/reportes)",
+            value=False,
+            key="imp_rebuild",
+            help="Útil si la gráfica lee COMBINADO y no solo SQLite.",
+        )
+        hoy = date.today()
+        rebuild_desde = st.date_input(
+            "Rebuild desde",
+            value=hoy - timedelta(days=45),
+            max_value=hoy,
+            disabled=not rebuild_despues,
+            key="imp_rebuild_desde",
+        )
+
         archivo = st.file_uploader("Archivo CSV", type=["csv"], key="imp_archivo")
         if st.button("⬆️ Importar a SQLite", type="primary", disabled=archivo is None, key="imp_btn"):
             with st.spinner("Importando..."):
@@ -153,10 +222,27 @@ def _tab_importar():
                     sin_filtro_dia=sin_filtro_dia,
                 )
             if codigo == 0:
-                st.success("✅ Importación completada.")
+                st.success(
+                    "✅ Importación completada. Cursor de sync alineado; "
+                    "filas con energía quedan protegidas frente al sync API."
+                )
+                if rebuild_despues:
+                    with st.spinner("Rebuild CSV en curso…"):
+                        rb = _ejecutar_rebuild_csv_ui(
+                            medidor, rebuild_desde, procesar=True
+                        )
+                    if rb.get("ok"):
+                        st.success(
+                            f"✅ Rebuild OK desde {rb.get('desde')} "
+                            f"({len(rb.get('borrados') or [])} CSV regenerados)."
+                        )
+                    else:
+                        st.error("❌ Import OK, pero el Rebuild falló.")
+                    with st.expander("Log Rebuild", expanded=not rb.get("ok")):
+                        st.code(rb.get("log") or "(sin log)")
             else:
                 st.error("❌ La importación terminó con errores.")
-            with st.expander("Ver log completo", expanded=codigo != 0):
+            with st.expander("Ver log importación", expanded=codigo != 0):
                 st.code(log)
 
 
@@ -303,6 +389,234 @@ def _tab_purgar():
                             st.caption(f"Registros restantes: {info['registros_restantes']:,}")
 
 
+def _tab_reconciliar():
+    from bess.data.ingest.medidor_ids import destinos_export_bd
+
+    with st.container(border=True):
+        section_header(
+            "Reconciliar SQLite ↔ Fuente",
+            "Compara SUM(kWh) y filas por día entre perfil_carga y ArchivosFuente. "
+            "Detecta cursores CSV congelados (BD bien, Fuente desfasada).",
+        )
+        st.caption(
+            "No escribe nada. Si hay divergencias, use **Rebuild CSV** para "
+            "reexportar desde la BD y regenerar la cadena."
+        )
+
+        hoy = date.today()
+        c1, c2, c3 = st.columns(3)
+        dias = c1.number_input(
+            "Ventana (días)",
+            min_value=7,
+            max_value=120,
+            value=45,
+            step=1,
+            key="rec_dias",
+        )
+        hasta = c2.date_input("Hasta", value=hoy, max_value=hoy, key="rec_hasta")
+        medidores = [m for m, _ in destinos_export_bd(RUTA_BD_PERFILES)]
+        solo = c3.multiselect(
+            "Solo medidores (vacío = todos)",
+            medidores,
+            default=[],
+            key="rec_medidores",
+        )
+
+        if st.button("🔍 Evaluar divergencias", type="primary", key="rec_btn"):
+            with st.spinner("Comparando BD vs Fuente…"):
+                resultado = service.reconciliar_sqlite_vs_fuente(
+                    hasta=hasta,
+                    dias=int(dias),
+                    solo_medidores=solo or None,
+                )
+            st.session_state["rec_ultimo_resultado"] = resultado
+
+        resultado = st.session_state.get("rec_ultimo_resultado")
+        if not resultado:
+            return
+
+        total = resultado.get("total_divergencias", 0)
+        n_med = resultado.get("medidores_afectados", 0)
+        if total == 0:
+            st.success("✅ Sin divergencias en la ventana evaluada.")
+            return
+
+        st.warning(
+            f"⚠️ **{total} día(s)** divergente(s) en **{n_med} medidor(es)**. "
+            "La BD y ArchivosFuente no coinciden — típico de export incremental "
+            "congelado. Remedio: Rebuild CSV del medidor desde la fecha afectada."
+        )
+
+        resumen = resultado.get("resumen") or []
+        if resumen:
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Medidor": r["medidor_id"],
+                            "Días": r["dias_divergentes"],
+                            "Desde": r["primer_dia"],
+                            "Hasta": r["ultimo_dia"],
+                            "Δ REC": r["delta_rec_total"],
+                            "Δ ENT": r["delta_ent_total"],
+                            "Motivo": r["motivos"],
+                        }
+                        for r in resumen
+                    ]
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        detalle = resultado.get("detalle") or []
+        if detalle:
+            with st.expander(f"Detalle día a día ({len(detalle)})", expanded=False):
+                st.dataframe(pd.DataFrame(detalle), use_container_width=True, hide_index=True)
+
+        st.markdown("#### Ir a Rebuild CSV")
+        opciones = [r["medidor_id"] for r in resumen]
+        if opciones:
+            elegido = st.selectbox(
+                "Medidor a reparar",
+                opciones,
+                key="rec_rebuild_medidor",
+            )
+            fila = next(r for r in resumen if r["medidor_id"] == elegido)
+            if st.button(
+                f"🔄 Abrir Rebuild para `{elegido}`",
+                key="rec_goto_rebuild",
+                type="primary",
+            ):
+                st.session_state["db_tools_vista"] = "rebuild"
+                st.session_state["rb_medidor"] = elegido
+                try:
+                    st.session_state["rb_desde"] = date.fromisoformat(fila["primer_dia"])
+                except ValueError:
+                    pass
+                st.rerun()
+
+
+def _plan_rebuild_csv_ui(medidor_id: str, desde: date) -> dict:
+    """Vista previa: importa el módulo fresco (evita AttributeError por caché Streamlit)."""
+    import importlib
+
+    from bess.data import csv_rebuild
+    from bess.ui.db_tools import service as service_mod
+
+    importlib.reload(csv_rebuild)
+    importlib.reload(service_mod)
+    if hasattr(service_mod, "plan_rebuild_csv"):
+        return service_mod.plan_rebuild_csv(medidor_id, desde)
+    plan = csv_rebuild.plan_rebuild_csv(medidor_id, desde)
+    return {
+        "medidor": plan.medidor_id,
+        "subestacion": plan.subestacion_id,
+        "tipo_medidor": plan.tipo_medidor,
+        "desde": plan.desde,
+        "ruta_fuente": str(plan.ruta_fuente),
+        "archivos_a_borrar_existentes": plan.resumen_borrado(),
+        "archivos_candidato": [str(p) for p in plan.archivos_a_borrar],
+        "avisos": plan.avisos,
+    }
+
+
+def _ejecutar_rebuild_csv_ui(medidor_id: str, desde: date, *, procesar: bool = True) -> dict:
+    import importlib
+
+    from bess.data import csv_rebuild
+    from bess.ui.db_tools import service as service_mod
+
+    importlib.reload(csv_rebuild)
+    importlib.reload(service_mod)
+    if hasattr(service_mod, "ejecutar_rebuild_csv"):
+        return service_mod.ejecutar_rebuild_csv(medidor_id, desde, procesar=procesar)
+    return csv_rebuild.ejecutar_rebuild_csv(medidor_id, desde, procesar=procesar)
+
+
+def _tab_rebuild_csv():
+    from bess.data.ingest.medidor_ids import destinos_export_bd
+
+    with st.container(border=True):
+        section_header(
+            "Rebuild forzado de CSV",
+            "Reexporta desde SQLite y borra CSV derivados para saltar la ventana "
+            "incremental de 1 día. No modifica la base de datos (solo lectura).",
+        )
+        st.info(
+            "Úselo cuando SQLite tiene datos correctos pero Fuente/Filtrado/COMBINADO "
+            "tienen ceros o huecos congelados (p. ej. BESS Aragón 8–12 jul)."
+        )
+
+        medidores = [m for m, _ in destinos_export_bd(RUTA_BD_PERFILES)]
+        if not medidores:
+            st.warning("No hay medidores exportables en el catálogo.")
+            return
+        if st.session_state.get("rb_medidor") not in medidores:
+            st.session_state["rb_medidor"] = medidores[0]
+        medidor = st.selectbox("Medidor", medidores, key="rb_medidor")
+
+        hoy = date.today()
+        if "rb_desde" not in st.session_state:
+            st.session_state["rb_desde"] = (
+                date(hoy.year, 5, 1) if hoy.month >= 5 else date(hoy.year - 1, 5, 1)
+            )
+        desde = st.date_input(
+            "Reexportar desde",
+            max_value=hoy,
+            key="rb_desde",
+            help="La Fuente del medidor se reescribe completa desde esta fecha.",
+        )
+        procesar = st.checkbox(
+            "Después del export: Verificar → Filtrar → Reportes",
+            value=True,
+            key="rb_procesar",
+        )
+
+        col_prev, col_exec = st.columns(2)
+        with col_prev:
+            if st.button(
+                "👁️ Vista previa",
+                type="secondary",
+                key="rb_btn_preview",
+                use_container_width=True,
+            ):
+                plan = _plan_rebuild_csv_ui(medidor, desde)
+                st.json(plan)
+                for aviso in plan.get("avisos", []):
+                    st.caption(f"• {aviso}")
+
+        with col_exec:
+            confirmar = st.checkbox(
+                "Confirmo rebuild CSV (no toca SQLite)",
+                key="rb_confirmar",
+            )
+            if st.button(
+                "🔄 Ejecutar rebuild",
+                type="primary",
+                disabled=not confirmar,
+                key="rb_btn_ejecutar",
+                use_container_width=True,
+            ):
+                with st.spinner(
+                    "Reexportando y regenerando CSV… esto puede tardar varios minutos."
+                ):
+                    resultado = _ejecutar_rebuild_csv_ui(
+                        medidor, desde, procesar=procesar
+                    )
+                if resultado.get("ok"):
+                    st.success(
+                        f"✅ Rebuild OK: `{resultado['medidor']}` desde {resultado['desde']}."
+                    )
+                else:
+                    st.error("❌ Rebuild incompleto o con errores.")
+                st.caption(
+                    f"Export rc={resultado.get('export_rc')} · "
+                    f"CSV borrados={len(resultado.get('borrados') or [])}"
+                )
+                with st.expander("Ver log completo", expanded=not resultado.get("ok")):
+                    st.code(resultado.get("log") or "(sin log)")
+
+
 def _tab_avanzado():
     with st.container(border=True):
         section_header(
@@ -351,6 +665,81 @@ def _tab_avanzado():
                 st.success(f"✅ Eliminados {n:,} registros de perfil_carga.")
 
 
+def _tab_pcarga():
+    medidores = service.lista_medidores_pcarga()
+    with st.container(border=True):
+        section_header(
+            "Descargar pcarga (Ethernet)",
+            "Lee el perfil del medidor por red (Wine/MLE en Linux). "
+            "Solo descarga CSV listo para Importar; no escribe en SQLite.",
+        )
+        st.info(
+            "Flujo: descargar aquí → revisar el CSV → si hace falta, "
+            "usar la pestaña **Importar**. "
+            "Ke externo se aplica solo si MULT internos = 1; "
+            "Cogeneración y BESS Aragón ya vienen escalados."
+        )
+        if not medidores:
+            st.warning("No hay medidores con endpoint pcarga configurado.")
+            return
+
+        medidor = st.selectbox("Medidor", medidores, key="pcarga_medidor")
+        st.caption(service.info_endpoint_pcarga(medidor))
+
+        hoy = date.today()
+        c1, c2 = st.columns(2)
+        desde = c1.date_input(
+            "Desde",
+            value=hoy - timedelta(days=1),
+            max_value=hoy,
+            key="pcarga_desde",
+        )
+        hasta = c2.date_input(
+            "Hasta",
+            value=hoy,
+            max_value=hoy,
+            key="pcarga_hasta",
+        )
+        if desde > hasta:
+            st.error("La fecha Desde no puede ser posterior a Hasta.")
+            return
+
+        if st.button("⬇️ Descargar pcarga", type="primary", key="pcarga_btn"):
+            with st.spinner(f"Leyendo {medidor} por red… (puede tardar varios minutos)"):
+                res = service.descargar_pcarga_rango(medidor, desde, hasta)
+            st.session_state["pcarga_resultado"] = res
+
+        res = st.session_state.get("pcarga_resultado")
+        if res is None:
+            return
+
+        if not res.ok:
+            st.error("No se pudo descargar pcarga.")
+            with st.expander("Ver log", expanded=True):
+                st.code(res.log or "(sin log)")
+            return
+
+        ke_txt = (
+            "ya escalado (×1)"
+            if res.ya_escalado
+            else f"Ke×{res.ke_aplicado:g}"
+        )
+        st.success(
+            f"✅ {res.registros:,} registros · {ke_txt} · "
+            f"serie {res.serie_leida or '—'} · "
+            f"omitidos inválidos: {res.omitidos_invalidos}"
+        )
+        st.download_button(
+            "💾 Guardar CSV (formato Importar)",
+            data=res.csv_bytes,
+            file_name=res.nombre_archivo,
+            mime="text/csv",
+            key="pcarga_dl",
+        )
+        with st.expander("Ver log descarga"):
+            st.code(res.log or "(sin log)")
+
+
 def main():
     _requiere_superadmin()
     aplicar_estilos()
@@ -360,8 +749,11 @@ def main():
         "Herramientas de base de datos",
         [
             ("resumen", "📋 Resumen"),
+            ("pcarga", "📡 PCarga"),
             ("importar", "📥 Importar"),
             ("exportar", "📤 Exportar"),
+            ("reconciliar", "🔬 Reconciliar"),
+            ("rebuild", "🔄 Rebuild CSV"),
             ("purgar", "🗑️ Purgar"),
             ("avanzado", "⚙️ Avanzado"),
         ],
@@ -370,10 +762,16 @@ def main():
 
     if vista == "resumen":
         _tab_resumen()
+    elif vista == "pcarga":
+        _tab_pcarga()
     elif vista == "importar":
         _tab_importar()
     elif vista == "exportar":
         _tab_exportar()
+    elif vista == "reconciliar":
+        _tab_reconciliar()
+    elif vista == "rebuild":
+        _tab_rebuild_csv()
     elif vista == "purgar":
         _tab_purgar()
     elif vista == "avanzado":

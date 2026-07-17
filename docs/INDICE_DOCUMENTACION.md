@@ -1,13 +1,13 @@
 # Documentación — Sistema BESS
 
-**Versión de la aplicación:** 5.12.0
+**Versión de la aplicación:** 5.14.0
 
 ## Manuales
 
 | Documento | Formato | Audiencia | Descripción |
 |-----------|---------|-----------|-------------|
-| [Guía de usuario](GUIA_USUARIO.md) | Markdown · [PDF](GUIA_USUARIO.pdf) | Visualizador y operador | Reporteador: secciones, métricas, reportes PDF, recibo CFE |
-| [Guía del administrador](GUIA_ADMINISTRADOR.md) | Markdown · [PDF](GUIA_ADMINISTRADOR.pdf) | Admin y superadmin | Pipeline de datos, sidebar, catálogo SQLite, mantenimiento BD |
+| [Guía de usuario](GUIA_USUARIO.md) | Markdown · [PDF](GUIA_USUARIO.pdf) | Visualizador y operador | Reporteador, métricas, PDF, recibo CFE y emisiones |
+| [Guía del administrador](GUIA_ADMINISTRADOR.md) | Markdown · [PDF](GUIA_ADMINISTRADOR.pdf) | Admin y superadmin | Pipeline, catálogo, importación, cursores, reconciliación, Rebuild CSV, purga y recuperación |
 
 ## Generar los PDF
 
@@ -55,6 +55,8 @@ python docs/generar_guia_pdf.py
 
 | Versión | Archivo |
 |---------|---------|
+| 5.14.0 | [RELEASE_NOTES_5.14.0.md](../RELEASE_NOTES_5.14.0.md) |
+| 5.13.0 | [RELEASE_NOTES_5.13.0.md](../RELEASE_NOTES_5.13.0.md) |
 | 5.12.0 | [RELEASE_NOTES_5.12.0.md](../RELEASE_NOTES_5.12.0.md) |
 | 5.11.0 | [RELEASE_NOTES_5.11.0.md](../RELEASE_NOTES_5.11.0.md) |
 | 5.10.0 | [RELEASE_NOTES_5.10.0.md](../RELEASE_NOTES_5.10.0.md) |

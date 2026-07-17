@@ -8,6 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from bess.charts.layout import _titulo_y_leyenda_externos
 from bess.cfe.emisiones import (
     CITA_FACTORES_EMISION,
     EF_GAS_PLANO_KG_KWH,
@@ -28,22 +29,22 @@ _COLOR_GEN = COLORES.get("carga", "#2ecc71")
 
 
 def _layout_grafica_emisiones(*, title: str, yaxis_title: str, height: int = 380, showlegend: bool = True) -> dict:
-    """Titulo y leyenda centrados (común a las gráficas de Emisiones)."""
+    """Título y leyenda separados en el margen superior."""
+    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(
+        title,
+        show_legend=showlegend,
+    )
     layout = dict(
-        title=dict(text=title, x=0.5, xanchor="center", yanchor="top"),
+        title=title_cfg,
         yaxis_title=yaxis_title,
-        margin=dict(t=70, b=40, l=50, r=20),
+        margin=dict(t=margin_t, b=44, l=54, r=24),
         height=height,
         showlegend=showlegend,
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
     )
-    if showlegend:
-        layout["legend"] = dict(
-            orientation="h",
-            x=0.5,
-            xanchor="center",
-            y=1.02,
-            yanchor="bottom",
-        )
+    if showlegend and legend_cfg is not None:
+        layout["legend"] = legend_cfg
     return layout
 
 

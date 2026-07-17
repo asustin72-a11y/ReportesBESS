@@ -1,5 +1,5 @@
 """
-Genera GUIA_ADMINISTRADOR.pdf (pipeline, sidebar, catálogo v5.8).
+Genera GUIA_ADMINISTRADOR.pdf (pipeline, catálogo y Mantenimiento DB).
 
 Uso:
   python docs/generar_guia_admin_pdf.py
@@ -78,10 +78,11 @@ def _build_story() -> list:
                 "1. Responsabilidades",
                 "2. Roles y acceso",
                 "3. Barra lateral",
-                "4. Subestaciones",
-                "5. Reglas de negocio",
-                "6. Solución de problemas",
-                "7. Rutas y scripts",
+                "4. Mantenimiento DB (superadmin)",
+                "5. Subestaciones",
+                "6. Reglas de negocio",
+                "7. Solución de problemas",
+                "8. Rutas y scripts",
             ]
         )
     )
@@ -123,7 +124,7 @@ def _build_story() -> list:
                 ["📂 Cargar archivos", "Subida manual de CSV a ArchivosFuente."],
                 ["💲 Consulta — Tarifas", "Lectura del mes actual."],
                 ["🏭 Catálogo", "Superadmin: subestaciones, medidores, tarifas, usuarios."],
-                ["🗄️ Mantenimiento DB", "Superadmin: SQLite import/export/purga."],
+                ["🗄️ Mantenimiento DB", "Superadmin: cursores, import/export, reconciliar, rebuild y purga."],
             ],
             [1.8 * inch, 4.7 * inch],
         )
@@ -143,8 +144,82 @@ def _build_story() -> list:
             "body",
         )
     )
+    s.append(
+        p(
+            "<b>Catálogo (superadmin):</b> Subestaciones, Tipos medidor, Medidores, "
+            "Tarifas, Cliente recibo, Usuarios y Validación. Debe conservarse al "
+            "menos un superadmin activo.",
+            "body",
+        )
+    )
 
-    s.extend(section("4", "Subestaciones"))
+    s.append(PageBreak())
+    s.extend(section("4", "Mantenimiento DB (solo superadmin)"))
+    s.append(
+        p(
+            "Administra <b>data/bess_perfiles.db</b> y la cadena CSV derivada. "
+            "El rol admin no tiene acceso. Antes de borrar datos, respalde la BD.",
+            "body",
+        )
+    )
+    s.append(
+        table(
+            [
+                ["Vista", "Función"],
+                ["Resumen", "Perfiles, sync_log ION/API/Granja y divergencia de cursores."],
+                ["Importar", "CSV→SQLite (fuente=csv), alinea cursores; Rebuild opcional."],
+                ["Exportar", "Medidor/rango o exportación masiva a ArchivosFuente."],
+                ["Reconciliar", "SUM kWh/día SQLite vs Fuente; solo lectura."],
+                ["Rebuild CSV", "Reexporta desde BD y regenera derivados; no toca SQLite."],
+                ["Purgar", "Rango o desde fecha; vista previa y confirmación."],
+                ["Avanzado", "Inicializar, migrar IDs y vaciar perfiles."],
+            ],
+            [1.35 * inch, 5.15 * inch],
+        )
+    )
+    s.append(Spacer(1, 8))
+    s.append(p("4.1 Importar con protección", "h2"))
+    s.append(
+        p(
+            "Seleccione medidor, opciones de faltantes/filtro 00:05 y el CSV. "
+            "Las filas quedan con <b>fuente=csv</b>; el sync API no pisa filas CSV "
+            "con energía real aunque reciba días completos. Las filas CSV en cero "
+            "sí pueden corregirse. Tras import OK se alinean sync_state y "
+            "Ultima_Sincronizacion.",
+            "body",
+        )
+    )
+    s.append(p("4.2 Cursores y trazabilidad", "h2"))
+    s.append(
+        p(
+            "Evaluar cursores compara sync_state con data/Tarifas/"
+            "Ultima_Sincronizacion.csv. Alinear a BD usa MAX(fecha). sync_log "
+            "registra estado, rango y conteos de ION, API ISOL y Granja.",
+            "body",
+        )
+    )
+    s.append(p("4.3 Reconciliar y Rebuild", "h2"))
+    s.append(
+        p(
+            "Reconciliar compara por día SUM(kWh) y filas en SQLite vs Fuente "
+            "(tolerancia 0.05 kWh). Si la BD está bien y Fuente/Filtrado/COMBINADO "
+            "quedaron congelados, abra Rebuild desde el primer día afectado. "
+            "Rebuild solo lee SQLite; reexporta Fuente, elimina CSV derivados y, "
+            "opcionalmente, ejecuta Verificar → Filtrar → Reportes.",
+            "body",
+        )
+    )
+    s.append(p("4.4 Purgar y Avanzado", "h2"))
+    s.append(
+        p(
+            "Purgar requiere vista previa y confirmación. Vaciar perfiles elimina "
+            "perfil_carga y sync_state y exige escribir VACIAR; no borra catálogo, "
+            "usuarios o tarifas. No existe rollback global.",
+            "body",
+        )
+    )
+
+    s.extend(section("5", "Subestaciones"))
     s.append(
         table(
             [
@@ -159,7 +234,7 @@ def _build_story() -> list:
     s.append(Spacer(1, 6))
     s.append(p("Catálogo en SQLite (`bess_catalog.db`); CSV en data/Tarifas migra si tablas vacías.", "body"))
 
-    s.extend(section("5", "Reglas de negocio"))
+    s.extend(section("6", "Reglas de negocio"))
     s.append(
         p(
             "<b>Shapley:</b> atribución generación vs BESS solo en sección Participación. "
@@ -177,7 +252,7 @@ def _build_story() -> list:
     )
     s.append(p("Autorefresh del reporteador: cada 15 minutos (no sustituye el pipeline).", "body"))
 
-    s.extend(section("6", "Solución de problemas"))
+    s.extend(section("7", "Solución de problemas"))
     s.append(
         table(
             [
@@ -186,12 +261,15 @@ def _build_story() -> list:
                 ["Faltan filtrados", "Ejecutar Filtrar antes de reportes."],
                 ["Error al escribir CSV", "Cerrar Excel en ArchivosReporte."],
                 ["Timeout generación", "run_reporte_bess.py en consola."],
+                ["Reporte desactualizado", "Procesar todo; luego Reconciliar/Rebuild."],
+                ["BD bien, gráfica en cero", "Reconciliar y Rebuild desde primer día."],
+                ["Cursores distintos", "Resumen → Evaluar → Alinear a BD."],
             ],
             [2.2 * inch, 4.3 * inch],
         )
     )
 
-    s.extend(section("7", "Rutas y scripts"))
+    s.extend(section("8", "Rutas y scripts"))
     s.append(
         table(
             [
@@ -199,6 +277,8 @@ def _build_story() -> list:
                 ["data/ArchivosFuente/{Sub}/", "CSV crudos (sync o carga)."],
                 ["data/ArchivosProcesados/{Sub}/", "Verificados y *_Filtrado.csv."],
                 ["data/ArchivosReporte/{Sub}/", "Combinados y energía diaria."],
+                ["data/bess_perfiles.db", "Perfiles, sync_state y sync_log."],
+                ["data/Tarifas/Ultima_Sincronizacion.csv", "Cursor de petición."],
                 ["scripts/sincronizar_perfiles.py", "Sincronización ION + API."],
                 ["scripts/run_reporte_bess.py", "Generación masiva de reportes."],
             ],

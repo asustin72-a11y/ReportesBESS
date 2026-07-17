@@ -1,4 +1,4 @@
-"""Operaciones de mantenimiento sobre bess_perfiles.db (sin pipeline CSV)."""
+"""Operaciones de mantenimiento sobre bess_perfiles.db y rebuild CSV derivado."""
 
 from __future__ import annotations
 
@@ -262,3 +262,103 @@ def purgar_desde_fecha(medidor_id: str, corte: str, *, ejecutar: bool) -> dict:
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.purgar(medidor_id, corte, ejecutar=ejecutar)
+
+
+def plan_rebuild_csv(medidor_id: str, desde: date) -> dict:
+    """Vista previa del rebuild CSV (no toca SQLite ni borra archivos)."""
+    from bess.data.csv_rebuild import plan_rebuild_csv as _plan
+
+    plan = _plan(medidor_id, desde)
+    return {
+        "medidor": plan.medidor_id,
+        "subestacion": plan.subestacion_id,
+        "tipo_medidor": plan.tipo_medidor,
+        "desde": plan.desde,
+        "ruta_fuente": str(plan.ruta_fuente),
+        "archivos_a_borrar_existentes": plan.resumen_borrado(),
+        "archivos_candidato": [str(p) for p in plan.archivos_a_borrar],
+        "avisos": plan.avisos,
+    }
+
+
+def ejecutar_rebuild_csv(
+    medidor_id: str,
+    desde: date,
+    *,
+    procesar: bool = True,
+) -> dict:
+    """Rebuild CSV desde SQLite. No modifica perfil_carga ni sync_state."""
+    from bess.data.csv_rebuild import ejecutar_rebuild_csv as _ejecutar
+
+    return _ejecutar(medidor_id, desde, procesar=procesar)
+
+
+def reconciliar_sqlite_vs_fuente(
+    *,
+    desde: date | None = None,
+    hasta: date | None = None,
+    dias: int = 30,
+    solo_medidores: list[str] | None = None,
+) -> dict:
+    """Compara SUM kWh/día BD vs ArchivosFuente. No escribe nada."""
+    from bess.data.reconcile_csv import (
+        divergencias_a_filas,
+        reconciliar_todos,
+        resumen_por_medidor,
+    )
+
+    divs = reconciliar_todos(
+        desde=desde,
+        hasta=hasta,
+        dias=dias,
+        solo_medidores=solo_medidores,
+    )
+    return {
+        "ok": True,
+        "dias_ventana": dias,
+        "desde": (desde or (divs[0].dia if divs else None)),
+        "total_divergencias": len(divs),
+        "medidores_afectados": len({d.medidor_id for d in divs}),
+        "resumen": resumen_por_medidor(divs),
+        "detalle": divergencias_a_filas(divs),
+    }
+
+
+def divergencias_cursores_sync() -> list[dict]:
+    """sync_state vs Ultima_Sincronizacion.csv."""
+    from bess.data.sync_cursor import divergencias_cursores
+
+    return divergencias_cursores()
+
+
+def alinear_cursores_a_bd(medidores: list[str] | None = None) -> list[dict]:
+    from bess.data.sync_cursor import alinear_cursores_a_bd as _alinear
+
+    return _alinear(medidores)
+
+
+def lista_medidores_pcarga() -> list[str]:
+    from bess.config.pcarga_endpoints import lista_medidores_pcarga as _lista
+
+    return _lista()
+
+
+def info_endpoint_pcarga(medidor_id: str) -> str:
+    from bess.config.pcarga_endpoints import endpoint_pcarga
+    from bess.data.ingest.pcarga.descarga import etiqueta_endpoint
+
+    ep = endpoint_pcarga(medidor_id)
+    if ep is None:
+        return "Sin endpoint pcarga"
+    return etiqueta_endpoint(ep)
+
+
+def descargar_pcarga_rango(
+    medidor_id: str,
+    desde: date | datetime,
+    hasta: date | datetime,
+):
+    """Descarga pcarga por red → CSV importable. No escribe en SQLite."""
+    from bess.data.ingest.pcarga.descarga import descargar_pcarga_medidor
+
+    return descargar_pcarga_medidor(medidor_id, desde, hasta)

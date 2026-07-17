@@ -11,6 +11,7 @@ from pathlib import Path
 from bess.core.dates import validar_y_convertir_fecha
 from bess.data.ingest.ion import db
 from bess.data.ingest.medidor_ids import ids_medidores_perfil_bd
+from bess.data.sync_cursor import registrar_exito_sync
 
 MEDIDOR_BESS = db.MEDIDOR_BESS
 MEDIDOR_BANCO = db.MEDIDOR_BANCO
@@ -189,17 +190,15 @@ def importar_csv(
             conn.commit()
         print(f'  Guardados {min(i + LOTE, len(validos))}/{len(validos)}...')
 
-    ultima = validos[-1]['fecha']
     with db.conectar_bd(ruta_bd) as conn:
-        row = conn.execute(
-            'SELECT MAX(fecha) AS mx FROM perfil_carga WHERE medidor_id = ?',
-            (medidor_id,),
-        ).fetchone()
-        if row and row['mx']:
-            ultima = row['mx']
-        db.actualizar_sync_state(conn, medidor_id, ultima)
-        conn.commit()
         total_bd = db.contar_registros(conn, medidor_id)
+
+    # Alinea sync_state + Ultima_Sincronizacion.csv con MAX(fecha) en BD.
+    # Las filas quedan con fuente='csv'; el sync API las protege con
+    # respetar_fuente='csv' (no pisa energía real aunque traiga el día completo).
+    cursor = registrar_exito_sync(medidor_id, ruta_bd)
+    if cursor:
+        print(f'Cursor sync alineado: {cursor}')
 
     print(f'Medidor: {medidor_id} | Nuevos: {insertados} | Actualizados: {actualizados} | Total BD: {total_bd}')
     return 0

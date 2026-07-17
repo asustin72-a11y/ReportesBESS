@@ -220,79 +220,98 @@ def sincronizar_medidor_api(
         )
         print(f'  Peticion API {medidor_bd}: beginDate={inicio} endDate={fin}{nota}')
 
-    cfg = cargar_config_iusasol()
-    api = client or IusasolClient(cfg)
-    medidores_api = api.listar_medidores()
-    meter_id = resolver_id_medidor(medidor, medidores_api, numero_serie=numero_serie)
-
-    perfil = api.obtener_perfil(
-        meter_id,
-        inicio,
-        fin,
-        tym=cfg.tym,
-        tye=cfg.tye,
-    )
-    df = perfil_json_a_dataframe(perfil)
-    if not df.empty:
-        contexto = contexto_previo_bd(medidor_bd, ruta_bd, df['Fecha'].min())
-        df = rellenar_slots_medianoche_api(df, contexto_prev=contexto)
-        df = df[df['Fecha'].dt.date <= fin_date].copy()
-        df = _recortar_slots_futuros(df, _ahora_local())
-    registros = _dataframe_a_registros(df)
-
-    insertados = 0
-    actualizados = 0
+    log_id: int | None = None
     with db.conectar_bd(ruta_bd) as conn:
-        for i in range(0, len(registros), LOTE):
-            lote = registros[i:i + LOTE]
-            # respetar_fuente='csv': una corrección importada manualmente por
-            # CSV (p.ej. para rellenar/corregir un tramo con datos malos del
-            # medidor) no debe perderse en el próximo sync -- el solapamiento
-            # de 1 día de arriba vuelve a pedir y sobrescribir el día anterior
-            # en cada corrida para autocorregir huecos/ceros transitorios de
-            # la API, y sin esta protección eso pisaba silenciosamente
-            # cualquier corrección manual con lo que la API sigue reportando
-            # (que puede seguir en cero si el medidor real no se ha arreglado).
-            #
-            # no_degradar_a_ceros=True: la API puede responder un lote entero
-            # en cero por una falla transitoria propia (timeout, error del
-            # lado del proveedor, etc.), sin que eso signifique que el
-            # medidor real dejó de reportar. Sin esta protección, ese lote
-            # en cero pisaba silenciosamente lecturas reales ya guardadas de
-            # una corrida anterior -- pasó en producción con Cogeneracion,
-            # GENERACION_ARAGON y Generacion_IUSA_2 el mismo día que se
-            # detectó este bug.
-            resultado = db.upsert_registros(
-                conn, medidor_bd, lote, fuente='iusasol', respetar_fuente='csv',
-                no_degradar_a_ceros=True,
-            )
-            insertados += resultado.insertados
-            actualizados += resultado.actualizados
-        if registros:
-            row = conn.execute(
-                'SELECT MAX(fecha) AS mx FROM perfil_carga WHERE medidor_id = ?',
-                (medidor_bd,),
-            ).fetchone()
-            ultima_guardada = row['mx'] if row and row['mx'] else registros[-1]['fecha']
-            db.actualizar_sync_state(conn, medidor_bd, ultima_guardada)
+        log_id = db.iniciar_sync_log(conn, medidor_bd, inicio, fin)
         conn.commit()
 
-    if registros:
-        registrar_exito_sync(medidor_bd, ruta_bd)
+    leidos = 0
+    insertados = 0
+    actualizados = 0
+    try:
+        cfg = cargar_config_iusasol()
+        api = client or IusasolClient(cfg)
+        medidores_api = api.listar_medidores()
+        meter_id = resolver_id_medidor(medidor, medidores_api, numero_serie=numero_serie)
 
-    medianoche_persistidos = persistir_slots_medianoche_bd(medidor_bd, ruta_bd)
-    if medianoche_persistidos and not quiet:
-        print(f'  {medidor_bd}: {medianoche_persistidos} slot(s) 00:00 rellenados en BD')
+        perfil = api.obtener_perfil(
+            meter_id,
+            inicio,
+            fin,
+            tym=cfg.tym,
+            tye=cfg.tye,
+        )
+        df = perfil_json_a_dataframe(perfil)
+        if not df.empty:
+            contexto = contexto_previo_bd(medidor_bd, ruta_bd, df['Fecha'].min())
+            df = rellenar_slots_medianoche_api(df, contexto_prev=contexto)
+            df = df[df['Fecha'].dt.date <= fin_date].copy()
+            df = _recortar_slots_futuros(df, _ahora_local())
+        registros = _dataframe_a_registros(df)
+        leidos = len(registros)
 
-    return {
-        'medidor': medidor_bd,
-        'desde': inicio,
-        'hasta': fin,
-        'leidos': len(registros),
-        'insertados': insertados,
-        'actualizados': actualizados,
-        'mensaje': 'OK',
-    }
+        with db.conectar_bd(ruta_bd) as conn:
+            for i in range(0, len(registros), LOTE):
+                lote = registros[i:i + LOTE]
+                # respetar_fuente='csv': una corrección importada manualmente por
+                # CSV (p.ej. para rellenar/corregir un tramo con datos malos del
+                # medidor) no debe perderse en el próximo sync -- el solapamiento
+                # de 1 día de arriba vuelve a pedir y sobrescribir el día anterior
+                # en cada corrida para autocorregir huecos/ceros transitorios de
+                # la API, y sin esta protección eso pisaba silenciosamente
+                # cualquier corrección manual con lo que la API sigue reportando
+                # (que puede seguir en cero si el medidor real no se ha arreglado).
+                #
+                # no_degradar_a_ceros=True: la API puede responder un lote entero
+                # en cero por una falla transitoria propia (timeout, error del
+                # lado del proveedor, etc.), sin que eso signifique que el
+                # medidor real dejó de reportar. Sin esta protección, ese lote
+                # en cero pisaba silenciosamente lecturas reales ya guardadas de
+                # una corrida anterior -- pasó en producción con Cogeneracion,
+                # GENERACION_ARAGON y Generacion_IUSA_2 el mismo día que se
+                # detectó este bug.
+                resultado = db.upsert_registros(
+                    conn, medidor_bd, lote, fuente='iusasol', respetar_fuente='csv',
+                    no_degradar_a_ceros=True,
+                )
+                insertados += resultado.insertados
+                actualizados += resultado.actualizados
+            if registros:
+                row = conn.execute(
+                    'SELECT MAX(fecha) AS mx FROM perfil_carga WHERE medidor_id = ?',
+                    (medidor_bd,),
+                ).fetchone()
+                ultima_guardada = row['mx'] if row and row['mx'] else registros[-1]['fecha']
+                db.actualizar_sync_state(conn, medidor_bd, ultima_guardada)
+            db.cerrar_sync_log(
+                conn, log_id, 'ok', leidos, insertados, actualizados,
+            )
+            conn.commit()
+
+        if registros:
+            registrar_exito_sync(medidor_bd, ruta_bd)
+
+        medianoche_persistidos = persistir_slots_medianoche_bd(medidor_bd, ruta_bd)
+        if medianoche_persistidos and not quiet:
+            print(f'  {medidor_bd}: {medianoche_persistidos} slot(s) 00:00 rellenados en BD')
+
+        return {
+            'medidor': medidor_bd,
+            'desde': inicio,
+            'hasta': fin,
+            'leidos': leidos,
+            'insertados': insertados,
+            'actualizados': actualizados,
+            'mensaje': 'OK',
+        }
+    except Exception as exc:
+        if log_id is not None:
+            with db.conectar_bd(ruta_bd) as conn:
+                db.cerrar_sync_log(
+                    conn, log_id, 'error', leidos, insertados, actualizados, str(exc),
+                )
+                conn.commit()
+        raise
 
 
 def sincronizar_api(
