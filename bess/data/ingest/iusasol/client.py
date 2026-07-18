@@ -76,6 +76,17 @@ class IusasolClient:
         """GET Reports/ISOL/Meters."""
         return self._get('Reports/ISOL/Meters', {'company': self.company})
 
+    def listar_contratos(self) -> Any:
+        """GET Reports/ISOL/Contracts — contratos activos."""
+        return self._get('Reports/ISOL/Contracts', {'company': self.company})
+
+    def medidores_de_contrato(self, contract_id: str) -> Any:
+        """GET Reports/ISOL/Contract — medidores de un contrato (idcode)."""
+        return self._get('Reports/ISOL/Contract', {
+            'id': contract_id,
+            'company': self.company,
+        })
+
     def obtener_perfil(
         self,
         meter_id: str,
@@ -85,6 +96,7 @@ class IusasolClient:
         tym: str,
         tye: str,
         detallado: bool = False,
+        permitir_vacio: bool = False,
     ) -> Any:
         """GET Reports/ISOL/Profiles/Gral o Detailed."""
         ruta = (
@@ -92,16 +104,27 @@ class IusasolClient:
             if detallado
             else 'Reports/ISOL/Profiles/Gral'
         )
-        return self._get(ruta, {
-            'id': meter_id,
-            'beginDate': begin_date,
-            'endDate': end_date,
-            'tym': tym,
-            'tye': tye,
-            'company': self.company,
-        })
+        return self._get(
+            ruta,
+            {
+                'id': meter_id,
+                'beginDate': begin_date,
+                'endDate': end_date,
+                'tym': tym,
+                'tye': tye,
+                'company': self.company,
+            },
+            permitir_vacio=permitir_vacio,
+        )
 
-    def _get(self, ruta: str, params: dict[str, str]) -> Any:
+    def _get(
+        self,
+        ruta: str,
+        params: dict[str, str],
+        *,
+        permitir_vacio: bool = False,
+        timeout: int = 120,
+    ) -> Any:
         query = urllib.parse.urlencode(params)
         url = f'{self.config.base_url.rstrip("/")}/{ruta}?{query}'
         solicitud = urllib.request.Request(
@@ -109,11 +132,21 @@ class IusasolClient:
             method='GET',
             headers={'Authorization': f'Bearer {self.access_token}'},
         )
-        return self._ejecutar(solicitud)
+        return self._ejecutar(
+            solicitud,
+            permitir_vacio=permitir_vacio,
+            timeout=timeout,
+        )
 
-    def _ejecutar(self, solicitud: urllib.request.Request) -> Any:
+    def _ejecutar(
+        self,
+        solicitud: urllib.request.Request,
+        *,
+        permitir_vacio: bool = False,
+        timeout: int = 120,
+    ) -> Any:
         try:
-            with urllib.request.urlopen(solicitud, timeout=120) as respuesta:
+            with urllib.request.urlopen(solicitud, timeout=timeout) as respuesta:
                 raw = respuesta.read().decode('utf-8')
                 status = respuesta.status
         except urllib.error.HTTPError as exc:
@@ -127,6 +160,8 @@ class IusasolClient:
             raise IusasolError(f'No se pudo conectar a {solicitud.full_url}: {exc.reason}') from exc
 
         if status == 204 or not raw.strip():
+            if permitir_vacio:
+                return {'profiles': [], 'response': {'code': status or 204, 'result': 'empty'}}
             raise IusasolError(
                 'La API no devolvió datos de perfil (HTTP 204 / cuerpo vacío). '
                 'Revise id del medidor, rango de fechas y parámetros tym/tye '
