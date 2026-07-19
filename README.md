@@ -1,3 +1,16 @@
+# IUSASOL — Reportes y consultas
+
+Repositorio de sistemas IUSASOL:
+
+| Módulo | Entrada | Estado |
+|--------|---------|--------|
+| **BESS** | `streamlit run streamlit_app.py` | Producción — reportes BESS (ION / BANCO) |
+| **Consultas Usuarios** | `streamlit run streamlit_consultas_usuarios.py` | En diseño — contratos / medidores / perfiles API ISOL |
+
+Ver [docs/CONSULTAS_USUARIOS.md](docs/CONSULTAS_USUARIOS.md).
+
+---
+
 # BESS — Reportes ION / BANCO
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
