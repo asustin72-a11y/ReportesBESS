@@ -13,7 +13,7 @@ Respaldo portable para ejecutar la aplicación **sin depender de GitHub ni de St
 Extrae el ZIP en una carpeta sin espacios problemáticos, por ejemplo:
 
 ```
-C:\BESS\
+C:\Proyectos_IUSASOL\ReporteadorIUSASOL\
 ```
 
 La estructura debe quedar con `streamlit_app.py` y la carpeta `bess/` en la raíz.
@@ -21,7 +21,7 @@ La estructura debe quedar con `streamlit_app.py` y la carpeta `bess/` en la raí
 ## 2. Entorno virtual (recomendado)
 
 ```powershell
-cd C:\BESS
+cd C:\Proyectos_IUSASOL\ReporteadorIUSASOL
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
@@ -68,7 +68,7 @@ copy .env.example .env
 ## 5. Ejecutar la aplicación
 
 ```powershell
-cd C:\BESS
+cd C:\Proyectos_IUSASOL\ReporteadorIUSASOL
 .\.venv\Scripts\Activate.ps1
 streamlit run streamlit_app.py
 ```
@@ -108,8 +108,9 @@ Variables opcionales en `.env` / secrets para ION:
 Este respaldo corresponde a la rama **`main`** (tag `v5.14.0`).
 
 ```powershell
-git clone https://github.com/asustin72-a11y/ReportesBESS.git
-cd ReportesBESS
+mkdir C:\Proyectos_IUSASOL -Force
+git clone https://github.com/asustin72-a11y/ReportesBESS.git C:\Proyectos_IUSASOL\ReporteadorIUSASOL
+cd C:\Proyectos_IUSASOL\ReporteadorIUSASOL
 git checkout v5.14.0
 ```
 
@@ -119,7 +120,7 @@ Conserva tu carpeta `data/` y tus `secrets.toml` al actualizar código.
 
 | Problema | Acción |
 |----------|--------|
-| `ModuleNotFoundError: bess` | Ejecuta desde la raíz del proyecto (`C:\BESS`) |
+| `ModuleNotFoundError: bess` | Ejecuta desde la raíz del proyecto (`C:\Proyectos_IUSASOL\ReporteadorIUSASOL`) |
 | Gráficas sin botón PNG | Verifica `kaleido`: `pip install kaleido>=0.2.1` |
 | Recibo PDF vacío en tarifas MEM | Confirma `data/Tarifas/Tarifas_2026.csv` |
 | ION no conecta | Ping al host, firewall, puerto 502, ejecutar en red planta |

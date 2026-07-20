@@ -9,6 +9,8 @@ Repositorio de sistemas IUSASOL:
 
 Ver [docs/CONSULTAS_USUARIOS.md](docs/CONSULTAS_USUARIOS.md).
 
+**Ruta local Windows:** `C:\Proyectos_IUSASOL\ReporteadorIUSASOL`
+
 ---
 
 # BESS — Reportes ION / BANCO

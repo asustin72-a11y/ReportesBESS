@@ -25,6 +25,39 @@ consultas ya hechas a la API:
 
 No expuesto por la API v2.1: tipo de comunicación del medidor (Ethernet / GSM).
 
+## Ubicación en Windows (oficina / desarrollo)
+
+Ruta canónica del repo en PC local:
+
+```text
+C:\Proyectos_IUSASOL\ReporteadorIUSASOL
+```
+
+```powershell
+# Primera vez
+mkdir C:\Proyectos_IUSASOL -Force
+git clone https://github.com/asustin72-a11y/ReportesBESS.git C:\Proyectos_IUSASOL\ReporteadorIUSASOL
+cd C:\Proyectos_IUSASOL\ReporteadorIUSASOL
+git checkout cursor/consultas-usuarios-reporteador-6e2a
+
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+
+# Consultas Usuarios
+streamlit run streamlit_consultas_usuarios.py
+
+# BESS (producción / módulo aparte)
+# streamlit run streamlit_app.py
+```
+
+Si ya tenías el repo en otra carpeta (p. ej. `C:\BESS` o `ReportesBESS`):
+
+```powershell
+mkdir C:\Proyectos_IUSASOL -Force
+Move-Item -Path "C:\ruta\anterior\ReportesBESS" -Destination "C:\Proyectos_IUSASOL\ReporteadorIUSASOL"
+```
+
 ## Cómo ejecutar
 
 ```bash
