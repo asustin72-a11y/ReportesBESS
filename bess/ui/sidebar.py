@@ -280,7 +280,7 @@ def _mostrar_resultado_sync(
     proceso_completo: bool = False,
 ) -> None:
     from bess.config.catalog import invalidar_cache_catalogo
-    from bess.core.ui_progress import parse_ui_progress
+    from bess.core.ui_progress import es_linea_progreso_ui
     from bess.data.sync_mensajes import clasificar_fallo_sync, mensaje_ion_parcial
     from bess.data.sync_resumen import html_resumen_sidebar
 
@@ -342,14 +342,16 @@ def _mostrar_resultado_sync(
     # Quitar líneas de progreso BESS_UI_PROGRESS; dejar solo el error útil.
     err_lineas = []
     for ln in (stderr or "").splitlines():
-        if parse_ui_progress(ln):
+        if es_linea_progreso_ui(ln):
             continue
         txt = ln.strip()
         if txt:
             err_lineas.append(txt)
     detalle = "\n".join(err_lineas).strip()
     if not detalle and lineas_out:
-        detalle = "\n".join(lineas_out)
+        detalle = "\n".join(
+            ln for ln in lineas_out if not es_linea_progreso_ui(ln)
+        )
     if detalle:
         with st.expander("Detalle técnico", expanded=False):
             st.code(detalle[:4000])
