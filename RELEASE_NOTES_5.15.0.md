@@ -37,6 +37,12 @@ También: `PCARGA_AUTO_FALLBACK=1`, `--fallback-pcarga` / `--sin-fallback-pcarga
 - Clasificación API/ION/granja en sidebar; aviso distinto si corrió fallback auto.
 - `diagnosticar_conectividad_sync.py` actualizado (soft-fail + playbook).
 
+### Datos CSV fuera del índice git
+
+- `data/ArchivosProcesados/**/*.csv` y `data/ArchivosReporte/**/*.csv` dejan de
+  versionarse (quedan solo `.gitkeep`). El servidor conserva su `data/` operativo.
+- **Antes de `git checkout -f`:** respaldar y luego restaurar (ver Migración).
+
 ## Archivos nuevos
 
 - `bess/data/ingest/pcarga/fallback.py`
@@ -46,13 +52,35 @@ También: `PCARGA_AUTO_FALLBACK=1`, `--fallback-pcarga` / `--sin-fallback-pcarga
 
 ## Migración desde 5.14.0
 
+**Obligatorio — respaldar datos del servidor antes del checkout.** Este release
+saca del índice git los CSV de `ArchivosProcesados` y `ArchivosReporte`. Un
+`git checkout -f` puede **borrar** esos archivos del working tree; hay que
+restaurarlos desde el respaldo.
+
 ```bash
 cd ~/ReportesBESS
+
+# 1) Respaldo (Procesados + Reporte + Fuente + BD)
+ts=$(date +%Y%m%d-%H%M%S)
+tar czf ~/bess-data-backup-$ts.tgz \
+  data/ArchivosProcesados \
+  data/ArchivosReporte \
+  data/ArchivosFuente \
+  data/bess_perfiles.db
+
+# 2) Código
 git fetch --tags
-git checkout -f v5.15.0
+git checkout -f v5.15.0   # o el commit/tag que incluya “untrack CSV”
 sed -i 's/\r$//' scripts/cron_sincronizar.sh deploy/install-cron.sh
+
+# 3) Restaurar CSV/BD del servidor (no usar copias de otra PC)
+tar xzf ~/bess-data-backup-$ts.tgz
+
 docker compose up -d --build
 ```
+
+**Datos CSV:** nunca sustituya el `data/` del servidor con regeneraciones locales.
+Solo cambie estructura (columnas/nombres) con un commit explícito documentado.
 
 ### Activar fallback automático en el servidor
 

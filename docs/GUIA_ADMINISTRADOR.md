@@ -379,6 +379,23 @@ Scripts:
 - Versión 5.9.0: [RELEASE_NOTES_5.9.0.md](../RELEASE_NOTES_5.9.0.md)
 - Versión 5.8.0: [RELEASE_NOTES_5.8.0.md](../RELEASE_NOTES_5.8.0.md)  
 
+### 10.1 Datos CSV en el servidor (no pisar con git)
+
+`data/ArchivosProcesados` y `data/ArchivosReporte` **no van en el índice git**
+(solo carpetas con `.gitkeep`). El volumen `./data` del host es la fuente de
+verdad operativa.
+
+Antes de cada `git checkout -f` / deploy:
+
+1. Respalde `data/ArchivosProcesados`, `data/ArchivosReporte`,
+   `data/ArchivosFuente` y `data/bess_perfiles.db` (`tar` o copia).
+2. Actualice el código (tag/commit).
+3. Restaure el respaldo si el checkout borró o vació esas carpetas.
+4. **No** copie CSV regenerados en otra PC encima del servidor.
+
+Detalle del procedimiento: [RELEASE_NOTES_5.15.0.md](../RELEASE_NOTES_5.15.0.md)
+(sección Migración).
+
 ---
 
 *Guía para administradores del sistema BESS — IUSASOL.*
