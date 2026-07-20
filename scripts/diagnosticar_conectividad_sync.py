@@ -99,7 +99,8 @@ def _probar_api() -> bool:
         print(f'         token_type={token.get("token_type")} expires_in={token.get("expires_in")}')
     except IusasolError as exc:
         _fail(f'OAuth/API: {exc}')
-        print('         → En UI (Sincronizar): error rojo “La sincronización falló” + detalle.')
+        print('         → En UI: warning “API no disponible (sync parcial)” + export ION.')
+        print('         → Fallback: Mantenimiento DB → PCarga → Fallback IUSA 1/2.')
         return False
     except Exception as exc:
         _fail(f'OAuth/API inesperado: {exc}')
@@ -136,7 +137,8 @@ def _probar_granja() -> bool:
         return True
     except Exception as exc:
         _fail(f'Farm: {exc}')
-        print('         → En UI: igual que API — sync se detiene (fallo duro).')
+        print('         → Soft-fail: sync exporta sin actualizar generación IUSA 2.')
+        print('         → No hay fallback pcarga para Mega01–20.')
         return False
 
 
@@ -165,10 +167,12 @@ def main() -> int:
 
     print('\nPrueba en la app (con la afectación actual):')
     print('  1. Login admin → sidebar → “Sincronizar ahora”.')
-    print('  2. Anote: ¿warning ION, error rojo API, o éxito parcial?')
-    print('  3. En consola, equivalente a la UI:')
-    print('       python scripts/sincronizar_perfiles.py --quiet --sin-ion')
-    print('     (sin-ion aísla el fallo de API/granja si la planta también está caída)')
+    print('  2. Anote: ¿warning ION, warning API parcial, o éxito?')
+    print('  3. Si API FALLA y planta OK: Mantenimiento DB → PCarga → Fallback IUSA 1/2.')
+    print('  4. En consola, solo ION (manual):')
+    print('       python scripts/sincronizar_perfiles.py --quiet --sin-api --sin-granja')
+    print('  5. Sync completo con API caída (soft-fail + export):')
+    print('       python scripts/sincronizar_perfiles.py --quiet')
 
     return 0 if all(ok for _, ok in resultados) else 1
 

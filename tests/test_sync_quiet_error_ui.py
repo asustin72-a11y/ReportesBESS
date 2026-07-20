@@ -1,12 +1,13 @@
-"""Con --quiet, los fallos API deben llegar a stderr/stdout (UI sidebar)."""
+"""Con --quiet, los fallos API deben llegar a stderr/stdout (UI sidebar).
+
+Tras soft-fail: rc=0 y aviso (ya no aborta el sync).
+"""
 
 from __future__ import annotations
 
 import importlib.util
 import sys
 from pathlib import Path
-
-import pytest
 
 from bess.data.ingest.iusasol.client import IusasolError
 
@@ -44,6 +45,6 @@ def test_quiet_imprime_fallo_api_en_stderr(monkeypatch, capsys) -> None:
     )
     rc = mod.main()
     captured = capsys.readouterr()
-    assert rc == 1
+    assert rc == 0
     assert 'ERROR API' in captured.err
-    assert 'API: error' in captured.out
+    assert 'API: aviso' in captured.out or 'API: no disponible' in captured.out

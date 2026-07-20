@@ -343,6 +343,12 @@ def lista_medidores_pcarga() -> list[str]:
     return _lista()
 
 
+def lista_medidores_fallback_iusa12() -> list[str]:
+    from bess.config.pcarga_endpoints import lista_medidores_fallback_iusa12 as _lista
+
+    return _lista()
+
+
 def info_endpoint_pcarga(medidor_id: str) -> str:
     from bess.config.pcarga_endpoints import endpoint_pcarga
     from bess.data.ingest.pcarga.descarga import etiqueta_endpoint
@@ -362,3 +368,21 @@ def descargar_pcarga_rango(
     from bess.data.ingest.pcarga.descarga import descargar_pcarga_medidor
 
     return descargar_pcarga_medidor(medidor_id, desde, hasta)
+
+
+def ejecutar_fallback_pcarga_iusa12(
+    *,
+    desde: date | datetime | None = None,
+    hasta: date | datetime | None = None,
+    rebuild: bool = True,
+    procesar: bool = False,
+):
+    """Lote: pcarga → import → rebuild para Banco/BESS/Cogen (IUSA 1/2)."""
+    from bess.data.ingest.pcarga.fallback import ejecutar_fallback_pcarga_iusa12 as _run
+
+    return _run(
+        desde=desde,
+        hasta=hasta,
+        rebuild=rebuild,
+        procesar=procesar,
+    )

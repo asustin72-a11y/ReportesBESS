@@ -1,6 +1,6 @@
 # Guía del administrador — Sistema BESS
 
-**Versión:** 5.14.0  
+**Versión:** 5.15.0  
 **Roles:** `admin` (operador) y `superadmin`
 
 > **PDF:** `docs/GUIA_ADMINISTRADOR.pdf`  
@@ -211,6 +211,50 @@ Siempre use **Vista previa** y marque la confirmación antes de borrar.
 Estas operaciones no tienen rollback global. Antes de purgar o vaciar, respalde
 `data/bess_perfiles.db`.
 
+#### 3.7.8 PCarga y fallback cuando la API está caída
+
+Los medidores Ethernet de planta se pueden leer con **pcarga** (Wine/MLE) aunque
+`api.iusasol.mx` no responda. ION sigue por Modbus y no necesita pcarga.
+
+**Fallback automático (opt-in, apagado por defecto):**
+
+En `secrets.toml`:
+
+```toml
+[pcarga]
+auto_fallback = true
+# … script / mle_dir / ssh_* en Docker
+```
+
+También: variable `PCARGA_AUTO_FALLBACK=1`, o en consola
+`--fallback-pcarga` / `--sin-fallback-pcarga`.
+
+Si la API falla y el opt-in está activo, el sync descarga e importa por Ethernet
+`Banco_1`, `BESS_NORTE`, `Cogeneracion` y `BESS_SUR` (sin Rebuild por medidor;
+el export del sync escribe `ArchivosFuente`). Un medidor que falle no aborta el
+lote. El **cron** hereda el mismo secrets del contenedor: no active
+`auto_fallback` en producción hasta validar SSH/Wine (hasta ~10 min por medidor).
+
+**Playbook manual (sin auto_fallback):**
+
+1. Sincronizar: soft-fail de API/granja y **exporta ION** (y lo ya guardado en BD).
+   Solo ION: `python scripts/sincronizar_perfiles.py --sin-api --sin-granja`
+2. Abrir **Mantenimiento DB → PCarga**.
+3. Pulsar **Ejecutar fallback pcarga IUSA 1/2** (descarga → import `fuente=csv` →
+   Rebuild CSV).
+4. Si no marcó Rebuild+pipeline, complete Verificar → Filtrar → Reportes.
+5. Acepte que **Generación IUSA 2 (granja Mega)** no se actualiza hasta que
+   vuelva la API Farm. Aragón queda fuera de este fallback.
+
+**Descarga individual:** la misma pestaña permite bajar un medidor por rango
+fecha/hora (pasos de 5 min) a CSV para Importar manualmente.
+
+**Servidor Docker:** Wine/MLE viven en el host; configure `[pcarga]` con
+`ssh_host` / `ssh_user` / `ssh_password` (véase `secrets.toml.example`).
+
+**Al volver la API:** el sync normal reanuda ISOL/Farm. Las filas importadas con
+`fuente=csv` no se pisan con ceros de API (`no_degradar_a_ceros`).
+
 ### 3.8 Responsabilidades exclusivas del superadmin
 
 - Mantener subestaciones, medidores, tarifas, clientes de recibo y usuarios.
@@ -328,6 +372,7 @@ Scripts:
 
 - Docker: [DOCKER.md](DOCKER.md)  
 - Restauración local: [RESTAURACION_LOCAL.md](../RESTAURACION_LOCAL.md)  
+- Versión 5.15.0: [RELEASE_NOTES_5.15.0.md](../RELEASE_NOTES_5.15.0.md)
 - Versión 5.14.0: [RELEASE_NOTES_5.14.0.md](../RELEASE_NOTES_5.14.0.md)
 - Versión 5.13.0: [RELEASE_NOTES_5.13.0.md](../RELEASE_NOTES_5.13.0.md)
 - Versión 5.12.0: [RELEASE_NOTES_5.12.0.md](../RELEASE_NOTES_5.12.0.md)

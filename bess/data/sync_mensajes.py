@@ -15,6 +15,13 @@ class MensajeSyncUI:
     tipo: str = 'error'  # error | warning | info
 
 
+_ACCION_FALLBACK_PCARGA = (
+    'Si ION ya sincronizó: use **Mantenimiento DB → PCarga → Fallback IUSA 1/2** '
+    'para Banco_1, BESS Norte/Sur y Cogeneración. '
+    'La granja (Mega) queda pendiente hasta que vuelva la API.'
+)
+
+
 def _texto_combinado(stdout: str, stderr: str) -> str:
     return f'{stdout or ""}\n{stderr or ""}'
 
@@ -44,6 +51,9 @@ def _es_fallo_api(texto: str) -> bool:
         for marca in (
             'error api',
             'api: error',
+            'api: aviso',
+            'api: no disponible',
+            'api no disponible',
             'oauth2/token',
             'api.iusasol.mx',
             'sync detenido:',
@@ -58,13 +68,16 @@ def _es_fallo_granja(texto: str) -> bool:
         for marca in (
             'error granja',
             'granja: error',
+            'granja: aviso',
+            'granja: pendiente',
+            'granja no disponible',
             'reports/farm',
         )
     )
 
 
 def clasificar_fallo_sync(stdout: str, stderr: str) -> MensajeSyncUI:
-    """Traduce la salida técnica del sync a un mensaje claro."""
+    """Traduce la salida técnica del sync a un mensaje claro (rc != 0)."""
     bruto = _texto_combinado(stdout, stderr)
 
     if _es_fallo_granja(bruto) and _es_timeout_red(bruto):
@@ -74,7 +87,7 @@ def clasificar_fallo_sync(stdout: str, stderr: str) -> MensajeSyncUI:
                 'La red no respondió a tiempo al consultar la granja. '
                 'Los medidores ION de planta no se ven afectados por este fallo.'
             ),
-            accion='Reintente Sincronizar cuando haya acceso a internet / API IUSASOL.',
+            accion=_ACCION_FALLBACK_PCARGA,
             tipo='error',
         )
 
@@ -86,9 +99,7 @@ def clasificar_fallo_sync(stdout: str, stderr: str) -> MensajeSyncUI:
                 '(timeout hacia api.iusasol.mx). '
                 'La red de planta (ION Modbus) puede seguir operativa.'
             ),
-            accion='Reintente Sincronizar cuando se restablezca el acceso a la API. '
-            'Si necesita datos ION de planta, puede sincronizar solo ION en consola '
-            'con --sin-api --sin-granja.',
+            accion=_ACCION_FALLBACK_PCARGA,
             tipo='error',
         )
 
@@ -96,7 +107,8 @@ def clasificar_fallo_sync(stdout: str, stderr: str) -> MensajeSyncUI:
         return MensajeSyncUI(
             titulo='La sincronización por API IUSASOL falló.',
             explicacion='El servicio respondió con error o credenciales inválidas.',
-            accion='Revise el detalle técnico abajo y las credenciales [iusasol] en secrets.',
+            accion='Revise el detalle técnico y las credenciales [iusasol]. '
+            + _ACCION_FALLBACK_PCARGA,
             tipo='error',
         )
 
@@ -104,7 +116,8 @@ def clasificar_fallo_sync(stdout: str, stderr: str) -> MensajeSyncUI:
         return MensajeSyncUI(
             titulo='La sincronización de Granja IUSA 2 falló.',
             explicacion='No se pudieron obtener perfiles de la granja.',
-            accion='Revise el detalle técnico y el acceso a la API Farm.',
+            accion='Revise el detalle técnico y el acceso a la API Farm. '
+            'No hay fallback pcarga para Mega01–20.',
             tipo='error',
         )
 
@@ -113,7 +126,8 @@ def clasificar_fallo_sync(stdout: str, stderr: str) -> MensajeSyncUI:
             titulo='Problema de red durante la sincronización.',
             explicacion='Algún origen no respondió a tiempo (timeout de conexión).',
             accion='Verifique conectividad y reintente. '
-            'Diagnóstico: python scripts/diagnosticar_conectividad_sync.py',
+            'Diagnóstico: python scripts/diagnosticar_conectividad_sync.py. '
+            + _ACCION_FALLBACK_PCARGA,
             tipo='error',
         )
 
@@ -123,6 +137,61 @@ def clasificar_fallo_sync(stdout: str, stderr: str) -> MensajeSyncUI:
         accion='Si el problema continúa, ejecute '
         'python scripts/diagnosticar_conectividad_sync.py',
         tipo='error',
+    )
+
+
+def mensaje_api_parcial(stdout: str, stderr: str = '') -> MensajeSyncUI | None:
+    """Warning cuando el sync terminó (export OK) pero la API no respondió."""
+    bruto = _texto_combinado(stdout, stderr)
+    if not _es_fallo_api(bruto):
+        return None
+
+    uso_auto = (
+        'pcarga: auto' in bruto.casefold()
+        or 'pcarga auto' in bruto.casefold()
+        or 'ethernet tras fallo api' in bruto.casefold()
+    )
+    if uso_auto:
+        return MensajeSyncUI(
+            titulo='API IUSASOL no disponible — se usó pcarga.',
+            explicacion=(
+                'ION se exportó y Banco/BESS/Cogeneración se intentaron por Ethernet '
+                '(fallback automático). Revise el resumen PCarga si algún medidor falló.'
+            ),
+            accion=(
+                'La granja (Mega) sigue pendiente de API. '
+                'Si un medidor pcarga falló, use Mantenimiento DB → PCarga.'
+            ),
+            tipo='warning',
+        )
+
+    return MensajeSyncUI(
+        titulo='API IUSASOL no disponible (sync parcial).',
+        explicacion=(
+            'ION y lo ya guardado en BD se exportaron. '
+            'Banco/BESS/Cogeneración no se actualizaron por API.'
+        ),
+        accion=_ACCION_FALLBACK_PCARGA,
+        tipo='warning',
+    )
+
+
+def mensaje_granja_parcial(stdout: str, stderr: str = '') -> MensajeSyncUI | None:
+    """Warning cuando el sync terminó pero la granja no se actualizó."""
+    bruto = _texto_combinado(stdout, stderr)
+    if not _es_fallo_granja(bruto):
+        return None
+    # Si también hay fallo API, mensaje_api_parcial cubre el caso principal.
+    if _es_fallo_api(bruto):
+        return None
+    return MensajeSyncUI(
+        titulo='Granja IUSA 2 pendiente de API.',
+        explicacion=(
+            'No se actualizó Generación IUSA 2. '
+            'No hay plan B por pcarga para Mega01–20.'
+        ),
+        accion='Reintente Sincronizar cuando la API Farm esté disponible.',
+        tipo='warning',
     )
 
 
@@ -138,7 +207,9 @@ def mensaje_ion_parcial(stdout: str) -> MensajeSyncUI | None:
     # El resumen quiet usa etiqueta del catálogo; detectar "no disponible" en líneas ION
     if not ion1 and not ion2:
         for ln in salida.splitlines():
-            low = ln.casefold()
+            low = ln.casefold().strip()
+            if low.startswith('api:') or low.startswith('granja:') or low.startswith('pcarga:'):
+                continue
             if 'no disponible' in low and ('ion' in low or 'iusa' in low):
                 if 'iusa 2' in low or 'iusa2' in low or 'i usa 2' in low:
                     ion2 = True

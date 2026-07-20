@@ -27,6 +27,13 @@ def test_endpoints_cinco_medidores():
     assert endpoint_pcarga("Banco_1").ke_efectivo == 18400.0
 
 
+def test_fallback_iusa12_excluye_aragon():
+    from bess.config.pcarga_endpoints import lista_medidores_fallback_iusa12
+
+    assert "BESS_ARAGON" not in lista_medidores_fallback_iusa12()
+    assert len(lista_medidores_fallback_iusa12()) == 4
+
+
 def test_convertir_omite_invalidos_y_aplica_ke():
     crudo = io.StringIO(
         "valido,verano,fecha,hora,KWH_REC,KWH_ENT,KVARH_Q1,KVARH_Q2,KVARH_Q3,KVARH_Q4\n"

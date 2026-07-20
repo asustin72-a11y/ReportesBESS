@@ -2,7 +2,7 @@
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
 
-**Versión actual:** 5.14.0 — Mantenimiento DB: pcarga Ethernet, Rebuild CSV, reconciliar e import protegido.
+**Versión actual:** 5.15.0 — Soft-fail API + fallback pcarga IUSA 1/2 (manual y opt-in automático).
 
 ## Documentación
 

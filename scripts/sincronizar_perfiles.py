@@ -176,6 +176,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--sin-ion-iusa2', action='store_true', help='Omitir sync Modbus ION IUSA 2.')
     parser.add_argument('--sin-api', action='store_true', help='Omitir sync API (BESS y Banco 1).')
     parser.add_argument('--sin-granja', action='store_true', help='Omitir sync granja IUSA 2 (20 MEGA).')
+    parser.add_argument(
+        '--fallback-pcarga',
+        action='store_true',
+        help='Forzar fallback pcarga IUSA 1/2 si la API falla (opt-in).',
+    )
+    parser.add_argument(
+        '--sin-fallback-pcarga',
+        action='store_true',
+        help='No usar fallback pcarga aunque auto_fallback esté en secrets.',
+    )
     parser.add_argument('--sin-export', action='store_true', help='No exportar CSV a ArchivosFuente.')
     parser.add_argument('--solo-export', action='store_true', help='Solo exportar SQLite -> CSV.')
     parser.add_argument('--procesar', action='store_true', help='Verificar, filtrar y generar reportes al final.')
@@ -211,6 +221,12 @@ def main(argv: list[str] | None = None) -> int:
     ion_iusa2_stats = None
     api_items: list = []
     granja_item: dict | None = None
+    api_aviso = False
+    granja_aviso = False
+    pcarga_fallback_hecho = False
+    pcarga_fallback_ok: int | None = None
+    pcarga_fallback_total: int | None = None
+    pcarga_fallback_fallidos: list[str] = []
 
     if getattr(args, 'ui_progress', False):
         emit_ui_progress(0, _SYNC_UI_TOTAL, 'Iniciando sincronización…')
@@ -316,16 +332,89 @@ def main(argv: list[str] | None = None) -> int:
                     incluir_granja=False,
                 )
                 if fallo_api:
-                    # Siempre a stderr: la UI (--quiet) muestra el expander de detalle.
+                    api_aviso = True
+                    # Soft-fail: no abortar; exportar ION / datos previos.
                     print(fallo_api, file=sys.stderr)
+                    print(
+                        'API no disponible — se continúa con export (ION / BD). '
+                        'Use Mantenimiento DB → PCarga → Fallback IUSA 1/2.',
+                        file=sys.stderr,
+                    )
                     if args.quiet:
-                        print(f'API: error — {fallo_api}')
-                    return 1
+                        print(f'API: aviso — {fallo_api}')
+                    else:
+                        print(
+                            '  Aviso: API falló; se exportará lo ya guardado en BD.'
+                        )
             except Exception as exc:
+                api_aviso = True
+                api_items = [{'medidor': 'API', 'error': str(exc)}]
                 print(f'ERROR API: {exc}', file=sys.stderr)
+                print(
+                    'API no disponible — se continúa con export (ION / BD). '
+                    'Use Mantenimiento DB → PCarga → Fallback IUSA 1/2.',
+                    file=sys.stderr,
+                )
                 if args.quiet:
-                    print(f'API: error — {exc}')
-                return 1
+                    print(f'API: aviso — {exc}')
+                else:
+                    print(
+                        '  Aviso: API falló; se exportará lo ya guardado en BD.'
+                    )
+
+        # Fallback pcarga automático (opt-in): solo si se intentó API y falló.
+        if api_aviso:
+            from bess.config.pcarga_endpoints import auto_fallback_habilitado
+
+            usar_pcarga = auto_fallback_habilitado(
+                forzar_on=bool(args.fallback_pcarga),
+                forzar_off=bool(args.sin_fallback_pcarga),
+            )
+            if usar_pcarga:
+                from bess.data.ingest.pcarga.fallback import (
+                    ejecutar_fallback_pcarga_iusa12,
+                )
+
+                _sync_ui_progress(args, 3, 'Fallback pcarga IUSA 1/2 (Ethernet → SQLite)')
+                if not args.quiet:
+                    print(f'\n{"=" * 70}')
+                    print('Fallback pcarga IUSA 1/2 (Ethernet -> SQLite, sin Rebuild)')
+                    print('=' * 70)
+                try:
+                    lote = ejecutar_fallback_pcarga_iusa12(
+                        rebuild=False,
+                        procesar=False,
+                    )
+                    pcarga_fallback_hecho = True
+                    pcarga_fallback_ok = lote.exitosos
+                    pcarga_fallback_total = len(lote.medidores)
+                    pcarga_fallback_fallidos = [
+                        m.medidor_id for m in lote.medidores if not m.ok
+                    ]
+                    resumen = (
+                        f'PCarga: {lote.exitosos}/{len(lote.medidores)} OK'
+                        + (
+                            f' · fallaron: {", ".join(pcarga_fallback_fallidos)}'
+                            if pcarga_fallback_fallidos
+                            else ''
+                        )
+                    )
+                    if args.quiet:
+                        print(resumen)
+                        print('PCarga: auto — Ethernet tras fallo API')
+                    else:
+                        print(f'  {resumen}')
+                        if lote.log:
+                            print(lote.log)
+                except Exception as exc:
+                    pcarga_fallback_hecho = True
+                    pcarga_fallback_ok = 0
+                    pcarga_fallback_total = 0
+                    print(f'ERROR fallback pcarga: {exc}', file=sys.stderr)
+                    if args.quiet:
+                        print(f'PCarga: error — {exc}')
+                    else:
+                        print(f'  Fallback pcarga falló: {exc}')
 
         if not args.sin_granja:
             _sync_ui_progress(args, 4, 'Granja IUSA 2 (API → SQLite)')
@@ -357,19 +446,37 @@ def main(argv: list[str] | None = None) -> int:
                     incluir_granja=True,
                 )
                 if fallo_granja:
+                    granja_aviso = True
                     print(fallo_granja, file=sys.stderr)
+                    print(
+                        'Granja no disponible — generación IUSA 2 queda pendiente de API. '
+                        'El resto del sync continúa.',
+                        file=sys.stderr,
+                    )
                     if args.quiet:
-                        print(f'Granja: error — {fallo_granja}')
-                    return 1
+                        print(f'Granja: aviso — {fallo_granja}')
+                    else:
+                        print(
+                            '  Aviso: granja falló; se exportará sin actualizar generación.'
+                        )
             except Exception as exc:
+                granja_aviso = True
                 granja_item = {
                     'medidor': db.MEDIDOR_GRANJA_IUSA2,
                     'error': str(exc),
                 }
                 print(f'ERROR Granja: {exc}', file=sys.stderr)
+                print(
+                    'Granja no disponible — generación IUSA 2 queda pendiente de API. '
+                    'El resto del sync continúa.',
+                    file=sys.stderr,
+                )
                 if args.quiet:
-                    print(f'Granja: error — {exc}')
-                return 1
+                    print(f'Granja: aviso — {exc}')
+                else:
+                    print(
+                        '  Aviso: granja falló; se exportará sin actualizar generación.'
+                    )
 
     export_ok = True
     if not args.sin_export:
@@ -424,6 +531,23 @@ def main(argv: list[str] | None = None) -> int:
             granja_item=granja_item,
             incluir_granja=not args.sin_granja,
         )
+        if api_aviso:
+            if pcarga_fallback_hecho:
+                ok_n = pcarga_fallback_ok or 0
+                tot = pcarga_fallback_total or 0
+                print(f'API: no disponible — PCarga auto {ok_n}/{tot}')
+                if pcarga_fallback_fallidos:
+                    print(
+                        'PCarga: parcial — fallaron '
+                        + ', '.join(pcarga_fallback_fallidos)
+                    )
+            else:
+                print(
+                    'API: no disponible — use Mantenimiento DB → PCarga → Fallback '
+                    '(Banco/BESS/Cogen)'
+                )
+        if granja_aviso:
+            print('Granja: pendiente de API (sin plan B por pcarga)')
     else:
         _resumen_bd()
         if not args.procesar:
@@ -432,6 +556,25 @@ def main(argv: list[str] | None = None) -> int:
             print(f'\n{MSG_ION_NO_DISPONIBLE}')
         if ion_iusa2_no_disponible:
             print(f'\n{MSG_ION_IUSA2_NO_DISPONIBLE}')
+        if api_aviso:
+            if pcarga_fallback_hecho:
+                ok_n = pcarga_fallback_ok or 0
+                tot = pcarga_fallback_total or 0
+                print(
+                    f'\nAPI no disponible. Fallback pcarga automático: {ok_n}/{tot} medidores.'
+                )
+                if pcarga_fallback_fallidos:
+                    print(
+                        '  Parcial — fallaron: '
+                        + ', '.join(pcarga_fallback_fallidos)
+                    )
+            else:
+                print(
+                    '\nAPI no disponible. Fallback: Mantenimiento DB → PCarga → Fallback IUSA 1/2 '
+                    '(Banco_1, BESS_NORTE, Cogeneracion, BESS_SUR).'
+                )
+        if granja_aviso:
+            print('\nGranja IUSA 2 pendiente de API (sin fallback pcarga).')
 
     if args.procesar:
         if not args.quiet:

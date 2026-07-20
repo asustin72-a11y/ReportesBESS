@@ -36,15 +36,15 @@ def detectar_fallo_sync(
     incluir_api: bool = True,
     incluir_granja: bool = True,
 ) -> str | None:
-    """Devuelve mensaje de error si el sync debe detenerse (fallo duro API/granja)."""
+    """Mensaje de aviso si API/granja fallaron (soft-fail: el sync puede seguir a export)."""
     if incluir_api:
         err = _primer_error_api(api_items)
         if err:
             med = err.get("medidor", "?")
-            return f"Sync detenido: {med} — {err.get('error', 'error API')}"
+            return f"API: aviso — {med} — {err.get('error', 'error API')}"
     if incluir_granja and granja_item and "error" in granja_item:
         med = granja_item.get("medidor", MEDIDOR_GENERACION_IUSA2)
-        return f"Sync detenido: {med} — {granja_item.get('error', 'error granja')}"
+        return f"Granja: aviso — {med} — {granja_item.get('error', 'error granja')}"
     return None
 
 
@@ -62,7 +62,8 @@ def aplicar_validacion_post_sync(
 ) -> ResultadoValidacionSync:
     """
     Tras sync + export OK, escribe Validado en Medidores.csv.
-    ION no disponible: no marca ese medidor pero no invalida el resto.
+    ION/API/granja no disponibles: no marca esos medidores pero no invalida el resto
+    (soft-fail: el export ya corrió).
     """
     if not export_ok:
         return ResultadoValidacionSync(
@@ -70,17 +71,9 @@ def aplicar_validacion_post_sync(
             "Exportación a ArchivosFuente falló; no se actualizó Validado.",
         )
 
-    fallo = detectar_fallo_sync(
-        api_items=api_items,
-        granja_item=granja_item,
-        incluir_api=incluir_api,
-        incluir_granja=incluir_granja,
-    )
-    if fallo:
-        return ResultadoValidacionSync(False, fallo)
-
     marcados: list[str] = []
     pendientes_ion: list[str] = []
+    avisos: list[str] = []
 
     if incluir_ion:
         if ion_no_disponible:
@@ -97,18 +90,31 @@ def aplicar_validacion_post_sync(
                 marcados.append(db.MEDIDOR_ION_IUSA2)
 
     if incluir_api:
+        err_api = _primer_error_api(api_items)
+        if err_api:
+            avisos.append(
+                f"API pendiente ({err_api.get('medidor', '?')}): "
+                f"{err_api.get('error', 'error')}"
+            )
         for item in api_items:
             if _item_sin_error(item):
                 nombre = str(item.get("medidor", ""))
                 if nombre and marcar_medidor_validado(nombre):
                     marcados.append(nombre)
 
-    if incluir_granja and _item_sin_error(granja_item):
-        for nombre in marcar_grupo_generacion_validado("Generacion_IUSA_2"):
-            if nombre not in marcados:
-                marcados.append(nombre)
+    if incluir_granja:
+        if granja_item and "error" in granja_item:
+            avisos.append(
+                f"Granja pendiente: {granja_item.get('error', 'error')}"
+            )
+        elif _item_sin_error(granja_item):
+            for nombre in marcar_grupo_generacion_validado("Generacion_IUSA_2"):
+                if nombre not in marcados:
+                    marcados.append(nombre)
 
     mensaje = f"Validado actualizado ({len(marcados)} medidor(es))."
     if pendientes_ion:
         mensaje += f" ION sin conexión (pendiente): {', '.join(pendientes_ion)}."
+    if avisos:
+        mensaje += " " + " · ".join(avisos)
     return ResultadoValidacionSync(True, mensaje, marcados=marcados, pendientes_ion=pendientes_ion)
