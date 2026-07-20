@@ -5,6 +5,7 @@ from __future__ import annotations
 import streamlit as st
 
 from consultas_usuarios.data_loader import (
+    agrupar_por_contrato,
     cargar_contratos_vacios,
     cargar_reporte_principal,
     filtrar_reporte,
@@ -29,6 +30,32 @@ def _cfg_pagina() -> None:
     )
 
 
+def _render_contratos(grupos: list[dict], *, expandir_todos: bool) -> None:
+    if not grupos:
+        st.info('Ningún contrato coincide con el filtro.')
+        return
+
+    for g in grupos:
+        titulo = (
+            f"{g['contrato']}  ·  {g['n_medidores']} medidor"
+            f"{'es' if g['n_medidores'] != 1 else ''}"
+            f"  ·  {g['con_perfil']} con perfil"
+        )
+        with st.expander(titulo, expanded=expandir_todos or g['n_medidores'] <= 3):
+            st.dataframe(
+                g['medidores'],
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    'Serial': st.column_config.TextColumn('Serial', width='large'),
+                    'Ultimo_perfil': st.column_config.TextColumn(
+                        'Último perfil', width='medium',
+                    ),
+                    'Nota': st.column_config.TextColumn('Nota', width='medium'),
+                },
+            )
+
+
 def main() -> None:
     _cfg_pagina()
     aplicar_estilos()
@@ -41,8 +68,8 @@ def main() -> None:
 <div class="cu-section">
   <h2>Reporte de contratos y medidores</h2>
   <p class="cu-sub">
-    Datos de la API ISOL: contratos activos, medidores asociados y última
-    fecha con energía distinta de cero. Módulo independiente de BESS.
+    Cada contrato lista los medidores que le pertenecen, con la última fecha
+    de perfil con energía. Módulo independiente de BESS.
   </p>
 </div>
         """,
@@ -62,7 +89,7 @@ def main() -> None:
         )
         return
 
-    c1, c2, c3 = st.columns([2.2, 1.2, 1])
+    c1, c2, c3, c4 = st.columns([2.0, 1.2, 1.0, 1.0])
     with c1:
         texto = st.text_input(
             'Buscar',
@@ -82,28 +109,22 @@ def main() -> None:
         )[0]
     with c3:
         ver_vacios = st.toggle('Contratos vacíos', value=False)
+    with c4:
+        expandir = st.toggle('Expandir todos', value=False)
 
     if ver_vacios:
         st.caption(f'{len(vacios)} contratos sin medidores en la API.')
         st.dataframe(vacios, use_container_width=True, hide_index=True, height=420)
     else:
         filtrado = filtrar_reporte(df, texto=texto, estado=estado)
-        st.caption(f'{len(filtrado)} de {len(df)} filas')
-        st.dataframe(
-            filtrado,
-            use_container_width=True,
-            hide_index=True,
-            height=480,
-            column_config={
-                'Contrato': st.column_config.TextColumn('Contrato', width='medium'),
-                'Serial': st.column_config.TextColumn('Serial', width='medium'),
-                'Ultimo_perfil': st.column_config.TextColumn('Último perfil', width='medium'),
-                'Nota': st.column_config.TextColumn('Nota', width='medium'),
-            },
-        )
+        grupos = agrupar_por_contrato(filtrado)
+        n_med = sum(g['n_medidores'] for g in grupos)
+        st.caption(f'{len(grupos)} contratos · {n_med} medidores')
+        _render_contratos(grupos, expandir_todos=expandir)
+
         csv_bytes = filtrado.to_csv(index=False).encode('utf-8-sig')
         st.download_button(
-            'Descargar CSV filtrado',
+            'Descargar CSV (plano)',
             data=csv_bytes,
             file_name='consultas_usuarios_reporte.csv',
             mime='text/csv',

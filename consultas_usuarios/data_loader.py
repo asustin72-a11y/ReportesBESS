@@ -70,3 +70,41 @@ def filtrar_reporte(
     elif estado == 'sin_energia':
         out = out.loc[(out['Ultimo_perfil'] == '') & (out['Serial'] != '')]
     return out.reset_index(drop=True)
+
+
+def agrupar_por_contrato(df: pd.DataFrame) -> list[dict]:
+    """Lista de contratos, cada uno con sus medidores.
+
+    Cada ítem: {
+      'contrato': str,
+      'n_medidores': int,
+      'con_perfil': int,
+      'medidores': DataFrame[Serial, Ultimo_perfil, Nota],
+    }
+    """
+    if df.empty:
+        return []
+
+    grupos: list[dict] = []
+    orden = sorted(
+        (c for c in df['Contrato'].unique() if str(c).strip()),
+        key=str.casefold,
+    )
+    # Filas sin nombre de contrato al final
+    if (df['Contrato'] == '').any():
+        orden.append('')
+
+    for nombre in orden:
+        bloque = df.loc[df['Contrato'] == nombre].copy()
+        medidores = (
+            bloque[['Serial', 'Ultimo_perfil', 'Nota']]
+            .sort_values(['Serial'], key=lambda s: s.str.casefold())
+            .reset_index(drop=True)
+        )
+        grupos.append({
+            'contrato': nombre or '(sin nombre)',
+            'n_medidores': int(len(medidores)),
+            'con_perfil': int((medidores['Ultimo_perfil'] != '').sum()),
+            'medidores': medidores,
+        })
+    return grupos
