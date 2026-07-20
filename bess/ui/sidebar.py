@@ -281,10 +281,10 @@ def _mostrar_resultado_sync(
 ) -> None:
     from bess.config.catalog import invalidar_cache_catalogo
     from bess.core.ui_progress import parse_ui_progress
+    from bess.data.sync_mensajes import clasificar_fallo_sync, mensaje_ion_parcial
     from bess.data.sync_resumen import html_resumen_sidebar
 
     salida = (stdout or "").strip()
-    ion_off = "Medidor ION no disponible." in salida or "ION: no disponible" in salida
     if rc == 0:
         invalidar_cache_catalogo()
         st.session_state["verificado"] = False
@@ -301,11 +301,11 @@ def _mostrar_resultado_sync(
             )
             return
         pendientes = medidores_pendientes_validacion()
-        if ion_off:
-            st.warning(
-                "Medidor ION (IUSA 1) no disponible. "
-                "Sync API/export completados; ION sigue sin validar."
-            )
+        aviso_ion = mensaje_ion_parcial(salida)
+        if aviso_ion:
+            st.warning(f"**{aviso_ion.titulo}**  \n{aviso_ion.explicacion}")
+            if aviso_ion.accion:
+                st.caption(aviso_ion.accion)
             establecer_banner_pipeline(
                 "Sync parcial. Revise medidores sin validar antes de procesar.",
                 tipo="warning",
@@ -327,7 +327,11 @@ def _mostrar_resultado_sync(
             )
         return
 
-    st.error("La sincronización falló." if not proceso_completo else "El proceso falló.")
+    msg = clasificar_fallo_sync(stdout, stderr)
+    st.error(f"**{msg.titulo}**  \n{msg.explicacion}")
+    if msg.accion:
+        st.info(msg.accion)
+
     lineas_out = [ln.strip() for ln in salida.splitlines() if ln.strip()]
     if lineas_out:
         st.markdown(
@@ -345,19 +349,14 @@ def _mostrar_resultado_sync(
             err_lineas.append(txt)
     detalle = "\n".join(err_lineas).strip()
     if not detalle and lineas_out:
-        # Fallback: el fallo quedó solo en stdout (p.ej. "API: error — …")
         detalle = "\n".join(lineas_out)
     if detalle:
-        # Primera línea como pista visible sin abrir expander
-        pista = detalle.splitlines()[0][:240]
-        st.warning(pista)
-        with st.expander("Detalle del error", expanded=True):
+        with st.expander("Detalle técnico", expanded=False):
             st.code(detalle[:4000])
     else:
-        st.info(
-            "Sin detalle del proceso. En consola ejecute:\n"
-            "`python scripts/sincronizar_perfiles.py --quiet` "
-            "o `python scripts/diagnosticar_conectividad_sync.py`."
+        st.caption(
+            "Sin detalle del proceso. Diagnóstico: "
+            "`python scripts/diagnosticar_conectividad_sync.py`"
         )
 
 

@@ -214,6 +214,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if getattr(args, 'ui_progress', False):
         emit_ui_progress(0, _SYNC_UI_TOTAL, 'Iniciando sincronización…')
+    elif args.quiet:
+        # Evita pantalla en blanco mientras ION/API trabajan.
+        print('Sync en curso…', flush=True)
 
     if not args.solo_export:
         if not args.sin_ion:
