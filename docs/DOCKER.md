@@ -34,7 +34,7 @@ chmod 600 deploy/secrets.toml
 
   ```bash
   # Desde su PC (PowerShell), ejemplo con scp:
-  scp -r C:\Proyectos_IUSASOL\BESS\data usuario@IP_SERVIDOR:~/ReportesBESS/
+  scp -r C:\Proyectos_IUSASOL\ReporteadorIUSASOL\data usuario@IP_SERVIDOR:~/ReportesBESS/
   ```
 
   Incluya al menos: `data/Tarifas/`, `data/bess_perfiles.db`, `data/ArchivosReporte/`, logos en `data/`.

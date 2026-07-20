@@ -1,6 +1,7 @@
-# Documentación — Sistema BESS
+# Documentación — IUSASOL (BESS y Consultas Usuarios)
 
-**Versión de la aplicación:** 5.14.0
+**BESS (producción):** 5.14.0  
+**Consultas Usuarios:** en diseño — ver [CONSULTAS_USUARIOS.md](CONSULTAS_USUARIOS.md)
 
 ## Manuales
 
