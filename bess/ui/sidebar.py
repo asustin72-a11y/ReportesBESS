@@ -280,6 +280,7 @@ def _mostrar_resultado_sync(
     proceso_completo: bool = False,
 ) -> None:
     from bess.config.catalog import invalidar_cache_catalogo
+    from bess.core.ui_progress import parse_ui_progress
     from bess.data.sync_resumen import html_resumen_sidebar
 
     salida = (stdout or "").strip()
@@ -327,15 +328,37 @@ def _mostrar_resultado_sync(
         return
 
     st.error("La sincronización falló." if not proceso_completo else "El proceso falló.")
-    if salida:
+    lineas_out = [ln.strip() for ln in salida.splitlines() if ln.strip()]
+    if lineas_out:
         st.markdown(
-            html_resumen_sidebar(salida.splitlines()[:12]),
+            html_resumen_sidebar(lineas_out[:12]),
             unsafe_allow_html=True,
         )
-    err = (stderr or "").strip()
-    if err:
-        with st.expander("Detalle del error"):
-            st.code(err[:2000])
+
+    # Quitar líneas de progreso BESS_UI_PROGRESS; dejar solo el error útil.
+    err_lineas = []
+    for ln in (stderr or "").splitlines():
+        if parse_ui_progress(ln):
+            continue
+        txt = ln.strip()
+        if txt:
+            err_lineas.append(txt)
+    detalle = "\n".join(err_lineas).strip()
+    if not detalle and lineas_out:
+        # Fallback: el fallo quedó solo en stdout (p.ej. "API: error — …")
+        detalle = "\n".join(lineas_out)
+    if detalle:
+        # Primera línea como pista visible sin abrir expander
+        pista = detalle.splitlines()[0][:240]
+        st.warning(pista)
+        with st.expander("Detalle del error", expanded=True):
+            st.code(detalle[:4000])
+    else:
+        st.info(
+            "Sin detalle del proceso. En consola ejecute:\n"
+            "`python scripts/sincronizar_perfiles.py --quiet` "
+            "o `python scripts/diagnosticar_conectividad_sync.py`."
+        )
 
 
 def _ejecutar_procesar_todo_sidebar(progreso_placeholder):
