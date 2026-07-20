@@ -313,11 +313,15 @@ def main(argv: list[str] | None = None) -> int:
                     incluir_granja=False,
                 )
                 if fallo_api:
-                    if not args.quiet:
-                        print(f'\n{fallo_api}', file=sys.stderr)
+                    # Siempre a stderr: la UI (--quiet) muestra el expander de detalle.
+                    print(fallo_api, file=sys.stderr)
+                    if args.quiet:
+                        print(f'API: error — {fallo_api}')
                     return 1
             except Exception as exc:
                 print(f'ERROR API: {exc}', file=sys.stderr)
+                if args.quiet:
+                    print(f'API: error — {exc}')
                 return 1
 
         if not args.sin_granja:
@@ -350,16 +354,18 @@ def main(argv: list[str] | None = None) -> int:
                     incluir_granja=True,
                 )
                 if fallo_granja:
-                    if not args.quiet:
-                        print(f'\n{fallo_granja}', file=sys.stderr)
+                    print(fallo_granja, file=sys.stderr)
+                    if args.quiet:
+                        print(f'Granja: error — {fallo_granja}')
                     return 1
             except Exception as exc:
                 granja_item = {
                     'medidor': db.MEDIDOR_GRANJA_IUSA2,
                     'error': str(exc),
                 }
-                if not args.quiet:
-                    print(f'ERROR Granja: {exc}', file=sys.stderr)
+                print(f'ERROR Granja: {exc}', file=sys.stderr)
+                if args.quiet:
+                    print(f'Granja: error — {exc}')
                 return 1
 
     export_ok = True
