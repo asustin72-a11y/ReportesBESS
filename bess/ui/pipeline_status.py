@@ -271,7 +271,10 @@ def render_aviso_reporte_desactualizado():
         "⚠️ **El reporte mostrado no incluye los datos ya sincronizados "
         "más recientes:**\n\n"
         + "\n".join(lineas)
-        + "\n\nUse **Procesar todo** en la barra lateral para actualizarlo."
+        + "\n\nPara actualizarlo: en la barra lateral use "
+        "**Verificar → Filtrar → Generar reportes**. "
+        "Si la API está caída, primero exporte la BD a CSV en consola:\n"
+        "`python scripts/sincronizar_perfiles.py --quiet --solo-export`"
     )
 
 
