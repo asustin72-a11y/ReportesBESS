@@ -182,18 +182,11 @@ def _tab_importar():
 
         medidor = st.selectbox("Medidor destino", medidores, key="imp_medidor")
 
-        c1, c2 = st.columns(2)
-        solo_faltantes = c1.checkbox(
+        solo_faltantes = st.checkbox(
             "Solo timestamps faltantes",
             value=False,
             key="imp_solo_faltantes",
             help="No actualiza registros existentes, solo inserta nuevos.",
-        )
-        sin_filtro_dia = c2.checkbox(
-            "Sin filtro 00:05 del primer registro",
-            value=False,
-            key="imp_sin_filtro_dia",
-            help="Desactiva el filtro que descarta el registro de las 00:05.",
         )
 
         rebuild_despues = st.checkbox(
@@ -219,7 +212,6 @@ def _tab_importar():
                     archivo.name,
                     medidor,
                     solo_faltantes=solo_faltantes,
-                    sin_filtro_dia=sin_filtro_dia,
                 )
             if codigo == 0:
                 st.success(

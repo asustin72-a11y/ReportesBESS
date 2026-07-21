@@ -1,6 +1,6 @@
 # Guía de usuario — Sistema BESS
 
-**Versión:** 5.15.0  
+**Versión:** 5.16.0  
 **Aplicación:** Monitoreo, análisis y reportes de sistemas BESS para subestaciones **IUSA 1**, **IUSA 2** e **IUSA ARAGON**.
 
 > **PDF con capturas:** `docs/GUIA_USUARIO.pdf`  

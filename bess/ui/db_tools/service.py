@@ -163,7 +163,6 @@ def importar_desde_bytes(
     medidor_id: str,
     *,
     solo_faltantes: bool = False,
-    sin_filtro_dia: bool = False,
 ) -> tuple[int, str]:
     suffix = Path(nombre_archivo).suffix or ".csv"
     with tempfile.NamedTemporaryFile(mode="wb", suffix=suffix, delete=False) as tmp:
@@ -178,7 +177,6 @@ def importar_desde_bytes(
                 RUTA_BD_PERFILES,
                 medidor_id,
                 solo_faltantes=solo_faltantes,
-                sin_filtro_dia=sin_filtro_dia,
             )
         return codigo, buf.getvalue()
     finally:

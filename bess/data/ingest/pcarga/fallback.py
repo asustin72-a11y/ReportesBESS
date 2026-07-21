@@ -87,7 +87,6 @@ def _importar_bytes(csv_bytes: bytes, medidor_id: str, nombre: str) -> tuple[int
                 RUTA_BD_PERFILES,
                 medidor_id,
                 solo_faltantes=False,
-                sin_filtro_dia=False,
             )
         return codigo, buf.getvalue()
     finally:

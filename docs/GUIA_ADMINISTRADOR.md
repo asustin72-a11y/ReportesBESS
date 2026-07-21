@@ -1,6 +1,6 @@
 # Guía del administrador — Sistema BESS
 
-**Versión:** 5.15.0  
+**Versión:** 5.16.0  
 **Roles:** `admin` (operador) y `superadmin`
 
 > **PDF:** `docs/GUIA_ADMINISTRADOR.pdf`  
@@ -132,11 +132,9 @@ Formato esperado: `Fecha`, `KWH_REC`, `KWH_ENT`, `KVARH_Q1`…`KVARH_Q4`.
 
 1. Seleccione el medidor destino.
 2. Active **Solo timestamps faltantes** si no desea actualizar filas existentes.
-3. Use **Sin filtro 00:05** solo para backfill que deba conservar el primer
-   registro del día aunque no sea 00:05.
-4. Opcional: active **Rebuild CSV después del import** y seleccione la fecha
+3. Opcional: active **Rebuild CSV después del import** y seleccione la fecha
    inicial de reconstrucción.
-5. Suba el CSV y pulse **Importar a SQLite**.
+4. Suba el CSV y pulse **Importar a SQLite**.
 
 Al terminar correctamente:
 
@@ -372,6 +370,7 @@ Scripts:
 
 - Docker: [DOCKER.md](DOCKER.md)  
 - Restauración local: [RESTAURACION_LOCAL.md](../RESTAURACION_LOCAL.md)  
+- Versión 5.16.0: [RELEASE_NOTES_5.16.0.md](../RELEASE_NOTES_5.16.0.md)
 - Versión 5.15.0: [RELEASE_NOTES_5.15.0.md](../RELEASE_NOTES_5.15.0.md)
 - Versión 5.14.0: [RELEASE_NOTES_5.14.0.md](../RELEASE_NOTES_5.14.0.md)
 - Versión 5.13.0: [RELEASE_NOTES_5.13.0.md](../RELEASE_NOTES_5.13.0.md)

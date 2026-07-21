@@ -16,7 +16,6 @@ from bess.data.sync_cursor import registrar_exito_sync
 MEDIDOR_BESS = db.MEDIDOR_BESS
 MEDIDOR_BANCO = db.MEDIDOR_BANCO
 LOTE = 500
-PRIMER_INTERVALO = (0, 5)
 
 MEDIDORES_IMPORTABLES = tuple(ids_medidores_perfil_bd())
 
@@ -76,40 +75,11 @@ def _fila_a_registro(encabezados: list[str], valores: list[str], medidor_id: str
     }
 
 
-def filtrar_primer_registro_dia(registros: list[dict]) -> tuple[list[dict], int]:
-    registros.sort(key=lambda r: r['fecha_dt'])
-    vistos_dia: set[str] = set()
-    validos: list[dict] = []
-    omitidos = 0
-
-    for reg in registros:
-        dia = reg['fecha_dt'].date().isoformat()
-        if dia not in vistos_dia:
-            vistos_dia.add(dia)
-            hora, minuto = reg['fecha_dt'].hour, reg['fecha_dt'].minute
-            if (hora, minuto) != PRIMER_INTERVALO:
-                omitidos += 1
-                continue
-
-        validos.append({
-            'fecha': reg['fecha'],
-            'kwh_rec': reg['kwh_rec'],
-            'kwh_ent': reg['kwh_ent'],
-            'kvarh_q1': reg['kvarh_q1'],
-            'kvarh_q2': reg['kvarh_q2'],
-            'kvarh_q3': reg['kvarh_q3'],
-            'kvarh_q4': reg['kvarh_q4'],
-        })
-
-    return validos, omitidos
-
-
 def importar_csv(
     ruta_csv: Path,
     ruta_bd: Path,
     medidor_id: str = db.MEDIDOR_ION,
     solo_faltantes: bool = False,
-    sin_filtro_dia: bool = False,
 ) -> int:
     if not ruta_csv.exists():
         print(f'ERROR: no existe {ruta_csv}')
@@ -151,32 +121,22 @@ def importar_csv(
             print('BD ya contiene todos los timestamps del CSV.')
             return 0
 
-    if sin_filtro_dia or medidor_id in (db.MEDIDOR_ION_IUSA2, MEDIDOR_BANCO):
-        validos = [
-            {
-                'fecha': reg['fecha'],
-                'kwh_rec': reg['kwh_rec'],
-                'kwh_ent': reg['kwh_ent'],
-                'kvarh_q1': reg['kvarh_q1'],
-                'kvarh_q2': reg['kvarh_q2'],
-                'kvarh_q3': reg['kvarh_q3'],
-                'kvarh_q4': reg['kvarh_q4'],
-            }
-            for reg in sorted(todos, key=lambda r: r['fecha_dt'])
-        ]
-        omitidos = 0
-        if medidor_id == db.MEDIDOR_ION_IUSA2:
-            print('ION_IUSA2: perfil a BD sin filtrar (tal cual del medidor)')
-        elif medidor_id == MEDIDOR_BANCO:
-            print('BANCO: perfil a BD sin filtrar (conserva slots 00:00)')
-    else:
-        validos, omitidos = filtrar_primer_registro_dia(todos)
-    if medidor_id not in (db.MEDIDOR_ION_IUSA2, MEDIDOR_BANCO):
-        print(f'Omitidos (1er registro del dia != 00:05): {omitidos}')
+    validos = [
+        {
+            'fecha': reg['fecha'],
+            'kwh_rec': reg['kwh_rec'],
+            'kwh_ent': reg['kwh_ent'],
+            'kvarh_q1': reg['kvarh_q1'],
+            'kvarh_q2': reg['kvarh_q2'],
+            'kvarh_q3': reg['kvarh_q3'],
+            'kvarh_q4': reg['kvarh_q4'],
+        }
+        for reg in sorted(todos, key=lambda r: r['fecha_dt'])
+    ]
     print(f'Registros a guardar: {len(validos)}')
 
     if not validos:
-        print('ERROR: no quedaron registros tras filtrar')
+        print('ERROR: el CSV no tiene registros válidos')
         return 1
 
     insertados = 0
@@ -218,18 +178,12 @@ def main(argv: list[str] | None = None) -> int:
         action='store_true',
         help='Insertar solo timestamps que no existen en BD (no actualiza existentes).',
     )
-    parser.add_argument(
-        '--sin-filtro-dia',
-        action='store_true',
-        help='No omitir primer registro del dia si no es 00:05 (util para backfill ION).',
-    )
     args = parser.parse_args(argv)
     return importar_csv(
         args.csv,
         args.bd,
         args.medidor,
         solo_faltantes=args.solo_faltantes,
-        sin_filtro_dia=args.sin_filtro_dia,
     )
 
 

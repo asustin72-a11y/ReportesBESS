@@ -243,7 +243,7 @@ python scripts/import_perfil_csv.py RUTA_CSV --medidor {ION|BESS|BANCO} [--bd RU
 
 ### Reglas de importación
 
-1. **Primer registro del día:** debe ser `00:05:00`. Si el primer registro de un día tiene otra hora, se omite solo ese registro.
+1. **Todas las filas:** se importan tal cual vienen en el CSV.
 2. **ION — CSV antiguos:** si importa un CSV descargado antes de la corrección (`KWH_REC=0`, `KWH_ENT>0`), `import_ion_csv.py` intercambia automáticamente al importar.
 3. **Upsert:** registros existentes (misma fecha + medidor) se actualizan; los nuevos se insertan.
 
@@ -418,7 +418,6 @@ Fecha,KWH_REC,KWH_ENT,KVARH_Q1,KVARH_Q2,KVARH_Q3,KVARH_Q4
 | ION con KWH invertidos en BESS (solo datos viejos) | Verificar muestra; si REC=0 usar `fix_ion_kwh.py --confirmar` una vez, o re-sync |
 | BESS: error al generar reportes | Ejecutar **Filtrar** antes; cerrar Excel con CSV abiertos |
 | Fechas ION más cortas que BESS/BANCO | Completar sync ION: `python scripts/sync_ion.py` |
-| Primer registro del día omitido | Normal si no es 00:05; BESS requiere ese intervalo |
 
 ---
 

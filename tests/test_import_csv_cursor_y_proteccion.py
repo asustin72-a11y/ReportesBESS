@@ -24,6 +24,33 @@ def _fila_bd(ruta_bd: Path, medidor_id: str, fecha: str):
         ).fetchone()
 
 
+def test_importar_csv_conserva_primer_registro_aunque_no_sea_0005(tmp_path):
+    """No se omite 00:00 ni ningún otro primer registro del día."""
+    ruta_bd = tmp_path / "perfiles.db"
+    ruta_csv = tmp_path / "BESS_ARAGON.csv"
+    medidor_id = "BESS_ARAGON"
+    db.init_db(ruta_bd)
+    _escribir_csv(
+        ruta_csv,
+        [
+            ("2026-07-08 00:00:00", 0.1, 0.0),
+            ("2026-07-08 00:05:00", 0.2, 0.0),
+            ("2026-07-09 00:00:00", 0.3, 0.0),
+            ("2026-07-09 00:05:00", 0.4, 0.0),
+        ],
+    )
+
+    codigo = importar_csv(ruta_csv, ruta_bd, medidor_id)
+    assert codigo == 0
+
+    with db.conectar_bd(ruta_bd) as conn:
+        total = db.contar_registros(conn, medidor_id)
+    assert total == 4
+    assert _fila_bd(ruta_bd, medidor_id, "2026-07-08 00:00:00") is not None
+    assert float(_fila_bd(ruta_bd, medidor_id, "2026-07-08 00:00:00")["kwh_rec"]) == 0.1
+    assert _fila_bd(ruta_bd, medidor_id, "2026-07-09 00:00:00") is not None
+
+
 def test_importar_csv_alinea_cursor_y_marca_fuente_csv(tmp_path, monkeypatch):
     """Tras import OK: sync_state + Ultima_Sincronizacion = MAX(fecha), fuente=csv."""
     ruta_bd = tmp_path / "perfiles.db"
@@ -46,7 +73,6 @@ def test_importar_csv_alinea_cursor_y_marca_fuente_csv(tmp_path, monkeypatch):
         ruta_csv,
         ruta_bd,
         medidor_id,
-        sin_filtro_dia=True,
     )
     assert codigo == 0
 
