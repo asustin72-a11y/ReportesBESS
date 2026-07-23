@@ -80,15 +80,11 @@ def calcular_reporte_acumulado(prefijo: str, fecha_corte: date, *, tarifas: dict
     descarga_intermedio = sumar_energia(sums["INTERMEDIO_ENT"])
     descarga_punta = sumar_energia(sums["PUNTA_ENT"])
 
-    carga_total = (
-        kwh_para_calculo(carga_base)
-        + kwh_para_calculo(carga_intermedio)
-        + kwh_para_calculo(carga_punta)
+    carga_total = kwh_para_calculo(
+        sumar_energia([carga_base, carga_intermedio, carga_punta])
     )
-    descarga_total = (
-        kwh_para_calculo(descarga_base)
-        + kwh_para_calculo(descarga_intermedio)
-        + kwh_para_calculo(descarga_punta)
+    descarga_total = kwh_para_calculo(
+        sumar_energia([descarga_base, descarga_intermedio, descarga_punta])
     )
     eficiencia_pct = (descarga_total / carga_total * 100) if carga_total > 0 else 0.0
 

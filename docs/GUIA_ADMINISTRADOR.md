@@ -1,6 +1,6 @@
 # Guía del administrador — Sistema BESS
 
-**Versión:** 5.16.0  
+**Versión:** 5.16.1  
 **Roles:** `admin` (operador) y `superadmin`
 
 > **PDF:** `docs/GUIA_ADMINISTRADOR.pdf`  
@@ -370,6 +370,7 @@ Scripts:
 
 - Docker: [DOCKER.md](DOCKER.md)  
 - Restauración local: [RESTAURACION_LOCAL.md](../RESTAURACION_LOCAL.md)  
+- Versión 5.16.1: [RELEASE_NOTES_5.16.1.md](../RELEASE_NOTES_5.16.1.md)
 - Versión 5.16.0: [RELEASE_NOTES_5.16.0.md](../RELEASE_NOTES_5.16.0.md)
 - Versión 5.15.0: [RELEASE_NOTES_5.15.0.md](../RELEASE_NOTES_5.15.0.md)
 - Versión 5.14.0: [RELEASE_NOTES_5.14.0.md](../RELEASE_NOTES_5.14.0.md)
