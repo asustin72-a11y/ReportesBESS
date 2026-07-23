@@ -1,4 +1,8 @@
-"""Descarga pcarga por red y convierte a CSV listo para Importar (Fecha + kWh)."""
+"""Descarga pcarga por red y convierte a CSV listo para Importar (Fecha + kWh).
+
+En el servidor Docker, Wine/MLE viven en el host: se ejecuta pcarga por SSH
+([pcarga] ssh_host / ssh_user / ssh_password) y se trae el CSV por SFTP.
+"""
 
 from __future__ import annotations
 
@@ -6,12 +10,15 @@ import csv
 import io
 import os
 import platform
+import shlex
 import subprocess
 import sys
 import tempfile
+import uuid
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
+from typing import Any
 
 from bess.config.pcarga_endpoints import EndpointPCarga, endpoint_pcarga
 
@@ -31,26 +38,49 @@ class ResultadoDescargaPCarga:
     ruta_crudo: str = ""
 
 
-def _ruta_pcarga_py() -> Path | None:
-    env = (os.environ.get("PCARGA_SCRIPT") or "").strip()
-    if env:
-        p = Path(env).expanduser()
-        return p if p.is_file() else None
-
+def _pcarga_secrets() -> dict[str, Any]:
     try:
         import streamlit as st
 
         cfg = st.secrets.get("pcarga", {})
-        script = cfg.get("script") or cfg.get("script_dir")
-        if script:
-            p = Path(str(script)).expanduser()
-            if p.is_file():
-                return p
-            cand = p / "pcarga.py"
-            if cand.is_file():
-                return cand
+        return dict(cfg) if cfg else {}
     except Exception:
-        pass
+        return {}
+
+
+def _cfg(clave: str, env: str = "", default: str = "") -> str:
+    if env:
+        val = (os.environ.get(env) or "").strip()
+        if val:
+            return val
+    secrets = _pcarga_secrets()
+    if clave in secrets and secrets[clave] not in (None, ""):
+        return str(secrets[clave]).strip()
+    return default
+
+
+def _ruta_pcarga_configurada() -> str:
+    """Ruta configurada (puede no existir dentro del contenedor)."""
+    env = (os.environ.get("PCARGA_SCRIPT") or "").strip()
+    if env:
+        return env
+    secrets = _pcarga_secrets()
+    script = secrets.get("script") or secrets.get("script_dir")
+    if script:
+        return str(script).strip()
+    return ""
+
+
+def _ruta_pcarga_local() -> Path | None:
+    """Solo si el archivo es visible en este filesystem."""
+    conf = _ruta_pcarga_configurada()
+    if conf:
+        p = Path(conf).expanduser()
+        if p.is_file():
+            return p
+        cand = p / "pcarga.py"
+        if cand.is_file():
+            return cand
 
     candidatos = [
         Path.home() / "mle" / "leeperfil" / "pcarga.py",
@@ -64,23 +94,43 @@ def _ruta_pcarga_py() -> Path | None:
 
 
 def _mle_dir() -> str:
-    env = (os.environ.get("MLE_DIR") or "").strip()
-    if env:
-        return str(Path(env).expanduser())
-    try:
-        import streamlit as st
+    return _cfg("mle_dir", "MLE_DIR", str(Path.home() / "mle"))
 
-        cfg = st.secrets.get("pcarga", {})
-        if cfg.get("mle_dir"):
-            return str(Path(str(cfg["mle_dir"])).expanduser())
-    except Exception:
-        pass
-    return str(Path.home() / "mle")
+
+def _ssh_cfg() -> dict[str, str] | None:
+    """Credenciales SSH al host (Wine/MLE). None si no aplica."""
+    host = _cfg("ssh_host", "PCARGA_SSH_HOST")
+    user = _cfg("ssh_user", "PCARGA_SSH_USER", "bess")
+    password = _cfg("ssh_password", "PCARGA_SSH_PASSWORD")
+    if not host:
+        # Auto en Docker: gateway típico o IP del servidor BESS
+        if Path("/.dockerenv").is_file():
+            # IP LAN del host (hairpin); alternativa: 172.17.0.1 (docker0)
+            host = _cfg("ssh_host", "", "172.16.208.250")
+        else:
+            return None
+    if not password:
+        return None
+    script = _ruta_pcarga_configurada() or "/home/bess/mle/leeperfil/pcarga.py"
+    return {
+        "host": host,
+        "user": user,
+        "password": password,
+        "port": _cfg("ssh_port", "PCARGA_SSH_PORT", "22"),
+        "script": script,
+        "mle_dir": _mle_dir() if _mle_dir() else "/home/bess/mle",
+        "python": _cfg("ssh_python", "PCARGA_SSH_PYTHON", "python3"),
+    }
+
+
+def _en_docker() -> bool:
+    return Path("/.dockerenv").is_file()
 
 
 def _fmt_rango(valor: date | datetime, *, fin: bool = False) -> str:
     if isinstance(valor, datetime):
-        return valor.strftime("%Y-%m-%d %H:%M:%S")
+        # Perfil a 5 min: solo hora:minuto (segundos en 00)
+        return valor.replace(second=0, microsecond=0).strftime("%Y-%m-%d %H:%M:00")
     return f"{valor.isoformat()} {'23:55:00' if fin else '00:00:00'}"
 
 
@@ -155,49 +205,68 @@ def _leer_num(keys: dict[str, str], nombre: str) -> float:
         return 0.0
 
 
-def descargar_pcarga_medidor(
-    medidor_id: str,
-    desde: date | datetime,
-    hasta: date | datetime,
+def _resultado_desde_crudo(
     *,
-    timeout_s: int = 600,
+    ep: EndpointPCarga,
+    medidor_id: str,
+    ke: float,
+    desde_s: str,
+    hasta_s: str,
+    ruta_crudo: Path,
+    log: str,
+    crudo_nombre: str | None = None,
 ) -> ResultadoDescargaPCarga:
-    """Ejecuta pcarga.py --red y devuelve CSV listo para Importar (sin escribir BD)."""
-    ep = endpoint_pcarga(medidor_id)
-    if ep is None:
+    try:
+        csv_txt, n, omitidos = convertir_pcarga_a_import(ruta_crudo, ke=ke)
+    except Exception as exc:
         return ResultadoDescargaPCarga(
             ok=False,
             medidor_id=medidor_id,
             registros=0,
             omitidos_invalidos=0,
-            ke_aplicado=1.0,
-            ya_escalado=False,
-            csv_bytes=b"",
-            nombre_archivo="",
-            log=f"Medidor {medidor_id!r} no tiene endpoint pcarga configurado.",
-        )
-
-    script = _ruta_pcarga_py()
-    if script is None:
-        return ResultadoDescargaPCarga(
-            ok=False,
-            medidor_id=medidor_id,
-            registros=0,
-            omitidos_invalidos=0,
-            ke_aplicado=ep.ke_efectivo,
+            ke_aplicado=ke,
             ya_escalado=ep.ya_escalado,
             csv_bytes=b"",
             nombre_archivo="",
-            log=(
-                "No se encontró pcarga.py. Configure secrets [pcarga] script "
-                "o variable PCARGA_SCRIPT."
-            ),
+            log=f"{log}\nError convirtiendo CSV: {exc}",
+            ruta_crudo=crudo_nombre or ruta_crudo.name,
         )
 
-    desde_s = _fmt_rango(desde, fin=False)
-    hasta_s = _fmt_rango(hasta, fin=True)
-    ke = ep.ke_efectivo
+    serie = _serie_desde_nombre(ruta_crudo.name) or ep.serie
+    if ep.serie and serie and ep.serie not in serie:
+        log += (
+            f"\nAviso: serie leída {serie!r} no coincide con "
+            f"configurada {ep.serie!r}."
+        )
 
+    d0 = desde_s[:10].replace("-", "")
+    d1 = hasta_s[:10].replace("-", "")
+    nombre = f"{medidor_id}_pcarga_{d0}_{d1}.csv"
+    return ResultadoDescargaPCarga(
+        ok=True,
+        medidor_id=medidor_id,
+        registros=n,
+        omitidos_invalidos=omitidos,
+        ke_aplicado=ke,
+        ya_escalado=ep.ya_escalado,
+        csv_bytes=csv_txt.encode("utf-8"),
+        nombre_archivo=nombre,
+        log=log.strip(),
+        serie_leida=serie,
+        ruta_crudo=crudo_nombre or ruta_crudo.name,
+    )
+
+
+def _descargar_local(
+    *,
+    ep: EndpointPCarga,
+    medidor_id: str,
+    script: Path,
+    desde_s: str,
+    hasta_s: str,
+    ke: float,
+    timeout_s: int,
+) -> ResultadoDescargaPCarga:
     with tempfile.TemporaryDirectory(prefix="bess_pcarga_") as tmp:
         outdir = Path(tmp)
         cmd = [
@@ -258,10 +327,99 @@ def descargar_pcarga_medidor(
                 log=log.strip() or f"pcarga falló (código {proc.returncode}).",
             )
 
-        ruta_crudo = crudos[-1]
-        try:
-            csv_txt, n, omitidos = convertir_pcarga_a_import(ruta_crudo, ke=ke)
-        except Exception as exc:
+        return _resultado_desde_crudo(
+            ep=ep,
+            medidor_id=medidor_id,
+            ke=ke,
+            desde_s=desde_s,
+            hasta_s=hasta_s,
+            ruta_crudo=crudos[-1],
+            log=log,
+        )
+
+
+def _descargar_via_ssh(
+    *,
+    ep: EndpointPCarga,
+    medidor_id: str,
+    ssh: dict[str, str],
+    desde_s: str,
+    hasta_s: str,
+    ke: float,
+    timeout_s: int,
+) -> ResultadoDescargaPCarga:
+    try:
+        import paramiko
+    except ImportError:
+        return ResultadoDescargaPCarga(
+            ok=False,
+            medidor_id=medidor_id,
+            registros=0,
+            omitidos_invalidos=0,
+            ke_aplicado=ke,
+            ya_escalado=ep.ya_escalado,
+            csv_bytes=b"",
+            nombre_archivo="",
+            log=(
+                "PCarga en Docker requiere paramiko para SSH al host. "
+                "Instale paramiko o ejecute Streamlit en el host."
+            ),
+        )
+
+    remote_out = f"/tmp/bess_pcarga_{uuid.uuid4().hex[:10]}"
+    script = ssh["script"]
+    mle = ssh["mle_dir"]
+    py = ssh["python"]
+    # shell-safe
+    cmd = (
+        f"mkdir -p {shlex.quote(remote_out)} && "
+        f"{shlex.quote(py)} {shlex.quote(script)} --red --wine "
+        f"--mle-dir {shlex.quote(mle)} "
+        f"--ip {shlex.quote(ep.ip)} --puerto {int(ep.puerto)} "
+        f"-desde {shlex.quote(desde_s)} -hasta {shlex.quote(hasta_s)} "
+        f"-d {shlex.quote(remote_out)}; echo PCARGA_EC=$?; "
+        f"ls -1 {shlex.quote(remote_out)}/*_pcarga_*.csv 2>/dev/null | tail -1"
+    )
+
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(
+            ssh["host"],
+            port=int(ssh["port"] or 22),
+            username=ssh["user"],
+            password=ssh["password"],
+            timeout=30,
+            allow_agent=False,
+            look_for_keys=False,
+        )
+    except Exception as exc:
+        return ResultadoDescargaPCarga(
+            ok=False,
+            medidor_id=medidor_id,
+            registros=0,
+            omitidos_invalidos=0,
+            ke_aplicado=ke,
+            ya_escalado=ep.ya_escalado,
+            csv_bytes=b"",
+            nombre_archivo="",
+            log=f"SSH al host pcarga ({ssh['user']}@{ssh['host']}) falló: {exc}",
+        )
+
+    try:
+        stdin, stdout, stderr = client.exec_command(cmd, timeout=timeout_s)
+        out = stdout.read().decode("utf-8", "replace")
+        err = stderr.read().decode("utf-8", "replace")
+        log = out + (("\n" + err) if err.strip() else "")
+        # última línea no vacía que parezca ruta csv
+        remote_csv = ""
+        for line in reversed(out.splitlines()):
+            line = line.strip()
+            if line.endswith(".csv") and "_pcarga_" in line:
+                remote_csv = line
+                break
+        if not remote_csv:
+            client.exec_command(f"rm -rf {shlex.quote(remote_out)}")
             return ResultadoDescargaPCarga(
                 ok=False,
                 medidor_id=medidor_id,
@@ -271,37 +429,125 @@ def descargar_pcarga_medidor(
                 ya_escalado=ep.ya_escalado,
                 csv_bytes=b"",
                 nombre_archivo="",
-                log=f"{log}\nError convirtiendo CSV: {exc}",
-                ruta_crudo=str(ruta_crudo),
+                log=log.strip() or "pcarga vía SSH no produjo CSV.",
             )
 
-        serie = _serie_desde_nombre(ruta_crudo.name) or ep.serie
-        if ep.serie and serie and ep.serie not in serie:
-            log += (
-                f"\nAviso: serie leída {serie!r} no coincide con "
-                f"configurada {ep.serie!r}."
+        with tempfile.TemporaryDirectory(prefix="bess_pcarga_ssh_") as tmp:
+            local_csv = Path(tmp) / Path(remote_csv).name
+            sftp = client.open_sftp()
+            try:
+                sftp.get(remote_csv, str(local_csv))
+            finally:
+                sftp.close()
+            client.exec_command(f"rm -rf {shlex.quote(remote_out)}")
+            return _resultado_desde_crudo(
+                ep=ep,
+                medidor_id=medidor_id,
+                ke=ke,
+                desde_s=desde_s,
+                hasta_s=hasta_s,
+                ruta_crudo=local_csv,
+                log=f"[ssh {ssh['user']}@{ssh['host']}]\n{log}",
+                crudo_nombre=Path(remote_csv).name,
             )
-
-        d0 = desde_s[:10].replace("-", "")
-        d1 = hasta_s[:10].replace("-", "")
-        nombre = f"{medidor_id}_pcarga_{d0}_{d1}.csv"
+    except Exception as exc:
+        try:
+            client.exec_command(f"rm -rf {shlex.quote(remote_out)}")
+        except Exception:
+            pass
         return ResultadoDescargaPCarga(
-            ok=True,
+            ok=False,
             medidor_id=medidor_id,
-            registros=n,
-            omitidos_invalidos=omitidos,
+            registros=0,
+            omitidos_invalidos=0,
             ke_aplicado=ke,
             ya_escalado=ep.ya_escalado,
-            csv_bytes=csv_txt.encode("utf-8"),
-            nombre_archivo=nombre,
-            log=log.strip(),
-            serie_leida=serie,
-            ruta_crudo=ruta_crudo.name,
+            csv_bytes=b"",
+            nombre_archivo="",
+            log=f"Error ejecutando pcarga por SSH: {exc}",
         )
+    finally:
+        client.close()
+
+
+def descargar_pcarga_medidor(
+    medidor_id: str,
+    desde: date | datetime,
+    hasta: date | datetime,
+    *,
+    timeout_s: int = 600,
+) -> ResultadoDescargaPCarga:
+    """Ejecuta pcarga.py --red y devuelve CSV listo para Importar (sin escribir BD)."""
+    ep = endpoint_pcarga(medidor_id)
+    if ep is None:
+        return ResultadoDescargaPCarga(
+            ok=False,
+            medidor_id=medidor_id,
+            registros=0,
+            omitidos_invalidos=0,
+            ke_aplicado=1.0,
+            ya_escalado=False,
+            csv_bytes=b"",
+            nombre_archivo="",
+            log=f"Medidor {medidor_id!r} no tiene endpoint pcarga configurado.",
+        )
+
+    desde_s = _fmt_rango(desde, fin=False)
+    hasta_s = _fmt_rango(hasta, fin=True)
+    ke = ep.ke_efectivo
+
+    script_local = _ruta_pcarga_local()
+    ssh = _ssh_cfg()
+    # En Docker preferir SSH al host (Wine); local Windows/Linux usa script local.
+    if script_local is not None and not (_en_docker() and ssh is not None):
+        return _descargar_local(
+            ep=ep,
+            medidor_id=medidor_id,
+            script=script_local,
+            desde_s=desde_s,
+            hasta_s=hasta_s,
+            ke=ke,
+            timeout_s=timeout_s,
+        )
+
+    if ssh is not None:
+        return _descargar_via_ssh(
+            ep=ep,
+            medidor_id=medidor_id,
+            ssh=ssh,
+            desde_s=desde_s,
+            hasta_s=hasta_s,
+            ke=ke,
+            timeout_s=timeout_s,
+        )
+
+    conf = _ruta_pcarga_configurada()
+    hint = ""
+    if conf:
+        hint = f" Ruta configurada no visible aquí: {conf}."
+    if _en_docker():
+        hint += (
+            " En Docker configure [pcarga] ssh_host / ssh_user / ssh_password "
+            "para ejecutar Wine/MLE en el host."
+        )
+    return ResultadoDescargaPCarga(
+        ok=False,
+        medidor_id=medidor_id,
+        registros=0,
+        omitidos_invalidos=0,
+        ke_aplicado=ke,
+        ya_escalado=ep.ya_escalado,
+        csv_bytes=b"",
+        nombre_archivo="",
+        log=(
+            "No se encontró pcarga.py."
+            + hint
+            + " Configure secrets [pcarga] script o variable PCARGA_SCRIPT."
+        ),
+    )
 
 
 def _serie_desde_nombre(nombre: str) -> str:
-    # 00000000CS3190VL2E19NB_pcarga_local.csv o similar
     base = Path(nombre).name
     if "_pcarga_" in base:
         return base.split("_pcarga_", 1)[0]

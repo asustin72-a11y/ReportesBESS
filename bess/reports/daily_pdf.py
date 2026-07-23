@@ -36,11 +36,11 @@ print = log
 
 
 def _celdas_kwh_tabla(base, intermedio, punta):
-    """kWh por periodo redondeados; total = suma de periodos redondeados."""
+    """Periodos redondeados para mostrar; Total = redondeo de la suma cruda."""
     b = kwh_para_calculo(base)
     i = kwh_para_calculo(intermedio)
     p = kwh_para_calculo(punta)
-    t = b + i + p
+    t = kwh_para_calculo(sumar_energia([base, intermedio, punta]))
     return f"{b:,}", f"{i:,}", f"{p:,}", f"{t:,}"
 
 

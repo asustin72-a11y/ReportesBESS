@@ -12,6 +12,15 @@ data/ArchivosFuente/*
 !data/ArchivosFuente/.gitkeep
 data/ReportesDiarios/
 
+# CSV de pipeline: fuera del índice (solo .gitkeep de carpetas en git).
+# El servidor conserva sus propios Procesados/Reporte; no commitear regeneraciones.
+data/ArchivosProcesados/**
+!data/ArchivosProcesados/**/
+!data/ArchivosProcesados/**/.gitkeep
+data/ArchivosReporte/**
+!data/ArchivosReporte/**/
+!data/ArchivosReporte/**/.gitkeep
+
 # Secretos locales
 .streamlit/secrets.toml
 .env

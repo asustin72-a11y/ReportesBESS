@@ -263,6 +263,14 @@ def _correr_sincronizar_perfiles(
         else "Sincronizando perfiles…"
     )
     timeout = 1200 if procesar else 600
+    try:
+        from bess.config.pcarga_endpoints import auto_fallback_habilitado
+
+        if auto_fallback_habilitado():
+            # Wine/SSH por medidor puede acercarse a 10 min c/u (lote IUSA 1/2).
+            timeout = max(timeout, 3000 if procesar else 2400)
+    except Exception:
+        pass
     with progreso_placeholder.container():
         return ejecutar_subprocess_con_progreso(
             cmd,
@@ -280,10 +288,16 @@ def _mostrar_resultado_sync(
     proceso_completo: bool = False,
 ) -> None:
     from bess.config.catalog import invalidar_cache_catalogo
+    from bess.core.ui_progress import es_linea_progreso_ui
+    from bess.data.sync_mensajes import (
+        clasificar_fallo_sync,
+        mensaje_api_parcial,
+        mensaje_granja_parcial,
+        mensaje_ion_parcial,
+    )
     from bess.data.sync_resumen import html_resumen_sidebar
 
     salida = (stdout or "").strip()
-    ion_off = "Medidor ION no disponible." in salida or "ION: no disponible" in salida
     if rc == 0:
         invalidar_cache_catalogo()
         st.session_state["verificado"] = False
@@ -300,16 +314,36 @@ def _mostrar_resultado_sync(
             )
             return
         pendientes = medidores_pendientes_validacion()
-        if ion_off:
-            st.warning(
-                "Medidor ION (IUSA 1) no disponible. "
-                "Sync API/export completados; ION sigue sin validar."
-            )
+        aviso_api = mensaje_api_parcial(salida, stderr or "")
+        aviso_granja = mensaje_granja_parcial(salida, stderr or "")
+        aviso_ion = mensaje_ion_parcial(salida)
+
+        if aviso_api:
+            st.warning(f"**{aviso_api.titulo}**  \n{aviso_api.explicacion}")
+            if aviso_api.accion:
+                st.info(aviso_api.accion)
             establecer_banner_pipeline(
-                "Sync parcial. Revise medidores sin validar antes de procesar.",
+                "Sync parcial (API). Use Mantenimiento DB → PCarga → Fallback.",
                 tipo="warning",
             )
-        elif pendientes:
+        if aviso_granja:
+            st.warning(f"**{aviso_granja.titulo}**  \n{aviso_granja.explicacion}")
+            if aviso_granja.accion:
+                st.caption(aviso_granja.accion)
+        if aviso_ion:
+            st.warning(f"**{aviso_ion.titulo}**  \n{aviso_ion.explicacion}")
+            if aviso_ion.accion:
+                st.caption(aviso_ion.accion)
+            if not aviso_api:
+                establecer_banner_pipeline(
+                    "Sync parcial. Revise medidores sin validar antes de procesar.",
+                    tipo="warning",
+                )
+
+        if aviso_api or aviso_granja or aviso_ion:
+            return
+
+        if pendientes:
             st.warning(
                 f"Sync completada. Pendientes de validar: "
                 f"{', '.join(pendientes[:6])}"
@@ -326,16 +360,39 @@ def _mostrar_resultado_sync(
             )
         return
 
-    st.error("La sincronización falló." if not proceso_completo else "El proceso falló.")
-    if salida:
+    msg = clasificar_fallo_sync(stdout, stderr)
+    st.error(f"**{msg.titulo}**  \n{msg.explicacion}")
+    if msg.accion:
+        st.info(msg.accion)
+
+    lineas_out = [ln.strip() for ln in salida.splitlines() if ln.strip()]
+    if lineas_out:
         st.markdown(
-            html_resumen_sidebar(salida.splitlines()[:12]),
+            html_resumen_sidebar(lineas_out[:12]),
             unsafe_allow_html=True,
         )
-    err = (stderr or "").strip()
-    if err:
-        with st.expander("Detalle del error"):
-            st.code(err[:2000])
+
+    # Quitar líneas de progreso BESS_UI_PROGRESS; dejar solo el error útil.
+    err_lineas = []
+    for ln in (stderr or "").splitlines():
+        if es_linea_progreso_ui(ln):
+            continue
+        txt = ln.strip()
+        if txt:
+            err_lineas.append(txt)
+    detalle = "\n".join(err_lineas).strip()
+    if not detalle and lineas_out:
+        detalle = "\n".join(
+            ln for ln in lineas_out if not es_linea_progreso_ui(ln)
+        )
+    if detalle:
+        with st.expander("Detalle técnico", expanded=False):
+            st.code(detalle[:4000])
+    else:
+        st.caption(
+            "Sin detalle del proceso. Diagnóstico: "
+            "`python scripts/diagnosticar_conectividad_sync.py`"
+        )
 
 
 def _ejecutar_procesar_todo_sidebar(progreso_placeholder):

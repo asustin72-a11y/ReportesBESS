@@ -181,7 +181,7 @@ def _build_story() -> list:
     s.append(p("4.1 Importar con protección", "h2"))
     s.append(
         p(
-            "Seleccione medidor, opciones de faltantes/filtro 00:05 y el CSV. "
+            "Seleccione medidor, opción de faltantes y el CSV. "
             "Las filas quedan con <b>fuente=csv</b>; el sync API no pisa filas CSV "
             "con energía real aunque reciba días completos. Las filas CSV en cero "
             "sí pueden corregirse. Tras import OK se alinean sync_state y "

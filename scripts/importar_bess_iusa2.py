@@ -30,18 +30,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("csv", type=Path, help="Ruta al archivo CSV de perfil")
     parser.add_argument("--bd", type=Path, default=db.RUTA_BD_DEFAULT)
     parser.add_argument("--solo-faltantes", action="store_true")
-    parser.add_argument(
-        "--sin-filtro-dia",
-        action="store_true",
-        help="No omitir el primer registro del día si no es 00:05.",
-    )
     args = parser.parse_args(argv)
     return importar_csv(
         args.csv,
         args.bd,
         db.MEDIDOR_BESS_IUSA2,
         solo_faltantes=args.solo_faltantes,
-        sin_filtro_dia=args.sin_filtro_dia,
     )
 
 

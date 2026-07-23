@@ -440,11 +440,11 @@ def _sumar_columnas_en_rango(ruta_csv, fecha_inicio, fecha_fin, columnas):
     return resultado
 
 def _celdas_kwh_tabla(base, intermedio, punta):
-    """kWh por periodo redondeados; total = suma de periodos redondeados."""
+    """Periodos redondeados para mostrar; Total = redondeo de la suma cruda."""
     b = kwh_para_calculo(base)
     i = kwh_para_calculo(intermedio)
     p = kwh_para_calculo(punta)
-    t = b + i + p
+    t = kwh_para_calculo(sumar_energia([base, intermedio, punta]))
     return f"{b:,}", f"{i:,}", f"{p:,}", f"{t:,}"
 
 def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
@@ -602,8 +602,12 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
         'arbitraje_intermedio': arbitraje_intermedio,
         'arbitraje_punta': arbitraje_punta,
         'arbitraje_total': arbitraje_total,
-        'carga_total': kwh_para_calculo(carga_base) + kwh_para_calculo(carga_intermedio) + kwh_para_calculo(carga_punta),
-        'descarga_total': kwh_para_calculo(descarga_base) + kwh_para_calculo(descarga_intermedio) + kwh_para_calculo(descarga_punta),
+        'carga_total': kwh_para_calculo(
+            sumar_energia([carga_base, carga_intermedio, carga_punta])
+        ),
+        'descarga_total': kwh_para_calculo(
+            sumar_energia([descarga_base, descarga_intermedio, descarga_punta])
+        ),
         'rango_label': rango_label,
     }
 
@@ -620,8 +624,9 @@ def tab_dashboard(df, prefijo, medidor):
     rango_label = etiqueta_rango_operativo(fecha_inicio, fecha_fin)
     detalle = calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo)
 
-    carga = sumar_energia(df_filtrado['KWH_REC_BESS'])
-    descarga = sumar_energia(df_filtrado['KWH_ENT_BESS'])
+    # Misma regla que la tabla: total = suma de Base/Intermedio/Punta ya redondeados.
+    carga = detalle['carga_total']
+    descarga = detalle['descarga_total']
     eficiencia = (descarga / carga * 100) if carga > 0 else 0
 
     with st.container(border=True):
@@ -631,7 +636,7 @@ def tab_dashboard(df, prefijo, medidor):
             st.markdown(f"""
             <div class="metric-card" style="border-top:3px solid {COLORES['carga']};">
                 <div class="label">Carga BESS</div>
-                <div class="value">{fmt_kwh(carga)}</div>
+                <div class="value">{carga:,}</div>
                 <div class="sub">kWh</div>
             </div>
             """, unsafe_allow_html=True)
@@ -639,7 +644,7 @@ def tab_dashboard(df, prefijo, medidor):
             st.markdown(f"""
             <div class="metric-card" style="border-top:3px solid {COLORES['descarga']};">
                 <div class="label">Descarga BESS</div>
-                <div class="value">{fmt_kwh(descarga)}</div>
+                <div class="value">{descarga:,}</div>
                 <div class="sub">kWh</div>
             </div>
             """, unsafe_allow_html=True)
@@ -968,8 +973,9 @@ def tab_reporte(df, prefijo):
     detalle = calcular_detalle_energia_periodo(fecha_seleccionada, fecha_seleccionada, prefijo)
     arb_dia = calcular_arbitraje_dia(fecha_str, prefijo, tarifas=tarifas)
 
-    carga_dia = sumar_energia(df_dia['KWH_REC_BESS'])
-    descarga_dia = sumar_energia(df_dia['KWH_ENT_BESS'])
+    # Misma regla que la tabla del día (periodos redondeados).
+    carga_dia = detalle['carga_total']
+    descarga_dia = detalle['descarga_total']
     eficiencia = (descarga_dia / carga_dia * 100) if carga_dia > 0 else 0
 
     with st.container(border=True):
@@ -979,7 +985,7 @@ def tab_reporte(df, prefijo):
             st.markdown(f"""
             <div class="metric-card" style="border-top:3px solid {COLORES['carga']};">
                 <div class="label">Carga BESS</div>
-                <div class="value">{fmt_kwh(carga_dia)}</div>
+                <div class="value">{carga_dia:,}</div>
                 <div class="sub">kWh del día</div>
             </div>
             """, unsafe_allow_html=True)
@@ -987,7 +993,7 @@ def tab_reporte(df, prefijo):
             st.markdown(f"""
             <div class="metric-card" style="border-top:3px solid {COLORES['descarga']};">
                 <div class="label">Descarga BESS</div>
-                <div class="value">{fmt_kwh(descarga_dia)}</div>
+                <div class="value">{descarga_dia:,}</div>
                 <div class="sub">kWh del día</div>
             </div>
             """, unsafe_allow_html=True)

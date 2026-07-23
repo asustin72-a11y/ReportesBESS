@@ -182,18 +182,11 @@ def _tab_importar():
 
         medidor = st.selectbox("Medidor destino", medidores, key="imp_medidor")
 
-        c1, c2 = st.columns(2)
-        solo_faltantes = c1.checkbox(
+        solo_faltantes = st.checkbox(
             "Solo timestamps faltantes",
             value=False,
             key="imp_solo_faltantes",
             help="No actualiza registros existentes, solo inserta nuevos.",
-        )
-        sin_filtro_dia = c2.checkbox(
-            "Sin filtro 00:05 del primer registro",
-            value=False,
-            key="imp_sin_filtro_dia",
-            help="Desactiva el filtro que descarta el registro de las 00:05.",
         )
 
         rebuild_despues = st.checkbox(
@@ -219,7 +212,6 @@ def _tab_importar():
                     archivo.name,
                     medidor,
                     solo_faltantes=solo_faltantes,
-                    sin_filtro_dia=sin_filtro_dia,
                 )
             if codigo == 0:
                 st.success(
@@ -666,6 +658,70 @@ def _tab_avanzado():
 
 
 def _tab_pcarga():
+    medidores_fb = service.lista_medidores_fallback_iusa12()
+    with st.container(border=True):
+        section_header(
+            "Fallback API → pcarga (IUSA 1/2)",
+            "Cuando api.iusasol.mx está caída: descarga Ethernet, importa a SQLite "
+            "y reconstruye CSV. No incluye granja ni Aragón.",
+        )
+        st.info(
+            "Cubiertos: **"
+            + "**, **".join(medidores_fb)
+            + "**. Granja Mega y Consumo Aragón siguen dependiendo de la API."
+        )
+        rebuild_fb = st.checkbox(
+            "Rebuild CSV tras importar (recomendado)",
+            value=True,
+            key="pcarga_fb_rebuild",
+        )
+        procesar_fb = st.checkbox(
+            "Tras Rebuild: Verificar → Filtrar → Reportes",
+            value=False,
+            key="pcarga_fb_procesar",
+            help="Más lento; actívelo si necesita reportes al momento.",
+        )
+        if st.button(
+            "⚡ Ejecutar fallback pcarga IUSA 1/2",
+            type="primary",
+            key="pcarga_fb_btn",
+        ):
+            with st.spinner(
+                "Fallback en curso (Wine/MLE por medidor; puede tardar varios minutos)…"
+            ):
+                lote = service.ejecutar_fallback_pcarga_iusa12(
+                    rebuild=rebuild_fb,
+                    procesar=procesar_fb,
+                )
+            st.session_state["pcarga_fallback_lote"] = lote
+
+        lote = st.session_state.get("pcarga_fallback_lote")
+        if lote is not None:
+            if lote.ok:
+                st.success(
+                    f"✅ Fallback OK: {lote.exitosos}/{len(lote.medidores)} medidores."
+                )
+            else:
+                st.warning(
+                    f"Fallback parcial: {lote.exitosos} OK, {lote.fallidos} con error."
+                )
+            st.code(lote.log or "(sin resumen)")
+            with st.expander("Detalle por medidor", expanded=not lote.ok):
+                for r in lote.medidores:
+                    icon = "✅" if r.ok else "❌"
+                    st.markdown(
+                        f"{icon} **{r.medidor_id}** · {r.registros:,} reg · "
+                        f"`{r.desde}` → `{r.hasta}`"
+                        + (f" · falló en {r.etapa}" if not r.ok else "")
+                    )
+                    if r.log and not r.ok:
+                        st.code(r.log[:3000])
+            if not rebuild_fb:
+                st.caption(
+                    "Sin Rebuild: SQLite actualizado; use la pestaña Rebuild CSV "
+                    "antes de confiar en el reporteador."
+                )
+
     medidores = service.lista_medidores_pcarga()
     with st.container(border=True):
         section_header(
@@ -687,21 +743,48 @@ def _tab_pcarga():
         st.caption(service.info_endpoint_pcarga(medidor))
 
         hoy = date.today()
+        ahora = datetime.now().replace(second=0, microsecond=0)
+        # Alinear a intervalo de 5 min del perfil
+        minuto_alig = (ahora.minute // 5) * 5
+        hora_fin_default = ahora.replace(minute=minuto_alig)
+        hora_ini_default = (hora_fin_default - timedelta(hours=3)).time()
+
         c1, c2 = st.columns(2)
-        desde = c1.date_input(
-            "Desde",
+        fecha_desde = c1.date_input(
+            "Desde (fecha)",
             value=hoy - timedelta(days=1),
             max_value=hoy,
-            key="pcarga_desde",
+            key="pcarga_fecha_desde",
         )
-        hasta = c2.date_input(
-            "Hasta",
+        hora_desde = c1.time_input(
+            "Desde (hora)",
+            value=hora_ini_default,
+            step=300,
+            key="pcarga_hora_desde",
+            help="Intervalos de 5 minutos (el medidor alinea si no coincide).",
+        )
+        fecha_hasta = c2.date_input(
+            "Hasta (fecha)",
             value=hoy,
             max_value=hoy,
-            key="pcarga_hasta",
+            key="pcarga_fecha_hasta",
+        )
+        hora_hasta = c2.time_input(
+            "Hasta (hora)",
+            value=hora_fin_default.time(),
+            step=300,
+            key="pcarga_hora_hasta",
+            help="Intervalos de 5 minutos.",
+        )
+
+        desde = datetime.combine(fecha_desde, hora_desde).replace(second=0, microsecond=0)
+        hasta = datetime.combine(fecha_hasta, hora_hasta).replace(second=0, microsecond=0)
+        st.caption(
+            f"Rango efectivo: `{desde.strftime('%Y-%m-%d %H:%M')}` → "
+            f"`{hasta.strftime('%Y-%m-%d %H:%M')}`"
         )
         if desde > hasta:
-            st.error("La fecha Desde no puede ser posterior a Hasta.")
+            st.error("Desde no puede ser posterior a Hasta.")
             return
 
         if st.button("⬇️ Descargar pcarga", type="primary", key="pcarga_btn"):

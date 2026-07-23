@@ -163,7 +163,6 @@ def importar_desde_bytes(
     medidor_id: str,
     *,
     solo_faltantes: bool = False,
-    sin_filtro_dia: bool = False,
 ) -> tuple[int, str]:
     suffix = Path(nombre_archivo).suffix or ".csv"
     with tempfile.NamedTemporaryFile(mode="wb", suffix=suffix, delete=False) as tmp:
@@ -178,7 +177,6 @@ def importar_desde_bytes(
                 RUTA_BD_PERFILES,
                 medidor_id,
                 solo_faltantes=solo_faltantes,
-                sin_filtro_dia=sin_filtro_dia,
             )
         return codigo, buf.getvalue()
     finally:
@@ -343,6 +341,12 @@ def lista_medidores_pcarga() -> list[str]:
     return _lista()
 
 
+def lista_medidores_fallback_iusa12() -> list[str]:
+    from bess.config.pcarga_endpoints import lista_medidores_fallback_iusa12 as _lista
+
+    return _lista()
+
+
 def info_endpoint_pcarga(medidor_id: str) -> str:
     from bess.config.pcarga_endpoints import endpoint_pcarga
     from bess.data.ingest.pcarga.descarga import etiqueta_endpoint
@@ -362,3 +366,21 @@ def descargar_pcarga_rango(
     from bess.data.ingest.pcarga.descarga import descargar_pcarga_medidor
 
     return descargar_pcarga_medidor(medidor_id, desde, hasta)
+
+
+def ejecutar_fallback_pcarga_iusa12(
+    *,
+    desde: date | datetime | None = None,
+    hasta: date | datetime | None = None,
+    rebuild: bool = True,
+    procesar: bool = False,
+):
+    """Lote: pcarga → import → rebuild para Banco/BESS/Cogen (IUSA 1/2)."""
+    from bess.data.ingest.pcarga.fallback import ejecutar_fallback_pcarga_iusa12 as _run
+
+    return _run(
+        desde=desde,
+        hasta=hasta,
+        rebuild=rebuild,
+        procesar=procesar,
+    )

@@ -11,3 +11,4 @@ Pillow>=9.0.0
 playwright>=1.40.0
 pymodbus>=3.6.0
 filelock>=3.13
+paramiko>=3.4.0

@@ -18,12 +18,22 @@ def emit_ui_progress(step: int, total: int, label: str) -> None:
 
 def parse_ui_progress(line: str) -> tuple[int, int, str] | None:
     txt = (line or "").strip()
-    if not txt.startswith(PREFIX):
+    # Acepta tabuladores o espacios (Windows / consolas a veces normalizan \t).
+    if not txt.startswith("BESS_UI_PROGRESS"):
         return None
-    parts = txt.split("\t", 3)
-    if len(parts) < 4:
+    resto = txt[len("BESS_UI_PROGRESS") :].lstrip(" \t")
+    parts = resto.split(None, 2)  # step total label…
+    if len(parts) < 2:
         return None
     try:
-        return int(parts[1]), int(parts[2]), parts[3]
+        step = int(parts[0])
+        total = int(parts[1])
     except ValueError:
         return None
+    label = parts[2] if len(parts) > 2 else ""
+    return step, total, label
+
+
+def es_linea_progreso_ui(line: str) -> bool:
+    """True si la línea es (o empieza como) evento de progreso de la UI."""
+    return (line or "").strip().startswith("BESS_UI_PROGRESS")

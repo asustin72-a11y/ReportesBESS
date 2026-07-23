@@ -41,7 +41,6 @@ def main(argv: list[str] | None = None) -> int:
         args.bd,
         db.MEDIDOR_ION_IUSA2,
         solo_faltantes=args.solo_faltantes,
-        sin_filtro_dia=True,
     )
 
 
