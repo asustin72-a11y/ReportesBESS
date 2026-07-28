@@ -238,6 +238,7 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
         d_prev, h_prev = h_prev, d_prev
 
     etiquetas = (
+        ("Actual", "ultimo"),
         ("Ayer", "ayer"),
         ("7 días", "7d"),
         ("Mes actual", "mes"),
@@ -261,7 +262,7 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
         "Formato: día/mes/año."
     )
 
-    atajos = st.columns(5)
+    atajos = st.columns(6)
     for col, (label, atajo) in zip(atajos, etiquetas):
         with col:
             tipo = "primary" if atajo == activo else "secondary"
