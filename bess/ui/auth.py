@@ -11,7 +11,7 @@ from bess.config.users import (
 )
 import streamlit.components.v1 as components
 
-from bess.ui.components import obtener_logo_html
+from bess.ui.components import html_creditos_plataforma, obtener_logo_html
 from bess.ui.styles import aplicar_estilos_login
 
 _ERROR_SIN_USUARIOS = ERROR_SIN_USUARIOS
@@ -189,7 +189,8 @@ def restaurar_ui_app(*, restaurar_sidebar: bool = True):
     _inyectar_salir_modo_login(restaurar_sidebar=restaurar_sidebar)
 
 
-def login():
+def login(*, titulo: str | None = None, subtitulo: str | None = None):
+    """Formulario de login. `titulo`/`subtitulo` permiten branding de la Suite."""
     st.markdown('<div class="login-page-marker"></div>', unsafe_allow_html=True)
 
     try:
@@ -199,6 +200,9 @@ def login():
         with col:
             st.error(str(exc))
         return
+
+    titulo_ui = titulo or "BESS · Sistema de Energía"
+    subtitulo_ui = subtitulo or "Sistema de Procesamiento y Reportes de Energía"
 
     _, col, _ = st.columns([3, 4, 3])
     with col:
@@ -212,8 +216,8 @@ def login():
         st.markdown(f"""
         <div class="login-brand">
             {logo_block}
-            <h1 class="login-title">BESS · Sistema de Energía</h1>
-            <p class="login-subtitle">Sistema de Procesamiento y Reportes de Energía</p>
+            <h1 class="login-title">{titulo_ui}</h1>
+            <p class="login-subtitle">{subtitulo_ui}</p>
         </div>
         """, unsafe_allow_html=True)
 
@@ -230,9 +234,12 @@ def login():
                         st.session_state.usuario = usuario
                         st.session_state.rol = registro['rol']
                         st.session_state.pop("sidebar_inicial_aplicada", None)
+                        st.session_state.pop("suite_modulo", None)
                         st.cache_data.clear()
                     else:
                         st.error("❌ Usuario o contraseña incorrectos")
+
+        st.markdown(html_creditos_plataforma(variante="login"), unsafe_allow_html=True)
 
 
 def logout():
@@ -243,6 +250,7 @@ def logout():
     st.session_state.pop("seccion_activa", None)
     st.session_state.pop("modo_vista", None)
     st.session_state.pop("sidebar_inicial_aplicada", None)
+    st.session_state.pop("suite_modulo", None)
     # Recarga completa del navegador: única forma fiable de vaciar la sidebar en Streamlit.
     _emitir_script_ui(
         """

@@ -675,6 +675,27 @@ def aplicar_estilos():
             font-size: 0.95rem !important;
         }
 
+        .bess-creditos {
+            text-align: center;
+            margin: 1.1rem 0 0 0;
+            color: #5a6270;
+            font-size: 0.78rem;
+            line-height: 1.45;
+        }
+        .bess-creditos p {
+            margin: 0;
+        }
+        .bess-creditos p + p {
+            margin-top: 2px;
+        }
+        .bess-creditos-sidebar {
+            text-align: center;
+            margin: 0 0 4px 0;
+            color: #64748b;
+            font-size: 0.68rem;
+            line-height: 1.4;
+        }
+
         /* Sidebar — guía y flujo admin */
         .sidebar-guia {
             background: rgba(255, 255, 255, 0.08);
@@ -1026,6 +1047,26 @@ def aplicar_estilos_login():
             color: #718096;
             font-size: 0.88rem;
             line-height: 1.45;
+        }
+        .bess-creditos {
+            text-align: center;
+            margin: 1.1rem 0 0 0;
+            color: #5a6270;
+            font-size: 0.78rem;
+            line-height: 1.45;
+        }
+        .bess-creditos p {
+            margin: 0;
+        }
+        .bess-creditos p + p {
+            margin-top: 2px;
+        }
+        .bess-creditos-sidebar {
+            text-align: center;
+            margin: 0 0 4px 0;
+            color: #94a3b8;
+            font-size: 0.68rem;
+            line-height: 1.4;
         }
         [data-testid="stAppViewContainer"]:has(.login-page-marker) div[data-testid="stVerticalBlockBorderWrapper"]:has(form[data-testid="stForm"]) {
             background: white;

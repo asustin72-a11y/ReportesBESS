@@ -172,6 +172,11 @@ def render_barra_superior(rol: str | None):
         """, unsafe_allow_html=True)
     with c2:
         st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
+        if st.session_state.get("suite_modulo"):
+            if st.button("← Suite", use_container_width=True, key="btn_volver_suite"):
+                st.session_state.pop("suite_modulo", None)
+                st.session_state.pop("sidebar_inicial_aplicada", None)
+                st.rerun()
         if st.button("Cerrar sesión", use_container_width=True, key="btn_logout"):
             st.session_state["_logout_pendiente"] = True
             st.rerun()
@@ -1350,7 +1355,7 @@ def _normalizar_medidor_sesion():
         st.session_state["medidor_principal"] = default or opciones[0]
 
 
-def main():
+def main(*, desde_suite: bool = False):
     init_session()
 
     if st.session_state.pop("_logout_pendiente", False):
@@ -1361,9 +1366,10 @@ def main():
         st.session_state.pop("seccion_activa", None)
         st.session_state.pop("modo_vista", None)
         st.session_state.pop("sidebar_inicial_aplicada", None)
+        st.session_state.pop("suite_modulo", None)
         st.rerun()
 
-    if not st.session_state.get('autenticado', False):
+    if not desde_suite and not st.session_state.get('autenticado', False):
         preparar_ui_login()
         login_placeholder = st.empty()
         with login_placeholder.container():
@@ -1371,6 +1377,8 @@ def main():
         if not st.session_state.get('autenticado', False):
             return
         login_placeholder.empty()
+    elif desde_suite and not st.session_state.get('autenticado', False):
+        return
 
     rol = st.session_state.get('rol')
     es_operador = rol_es_operador(rol)

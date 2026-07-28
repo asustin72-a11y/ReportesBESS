@@ -9,6 +9,22 @@ import streamlit as st
 
 from bess.config.paths import DIRECTORIO_BASE
 
+CREDITO_COPYRIGHT = "Copyright © 2025-2026. Industrias Unidas, S.A. de C.V."
+CREDITO_AUTOR = "Diseñado y Desarrollado por: SanTo."
+
+
+def html_creditos_plataforma(*, variante: str = "login") -> str:
+    """Pie de créditos (login / sidebar)."""
+    cls = "bess-creditos"
+    if variante == "sidebar":
+        cls += " bess-creditos-sidebar"
+    return (
+        f'<div class="{cls}">'
+        f"<p>{CREDITO_COPYRIGHT}</p>"
+        f"<p>{CREDITO_AUTOR}</p>"
+        f"</div>"
+    )
+
 
 def section_header(titulo, descripcion="", compact=False):
     cls = "section-title-sm" if compact else "section-title"

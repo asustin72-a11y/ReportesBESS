@@ -19,6 +19,15 @@ CREATE TABLE IF NOT EXISTS catalog_tarifas (
     valor       REAL NOT NULL DEFAULT 0,
     PRIMARY KEY (esquema_id, tarifa, mes)
 );
+
+CREATE TABLE IF NOT EXISTS catalog_tarifas_hist (
+    esquema_id  TEXT NOT NULL DEFAULT 'DIST',
+    tarifa      TEXT NOT NULL,
+    anio        INTEGER NOT NULL CHECK (anio BETWEEN 2000 AND 2100),
+    mes         INTEGER NOT NULL CHECK (mes BETWEEN 1 AND 12),
+    valor       REAL NOT NULL DEFAULT 0,
+    PRIMARY KEY (esquema_id, tarifa, anio, mes)
+);
 """
 
 
@@ -208,6 +217,82 @@ def guardar_tarifas_dict(
         init_tarifas_schema(conn)
         _insertar_valores(conn, filas, esquema_id=esquema)
         conn.commit()
+
+
+def importar_tarifas_historicas_dist_desde_xlsx(
+    ruta_xlsx: str | Path,
+    esquema_id: str = ESQUEMA_DEFAULT,
+) -> tuple[bool, str]:
+    """Importa TDIST histórico (columnas Mes, Base, Intermedio, Punta, Capacidad)."""
+    ruta = Path(ruta_xlsx)
+    if not ruta.is_file():
+        return False, f"No existe el archivo: {ruta}"
+
+    try:
+        df = pd.read_excel(ruta)
+    except Exception as exc:
+        return False, f"No se pudo leer Excel: {exc}"
+
+    df.columns = [str(c).strip() for c in df.columns]
+    if "Mes" not in df.columns:
+        return False, "Falta la columna Mes."
+
+    renames = {"Intermedio ": "Intermedio"}
+    df = df.rename(columns=renames)
+    requeridas = ["Mes", "Base", "Intermedio", "Punta"]
+    faltantes = [c for c in requeridas if c not in df.columns]
+    if faltantes:
+        return False, f"Faltan columnas: {', '.join(faltantes)}"
+
+    df["Mes"] = pd.to_datetime(df["Mes"], errors="coerce")
+    df = df[df["Mes"].notna()].copy()
+    if df.empty:
+        return False, "No hay filas válidas con Mes."
+
+    filas: list[tuple[str, str, int, int, float]] = []
+    tipos_presentes = [t for t in ("Base", "Intermedio", "Punta", "Capacidad") if t in df.columns]
+    for _, row in df.iterrows():
+        fecha = row["Mes"]
+        anio = int(fecha.year)
+        mes = int(fecha.month)
+        for tipo in tipos_presentes:
+            valor = float(pd.to_numeric(row.get(tipo, 0), errors="coerce") or 0.0)
+            filas.append((esquema_id.upper(), tipo, anio, mes, valor))
+
+    with _conectar() as conn:
+        init_tarifas_schema(conn)
+        conn.execute("DELETE FROM catalog_tarifas_hist WHERE esquema_id = ?", (esquema_id.upper(),))
+        conn.executemany(
+            """
+            INSERT INTO catalog_tarifas_hist (esquema_id, tarifa, anio, mes, valor)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            filas,
+        )
+        conn.commit()
+    return True, f"{len(filas)} tarifa(s) históricas importadas"
+
+
+def leer_tarifas_historicas_dict(
+    esquema_id: str = ESQUEMA_DEFAULT,
+) -> dict[str, dict[tuple[int, int], float]]:
+    """Formato: {tipo: {(anio, mes): valor}}."""
+    esquema = (esquema_id or ESQUEMA_DEFAULT).strip().upper()
+    ensure_tarifas_listo()
+    tarifas: dict[str, dict[tuple[int, int], float]] = {tipo: {} for tipo in TIPOS_TARIFA}
+    with _conectar() as conn:
+        for row in conn.execute(
+            """
+            SELECT tarifa, anio, mes, valor
+            FROM catalog_tarifas_hist
+            WHERE esquema_id = ?
+            """,
+            (esquema,),
+        ).fetchall():
+            tipo = str(row["tarifa"])
+            tarifas.setdefault(tipo, {})
+            tarifas[tipo][(int(row["anio"]), int(row["mes"]))] = float(row["valor"] or 0)
+    return tarifas
 
 
 def ruta_bd_tarifas() -> Path:

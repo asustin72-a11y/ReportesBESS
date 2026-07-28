@@ -1,7 +1,7 @@
-"""Punto de entrada — Suite IUSASOL (BESS + Granja).
+"""Punto de entrada local — Granja Solar IUSASOL.
 
-Uso local / Docker / Streamlit Cloud:
-    streamlit run streamlit_app.py
+Uso:
+    streamlit run streamlit_granja.py
 """
 import sys
 
@@ -20,6 +20,6 @@ def _configurar_salida_consola():
 
 _configurar_salida_consola()
 
-from suite.ui.app import main
+from granja.ui.app import main
 
 main()

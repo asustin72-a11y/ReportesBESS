@@ -1,8 +1,20 @@
-# BESS — Reportes ION / BANCO
+# BESS — Reportes ION / BANCO · Suite IUSASOL
 
-Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS (ION y BANCO).
+Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS
+(ION y BANCO), con portal de suite hacia **Granja Solar** (21 MEGAs).
 
-**Versión actual:** 5.15.0 — Soft-fail API + fallback pcarga IUSA 1/2 (manual y opt-in automático).
+**Versión actual:** 5.17.0 — Suite IUSASOL: login → BESS | Granja Solar.
+
+## Ejecución local (Suite)
+
+```bash
+pip install -r requirements.txt
+python -m playwright install chromium
+streamlit run streamlit_app.py
+```
+
+Tras el login se elige el módulo **BESS** o **Granja Solar**.  
+Solo BESS: `streamlit run streamlit_bess.py` · Solo Granja: `streamlit run streamlit_granja.py`.
 
 ## Documentación
 
@@ -14,14 +26,6 @@ Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS 
 | [docs/DOCKER.md](docs/DOCKER.md) | Despliegue Docker |
 
 Regenerar PDFs: `python docs/generar_guia_pdf.py` y `python docs/generar_guia_admin_pdf.py` (app en `localhost:8501` para capturas nuevas).
-
-## Ejecución local
-
-```bash
-pip install -r requirements.txt
-python -m playwright install chromium
-streamlit run streamlit_app.py
-```
 
 ## Pruebas
 

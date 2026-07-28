@@ -1,7 +1,7 @@
-"""Punto de entrada — Suite IUSASOL (BESS + Granja).
+"""Punto de entrada solo BESS (sin portal de Suite).
 
-Uso local / Docker / Streamlit Cloud:
-    streamlit run streamlit_app.py
+Útil para desarrollo o si se necesita el reporteador BESS aislado.
+Producción: use streamlit_app.py (Suite IUSASOL).
 """
 import sys
 
@@ -20,6 +20,6 @@ def _configurar_salida_consola():
 
 _configurar_salida_consola()
 
-from suite.ui.app import main
+from bess.ui.app import main
 
 main()

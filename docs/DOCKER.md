@@ -1,4 +1,8 @@
-# BESS en servidor Linux con Docker
+# Suite IUSASOL (BESS + Granja) en servidor Linux con Docker
+
+La app principal (`streamlit_app.py`) es el **portal de la Suite**: un login
+compartido y luego la elección entre **BESS** y **Granja Solar**. Misma imagen,
+mismo volumen `data/` y mismos secretos.
 
 ## Requisitos en el VPS
 
@@ -49,7 +53,7 @@ docker compose up -d
 docker compose logs -f bess
 ```
 
-Abrir: `http://IP_DEL_SERVIDOR:8501`
+Abrir: `http://IP_DEL_SERVIDOR:8501` → login → BESS o Granja.
 
 ## 4. Comandos útiles
 
@@ -113,7 +117,9 @@ En `docker-compose.yml` puede usar:
 
 ## 8. Sincronización automática cada 15 minutos
 
-Para mantener la página al día sin intervención manual (sync + verificar + filtrar + reportes):
+Hay **dos crons** (pueden coexistir):
+
+### BESS (pipeline completo)
 
 ```bash
 cd ~/ReportesBESS
@@ -128,7 +134,16 @@ python scripts/sincronizar_perfiles.py --quiet --procesar
 
 dentro del contenedor `bess`.
 
-**Probar antes de esperar al cron:**
+### Granja (21 MEGAs individuales)
+
+```bash
+bash deploy/install-cron-granja.sh
+```
+
+Ejecuta `scripts/sincronizar_granja_megas.py --quiet` (Docker o host).
+Logs: `logs/granja-sync-YYYYMMDD.log`.
+
+**Probar BESS antes de esperar al cron:**
 
 ```bash
 ~/ReportesBESS/scripts/cron_sincronizar.sh

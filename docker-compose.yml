@@ -1,8 +1,8 @@
-# BESS en Linux — uso: ver docs/DOCKER.md
+# Suite IUSASOL (BESS + Granja) en Linux — uso: ver docs/DOCKER.md
 services:
   bess:
     build: .
-    image: bess:5.12.0
+    image: bess:5.17.0
     container_name: bess-app
     restart: unless-stopped
     ports:

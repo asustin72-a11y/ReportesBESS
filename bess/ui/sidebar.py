@@ -14,7 +14,7 @@ from bess.config.subestaciones import SUBESTACIONES, archivos_fuente_requeridos
 from bess.config.paths import DIRECTORIO_FUENTE, DIRECTORIO_PROCESADOS
 from bess.config.esquema_tarifa import ESQUEMA_DIST, ESQUEMA_GDMTH
 from bess.tariffs.loader import cargar_tarifas
-from bess.ui.components import html_tarifas_sidebar, obtener_logo_html
+from bess.ui.components import html_creditos_plataforma, html_tarifas_sidebar, obtener_logo_html
 from bess.ui.catalog_check import medidores_pendientes_validacion, puede_generar_reportes
 from bess.ui.pipeline_status import (
     establecer_banner_pipeline,
@@ -143,6 +143,7 @@ def _emitir_script_sidebar(markup: str):
 
 
 def _pie_sidebar():
+    st.markdown(html_creditos_plataforma(variante="sidebar"), unsafe_allow_html=True)
     st.caption(f'Sistema BESS v{VERSION}')
 
 
