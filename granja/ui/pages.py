@@ -310,8 +310,8 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
             key=f"{key}_consultar",
             use_container_width=True,
         ):
-            st.session_state[k_desde] = d0
-            st.session_state[k_hasta] = d1
+            # No tocar k_desde/k_hasta: el widget ya está instanciado.
+            # Si venían invertidos, d0/d1 ya están ordenados aquí.
             st.session_state[k_aplicado] = (d0, d1)
             st.rerun()
 
