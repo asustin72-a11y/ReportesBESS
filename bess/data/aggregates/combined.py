@@ -15,18 +15,18 @@ from bess.config.esquema_tarifa import esquema_tarifa_prefijo, normalizar_esquem
 from bess.core.atomic_io import ruta_temporal_atomica
 from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
 from bess.core.dates import agregar_fecha_operativa
-from bess.core.demand import demanda_rodante_15min_por_mes
+from bess.core.demand import demanda_rodante_15min_por_periodo
 from bess.core.kvarh import columnas_kvarh as _columnas_kvarh
 from bess.data.ingest.readers import leer_sin_agrupar
 
 from bess.core.console import log
 print = log
 
-# Ventana de la demanda rodante (bess.core.demand.demanda_rodante_15min_por_mes):
-# 15 min / 5 min = 3 filas. Para que la primera fila de una ventana
-# incremental calcule el mismo rolling que una corrida completa, hacen falta
-# las 2 filas previas como contexto (si pertenecen a otro mes operativo, el
-# groupby por mes las separa solas y no contaminan el rolling del mes nuevo).
+# Ventana de la demanda rodante (bess.core.demand.demanda_rodante_15min_por_periodo):
+# 15 min / 5 min = 3 filas, reinicio al cambiar PERIODO (aislamiento TOU).
+# Para que la primera fila de una ventana incremental calcule el mismo
+# rolling que una corrida completa, hacen falta las 2 filas previas como
+# contexto (si son de otro periodo, el groupby por racha las separa solas).
 _VENTANA_DEMANDA_FILAS = 15 // 5
 _CONTEXTO_FILAS = _VENTANA_DEMANDA_FILAS - 1
 
@@ -227,10 +227,11 @@ def _calcular_derivados(df_lote, prefijo, esquema, col_con, col_sin):
     df_lote[f"Mejora_BESS_{prefijo}_kW"] = df_lote[f"Mejora_BESS_{prefijo}_kWh"] * 12
 
     df_lote = agregar_fecha_operativa(df_lote, col_fecha_hora="FECHA_HORA")
-    mes_operativo = pd.to_datetime(df_lote["FECHA"], format="%d/%m/%Y").dt.to_period("M")
     for col in (col_con, col_sin):
         col_demanda = f"{col}_DEM_15min"
-        df_lote[col_demanda] = demanda_rodante_15min_por_mes(df_lote[col], mes_operativo)
+        df_lote[col_demanda] = demanda_rodante_15min_por_periodo(
+            df_lote[col], df_lote["PERIODO"]
+        )
 
     return df_lote
 

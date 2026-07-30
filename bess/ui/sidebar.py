@@ -168,6 +168,22 @@ def _sidebar_ayuda():
         st.markdown(html_flujo_trabajo_sidebar(), unsafe_allow_html=True)
 
 
+def _sidebar_descargas():
+    """Acceso al módulo Descarga de Perfiles (todos los roles; también en barra)."""
+    en_desc = st.session_state.get("modo_vista") == "descargas"
+    with st.expander("📥 Descargas API", expanded=en_desc):
+        st.caption(
+            "Clientes (ISOL), Granja (Farm) y Porteo → CSV. "
+            "Disponible para todos los usuarios."
+        )
+        etiqueta = "Volver al reporteador" if en_desc else "Abrir descargas"
+        if st.button(etiqueta, use_container_width=True, key="toggle_descargas_api"):
+            st.session_state["modo_vista"] = (
+                "reporteador" if en_desc else "descargas"
+            )
+            st.rerun()
+
+
 def _sidebar_admin_catalogo():
     en_cat = st.session_state.get("modo_vista") == "admin_catalogo"
     with st.expander("🏭 Catálogo", expanded=en_cat):
@@ -607,6 +623,9 @@ def sidebar_admin(*, mostrar_superadmin: bool = False):
             st.divider()
             _sidebar_admin_catalogo()
             _sidebar_mantenimiento_db()
+
+        st.divider()
+        _sidebar_descargas()
 
         render_banner_pipeline()
 

@@ -16,7 +16,7 @@ from bess.config.subestaciones import (
     subestacion_por_id,
 )
 from bess.core.consumo import kwh_neto_consumo
-from bess.core.demand import demanda_rodante_15min_por_mes
+from bess.core.demand import demanda_rodante_15min_por_periodo
 from bess.core.numbers import redondear_arriba_kw, redondear_mxn_energia
 from bess.tariffs.loader import cargar_tarifas
 
@@ -188,7 +188,6 @@ def calcular_participacion_capacidad(
     e_gen = merged["E_gen_kWh"]
 
     calc = merged.copy()
-    mes_op = pd.to_datetime(calc["FECHA"], format="%d/%m/%Y").dt.to_period("M")
 
     calc["E_Dcb_kWh"] = e_ion
     calc["E_Dc_kWh"] = e_ion + bess_ent - bess_rec
@@ -203,8 +202,14 @@ def calcular_participacion_capacidad(
     ):
         calc[f"P_{esc}_kW"] = calc[col_e] * 12
 
+    if "PERIODO" not in calc.columns:
+        raise ParticipacionCapacidadError(
+            "El combinado no trae columna PERIODO; regenerar reportes."
+        )
     for col in ("P_Dcb_kW", "P_Dc_kW", "P_Db_kW", "P_D0_kW"):
-        calc[f"{col}_DEM15"] = demanda_rodante_15min_por_mes(calc[col], mes_op)
+        calc[f"{col}_DEM15"] = demanda_rodante_15min_por_periodo(
+            calc[col], calc["PERIODO"]
+        )
 
     escenarios = {
         "D0": ("P_D0_kW", "E_D0_kWh", "Sin recursos"),

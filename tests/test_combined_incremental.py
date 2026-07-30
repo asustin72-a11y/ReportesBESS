@@ -1,8 +1,9 @@
 """Pruebas de combinado por minuto incremental (Fase 5.1 del plan CSV->SQLite).
 
 generar_combinado_por_minuto() calculaba columnas derivadas (HORA, PERIODO,
-kW, demanda rodante 15 min con reinicio mensual...) sobre el histórico
-completo en cada corrida y reescribía COMBINADO_POR_MINUTO_*.csv entero.
+kW, demanda rodante 15 min con reinicio al cambiar PERIODO / aislamiento
+TOU...) sobre el histórico completo en cada corrida y reescribía
+COMBINADO_POR_MINUTO_*.csv entero.
 Ahora, si el destino ya tiene un cursor legible (última FECHA_HORA) y
 columnas compatibles, solo procesa y reescribe una ventana de los últimos
 `_MARGEN_REEXPORTAR_DIAS` días (no solo lo estrictamente posterior al
@@ -15,7 +16,7 @@ vez de quedarse pegado al primer valor que vio para esa fecha.
 
 Las pruebas cubren: primera corrida completa, incremental == completo con
 un split a mitad de mes, incremental == completo con un split justo en la
-frontera de un mes (para ejercitar el reinicio de la demanda rodante), no-op
+frontera de un mes (contexto cross-mes / misma racha de periodo), no-op
 sin filas en la ventana, fallback a completo si cambia el formato de
 columnas, una comparación con datos reales de IUSA_1 (ION ∩ BESS), que un
 día abierto recoge una actualización posterior del origen, que los días
@@ -68,7 +69,7 @@ def test_generar_combinado_primera_vez_modo_completo(tmp_path, monkeypatch):
     assert len(salida) == len(fechas)
     col_dem = f"IUSA_CON_BESS_{MED_ION.prefijo}_kW_DEM_15min"
     assert col_dem in salida.columns
-    # Primeros 2 registros del mes (00:05, 00:10): demanda rodante en 0.
+    # Primeros 2 registros de la serie (inicio de racha): demanda rodante en 0.
     assert salida[col_dem].iloc[0] == 0
     assert salida[col_dem].iloc[1] == 0
     assert salida[col_dem].iloc[2] != 0
@@ -111,11 +112,10 @@ def test_generar_combinado_incremental_equivale_a_completo_split_mitad(tmp_path,
 
 
 def test_generar_combinado_incremental_equivale_a_completo_split_frontera_mes(tmp_path, monkeypatch):
-    """Split justo donde termina enero y empieza febrero: ejercita el caso
-    donde las filas de contexto (fin de enero) quedan en un grupo de mes
-    distinto al de las filas de la ventana (inicio de febrero) -- el
-    rolling debe reiniciar en 0 para las primeras filas de febrero, igual
-    que en una corrida completa."""
+    """Split justo donde termina enero y empieza febrero: el contexto
+    (fin de enero) puede ser la misma racha de PERIODO que el inicio de
+    febrero -- con aislamiento TOU no hay reinicio mensual forzado.
+    Incremental y completo deben coincidir."""
     fechas = pd.date_range("2026-01-31 23:45:00", "2026-02-01 01:00:00", freq="5min")
     corte = fechas[fechas < pd.Timestamp("2026-02-01 00:05:00")]
     assert 0 < len(corte) < len(fechas)
@@ -148,15 +148,12 @@ def test_generar_combinado_incremental_equivale_a_completo_split_frontera_mes(tm
 
     pd.testing.assert_frame_equal(salida_inc, salida_full)
 
-    # Las primeras 2 filas del día operativo 01/02 (la columna "FECHA", no
-    # FECHA_HORA: el registro de las 00:00 pertenece operativamente al 31/01)
-    # deben tener demanda rodante en 0 -- reinicio mensual -- tanto en la
-    # corrida incremental como en la completa.
-    col_dem = f"IUSA_CON_BESS_{MED_ION.prefijo}_kW_DEM_15min"
-    es_febrero = salida_inc["FECHA"] == "01/02/2026"
-    valores_febrero = salida_inc.loc[es_febrero, col_dem].tolist()
-    assert valores_febrero[0] == 0
-    assert valores_febrero[1] == 0
+    # Contrato TOU: si PERIODO no cambia en la medianoche, no hay reinicio
+    # mensual forzado (a diferencia del algoritmo anterior).
+    assert (
+        salida_inc.loc[salida_inc["FECHA_HORA"] == "01/02/2026 00:05", "PERIODO"].iloc[0]
+        == salida_inc.loc[salida_inc["FECHA_HORA"] == "31/01/2026 23:55", "PERIODO"].iloc[0]
+    )
 
 
 def test_generar_combinado_sin_datos_nuevos_es_no_op(tmp_path, monkeypatch):

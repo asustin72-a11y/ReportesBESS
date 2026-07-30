@@ -140,3 +140,25 @@ def obtener_logo_html(width=110):
         f'<img src="data:{mime};base64,{logo_b64}" width="{width}" '
         f'alt="IUSASOL" style="display:block;" />'
     )
+
+
+def en_suite() -> bool:
+    """True si la sesión entró desde el selector de la Suite."""
+    return bool(st.session_state.get("suite_modulo"))
+
+
+def boton_volver_suite(*, key: str) -> None:
+    """Botón «Volver a la Suite» para barra superior (no sidebar)."""
+    if not en_suite():
+        return
+    if st.button("Volver a la Suite", use_container_width=True, key=key):
+        st.session_state.pop("suite_modulo", None)
+        st.session_state.pop("sidebar_inicial_aplicada", None)
+        st.rerun()
+
+
+def boton_cerrar_sesion(*, key: str) -> None:
+    """Botón «Cerrar sesión» para barra superior (no sidebar)."""
+    if st.button("Cerrar sesión", use_container_width=True, key=key):
+        st.session_state["_logout_pendiente"] = True
+        st.rerun()

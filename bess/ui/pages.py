@@ -150,7 +150,13 @@ def mostrar_aviso_sin_bess(estado):
 
 
 def render_barra_superior(rol: str | None):
-    """Logo, título y cierre de sesión."""
+    """Logo, título y acciones de sesión / Descargas (barra superior, no sidebar)."""
+    from bess.ui.components import (
+        boton_cerrar_sesion,
+        boton_volver_suite,
+        en_suite,
+    )
+
     logo_html = obtener_logo_html(288)
     usuario = st.session_state.get('usuario', '')
     rol_nombre = get_usuarios().get(usuario, {}).get('nombre', usuario)
@@ -159,7 +165,13 @@ def render_barra_superior(rol: str | None):
         f'<div style="flex-shrink:0;background:white;border-radius:8px;padding:4px 8px;">{logo_html}</div>'
         if logo_html else ''
     )
-    c1, c2 = st.columns([6, 1])
+    en_descargas = st.session_state.get("modo_vista") == "descargas"
+    # Orden fijo a la derecha: [módulo] · Volver a la Suite · Cerrar sesión
+    if en_suite():
+        c1, c2, c3, c4 = st.columns([4.5, 1.3, 1.5, 1.3])
+    else:
+        c1, c2, c4 = st.columns([5, 1.4, 1.2])
+        c3 = None
     with c1:
         st.markdown(f"""
         <div class="app-header">
@@ -172,14 +184,21 @@ def render_barra_superior(rol: str | None):
         """, unsafe_allow_html=True)
     with c2:
         st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
-        if st.session_state.get("suite_modulo"):
-            if st.button("← Suite", use_container_width=True, key="btn_volver_suite"):
-                st.session_state.pop("suite_modulo", None)
-                st.session_state.pop("sidebar_inicial_aplicada", None)
+        if en_descargas:
+            if st.button("Volver al reporteador", use_container_width=True, key="btn_volver_reporteador"):
+                st.session_state["modo_vista"] = "reporteador"
                 st.rerun()
-        if st.button("Cerrar sesión", use_container_width=True, key="btn_logout"):
-            st.session_state["_logout_pendiente"] = True
-            st.rerun()
+        else:
+            if st.button("📥 Descargas", use_container_width=True, key="btn_ir_descargas"):
+                st.session_state["modo_vista"] = "descargas"
+                st.rerun()
+    if c3 is not None:
+        with c3:
+            st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
+            boton_volver_suite(key="bess_hdr_volver_suite")
+    with c4:
+        st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
+        boton_cerrar_sesion(key="bess_hdr_logout")
 
 
 def render_selector_rango(df, prefijo, key_suffix, medidor=None):
@@ -1394,6 +1413,15 @@ def main(*, desde_suite: bool = False):
 
     modo_vista = st.session_state.get("modo_vista")
 
+    if modo_vista == "descargas":
+        # Acceso para todos los roles (user / admin / superadmin).
+        with st.container(border=True):
+            render_barra_superior(rol)
+        from descargas.ui.pages import render_panel_descargas
+
+        render_panel_descargas(mostrar_titulo=True)
+        return
+
     if modo_vista == "mantenimiento_db":
         if not es_superadmin:
             st.session_state["modo_vista"] = "reporteador"
@@ -1424,16 +1452,16 @@ def main(*, desde_suite: bool = False):
         for med in sub.medidores_consumo
     ]
     if not any(r and r.exists() for r in rutas_disponibles):
+        with st.container(border=True):
+            render_barra_superior(rol)
         if es_operador:
-            with st.container(border=True):
-                render_barra_superior(rol)
             from bess.ui.pipeline_status import evaluar_pipeline, render_estado_vacio_reporteador
 
             render_estado_vacio_reporteador(evaluar_pipeline())
         else:
             st.warning(
-                "No hay datos procesados para consultar. "
-                "Contacte al administrador para ejecutar el pipeline."
+                "No hay datos procesados para consultar el reporteador. "
+                "Puede usar **Descargas** para perfiles API, o contactar al administrador."
             )
         return
 

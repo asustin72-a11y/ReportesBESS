@@ -5,8 +5,8 @@ from __future__ import annotations
 import streamlit as st
 
 from bess.config.users import ETIQUETA_ROL
-from bess.ui.auth import get_usuarios, logout
-from bess.ui.components import obtener_logo_html
+from bess.ui.auth import get_usuarios
+from bess.ui.components import boton_cerrar_sesion, obtener_logo_html
 from bess.ui.styles import aplicar_estilos
 from suite import MODULO_BESS, MODULO_GRANJA, NOMBRE_SUITE, SUBTITULO_SUITE
 
@@ -28,23 +28,29 @@ def render_selector_modulos() -> None:
         if logo_html
         else ""
     )
-    st.markdown(
-        f"""
-        <div class="app-header">
-            {logo_block}
-            <div>
-                <h1 class="app-header-title">{NOMBRE_SUITE}</h1>
-                <p class="app-header-sub">{rol_tipo}: {nombre} · {SUBTITULO_SUITE}</p>
+    c1, c2 = st.columns([6, 1.3])
+    with c1:
+        st.markdown(
+            f"""
+            <div class="app-header">
+                {logo_block}
+                <div>
+                    <h1 class="app-header-title">{NOMBRE_SUITE}</h1>
+                    <p class="app-header-sub">{rol_tipo}: {nombre} · {SUBTITULO_SUITE}</p>
+                </div>
             </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
+    with c2:
+        st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
+        boton_cerrar_sesion(key="suite_hdr_logout")
+
     st.markdown("##### Elija el reporteador")
     st.caption("Misma sesión y base de datos. Puede cambiar de módulo en cualquier momento.")
 
-    c1, c2 = st.columns(2)
-    with c1:
+    col_bess, col_granja = st.columns(2)
+    with col_bess:
         with st.container(border=True):
             st.markdown("### BESS")
             st.caption(
@@ -60,7 +66,7 @@ def render_selector_modulos() -> None:
                 st.session_state["suite_modulo"] = MODULO_BESS
                 st.session_state.pop("sidebar_inicial_aplicada", None)
                 st.rerun()
-    with c2:
+    with col_granja:
         with st.container(border=True):
             st.markdown("### Granja Solar")
             st.caption(
@@ -76,7 +82,3 @@ def render_selector_modulos() -> None:
                 st.session_state["suite_modulo"] = MODULO_GRANJA
                 st.session_state.pop("sidebar_inicial_aplicada", None)
                 st.rerun()
-
-    st.divider()
-    if st.button("Cerrar sesión", use_container_width=False, key="suite_logout"):
-        logout()

@@ -14,7 +14,6 @@ from bess.core.numbers import fmt_kwh, redondear_kwh
 from bess.ui.auth import (
     get_usuarios,
     init_session,
-    logout,
     preparar_ui_login,
     restaurar_ui_app,
 )
@@ -814,6 +813,12 @@ def run_pages(*, desde_suite: bool = False) -> None:
     init_session()
     asegurar_megas_en_catalogo()
 
+    if st.session_state.pop("_logout_pendiente", False):
+        from bess.ui.auth import logout
+
+        logout()
+        st.rerun()
+
     if not desde_suite and not st.session_state.get("autenticado"):
         preparar_ui_login()
         aplicar_estilos_login()
@@ -867,18 +872,6 @@ def run_pages(*, desde_suite: bool = False) -> None:
             _sidebar_branding()
             st.divider()
             _sidebar_sync()
-            st.divider()
-            if desde_suite or st.session_state.get("suite_modulo"):
-                if st.button(
-                    "← Volver a la Suite",
-                    use_container_width=True,
-                    key="granja_volver_suite",
-                ):
-                    st.session_state.pop("suite_modulo", None)
-                    st.session_state.pop("sidebar_inicial_aplicada", None)
-                    st.rerun()
-            if st.button("Cerrar sesión", use_container_width=True, key="granja_logout"):
-                logout()
 
     if seccion == "Dashboard":
         _tab_dashboard()
@@ -939,7 +932,13 @@ def _login_granja() -> None:
 
 
 def _render_header(*, desde_suite: bool = False) -> None:
-    """Encabezado con logo IUSASOL (mismo patrón visual que BESS)."""
+    """Encabezado con logo IUSASOL; acciones de sesión en barra (no sidebar)."""
+    from bess.ui.components import (
+        boton_cerrar_sesion,
+        boton_volver_suite,
+        en_suite,
+    )
+
     logo_html = obtener_logo_html(288)
     usuario = st.session_state.get("usuario", "")
     try:
@@ -948,14 +947,17 @@ def _render_header(*, desde_suite: bool = False) -> None:
         nombre = usuario
     rol = st.session_state.get("rol")
     rol_tipo = ETIQUETA_ROL.get(rol or "user", "Usuario")
-    es_superadmin = rol_es_superadmin(rol)
     logo_block = (
         f'<div style="flex-shrink:0;background:white;border-radius:8px;'
         f'padding:4px 8px;">{logo_html}</div>'
         if logo_html
         else ""
     )
-    c1, c2 = st.columns([5, 1])
+    if en_suite():
+        c1, c2, c3 = st.columns([5, 1.5, 1.3])
+    else:
+        c1, c3 = st.columns([6, 1.3])
+        c2 = None
     with c1:
         st.markdown(
             f"""
@@ -973,17 +975,13 @@ def _render_header(*, desde_suite: bool = False) -> None:
         st.caption(
             f"Perfil 5 min · Sync desde {FECHA_INICIO_SYNC}"
         )
-    with c2:
+    if c2 is not None:
+        with c2:
+            st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
+            boton_volver_suite(key="granja_hdr_volver_suite")
+    with c3:
         st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
-        # Sin sidebar: Suite / logout en el encabezado.
-        if not es_superadmin:
-            if desde_suite or st.session_state.get("suite_modulo"):
-                if st.button("← Suite", use_container_width=True, key="granja_hdr_suite"):
-                    st.session_state.pop("suite_modulo", None)
-                    st.session_state.pop("sidebar_inicial_aplicada", None)
-                    st.rerun()
-            if st.button("Cerrar sesión", use_container_width=True, key="granja_hdr_logout"):
-                logout()
+        boton_cerrar_sesion(key="granja_hdr_logout")
 
 
 def _sidebar_branding() -> None:
