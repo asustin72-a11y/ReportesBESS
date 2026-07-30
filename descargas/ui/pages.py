@@ -30,17 +30,8 @@ from descargas.service import (
 def render_panel_descargas(*, mostrar_titulo: bool = True) -> None:
     """Panel embebible (suite) o contenido principal del entry standalone."""
     if mostrar_titulo:
-        st.markdown(
-            f"""
-            <div style="margin-bottom:12px;">
-                <div style="font-size:1.25rem;font-weight:700;">{NOMBRE_APP}</div>
-                <div style="opacity:0.75;font-size:0.9rem;">
-                    Clientes · Granja · Porteo → CSV (API IUSASOL)
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.markdown(f"### {NOMBRE_APP}")
+        st.caption("Clientes · Granja · Porteo → CSV (API IUSASOL)")
 
     claves = [k for k, _ in SECCIONES]
     etiquetas = {k: e for k, e in SECCIONES}
@@ -153,11 +144,11 @@ def _render_header_standalone() -> None:
     )
     st.markdown(
         f"""
-        <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;">
+        <div class="app-header">
             {logo_block}
             <div>
-                <div style="font-size:1.35rem;font-weight:700;">{NOMBRE_APP}</div>
-                <div style="opacity:0.75;font-size:0.9rem;">Clientes · Granja · Porteo → CSV</div>
+                <h1 class="app-header-title">{NOMBRE_APP}</h1>
+                <p class="app-header-sub">Clientes · Granja · Porteo → CSV</p>
             </div>
         </div>
         """,
