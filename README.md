@@ -3,7 +3,7 @@
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS
 (ION y BANCO), con portal de suite hacia **Granja Solar** (21 MEGAs).
 
-**Versión actual:** 5.18.0 — Suite IUSASOL: Descargas API, demanda TOU, nav unificada.
+**Versión actual:** 5.18.1 — Suite: BESS | Granja | Descargas API.
 
 ## Ejecución local (Suite)
 

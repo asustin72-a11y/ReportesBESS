@@ -8,7 +8,13 @@ from bess.config.users import ETIQUETA_ROL
 from bess.ui.auth import get_usuarios
 from bess.ui.components import boton_cerrar_sesion, obtener_logo_html
 from bess.ui.styles import aplicar_estilos
-from suite import MODULO_BESS, MODULO_GRANJA, NOMBRE_SUITE, SUBTITULO_SUITE
+from suite import (
+    MODULO_BESS,
+    MODULO_DESCARGAS,
+    MODULO_GRANJA,
+    NOMBRE_SUITE,
+    SUBTITULO_SUITE,
+)
 
 
 def render_selector_modulos() -> None:
@@ -46,10 +52,10 @@ def render_selector_modulos() -> None:
         st.markdown('<div style="height:18px"></div>', unsafe_allow_html=True)
         boton_cerrar_sesion(key="suite_hdr_logout")
 
-    st.markdown("##### Elija el reporteador")
+    st.markdown("##### Elija el módulo")
     st.caption("Misma sesión y base de datos. Puede cambiar de módulo en cualquier momento.")
 
-    col_bess, col_granja = st.columns(2)
+    col_bess, col_granja, col_descargas = st.columns(3)
     with col_bess:
         with st.container(border=True):
             st.markdown("### BESS")
@@ -80,5 +86,21 @@ def render_selector_modulos() -> None:
                 key="suite_abrir_granja",
             ):
                 st.session_state["suite_modulo"] = MODULO_GRANJA
+                st.session_state.pop("sidebar_inicial_aplicada", None)
+                st.rerun()
+    with col_descargas:
+        with st.container(border=True):
+            st.markdown("### Descargas API")
+            st.caption(
+                "Perfiles Clientes (ISOL), Granja (Farm) y Porteo → CSV. "
+                "Disponible para todos los usuarios."
+            )
+            if st.button(
+                "Abrir Descargas",
+                type="primary",
+                use_container_width=True,
+                key="suite_abrir_descargas",
+            ):
+                st.session_state["suite_modulo"] = MODULO_DESCARGAS
                 st.session_state.pop("sidebar_inicial_aplicada", None)
                 st.rerun()

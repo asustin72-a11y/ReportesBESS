@@ -15,11 +15,11 @@ Release de suite con **navegación unificada**, módulo **Descargas API**
 - Aplica a selector Suite, BESS y Granja Solar.
 - Sidebar de Granja (superadmin): solo branding + sync.
 
-### Descargas API (módulo nuevo en suite)
+### Descargas API
 
 - Paquete `descargas/`: Clientes (ISOL), Granja (Farm) y Porteo → CSV.
-- Acceso para **user / admin / superadmin**.
-- Botón **Descargas** en barra superior; expander en sidebar de operadores.
+- Acceso para **user / admin / superadmin** como **tercer módulo** del
+  selector post-login (junto a BESS y Granja Solar).
 - Standalone: `streamlit run streamlit_descargas.py`.
 
 ### Demanda rodante TOU
@@ -59,8 +59,8 @@ docker compose up -d --build
 grep __version__ bess/__init__.py
 ```
 
-Abrir `http://IP:8501` → login → **BESS** o **Granja Solar**.
-En BESS: barra superior → **Descargas** / **Volver a la Suite** / **Cerrar sesión**.
+Abrir `http://IP:8501` → login → **BESS**, **Granja Solar** o **Descargas API**.
+En cada módulo: barra superior → **Volver a la Suite** / **Cerrar sesión**.
 
 ## Pruebas
 

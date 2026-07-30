@@ -1,10 +1,16 @@
-"""Aplicación Streamlit — Suite IUSASOL (BESS + Granja)."""
+"""Aplicación Streamlit — Suite IUSASOL (BESS + Granja + Descargas)."""
 
 from __future__ import annotations
 
 import streamlit as st
 
-from suite import MODULO_BESS, MODULO_GRANJA, NOMBRE_SUITE, SUBTITULO_SUITE
+from suite import (
+    MODULO_BESS,
+    MODULO_DESCARGAS,
+    MODULO_GRANJA,
+    NOMBRE_SUITE,
+    SUBTITULO_SUITE,
+)
 
 
 def main() -> None:
@@ -50,7 +56,7 @@ def main() -> None:
         st.rerun()
 
     modulo = st.session_state.get("suite_modulo")
-    if modulo not in (MODULO_BESS, MODULO_GRANJA):
+    if modulo not in (MODULO_BESS, MODULO_GRANJA, MODULO_DESCARGAS):
         restaurar_ui_app(restaurar_sidebar=False)
         render_selector_modulos()
         return
@@ -61,9 +67,15 @@ def main() -> None:
         bess_main(desde_suite=True)
         return
 
-    from granja.ui.pages import run_pages as granja_main
+    if modulo == MODULO_GRANJA:
+        from granja.ui.pages import run_pages as granja_main
 
-    granja_main(desde_suite=True)
+        granja_main(desde_suite=True)
+        return
+
+    from descargas.ui.pages import run_pages as descargas_main
+
+    descargas_main(desde_suite=True)
 
 
 if __name__ == "__main__":
