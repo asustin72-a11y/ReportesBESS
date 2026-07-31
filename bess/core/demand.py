@@ -15,8 +15,10 @@ def demanda_rodante_15min_por_mes(
     """
     Media móvil de demanda (kW) reiniciada al inicio de cada mes operativo.
 
-    Conservada por compatibilidad; el flujo BESS usa
-    ``demanda_rodante_15min_por_periodo`` (aislamiento TOU / guía ANSI).
+    Con intervalos de 5 min y ventana de 15 min, los dos primeros intervalos
+    del mes (00:05 y 00:10) llevan **0**; el primer valor calculado es a las
+    **00:15**. La serie es continua dentro del mes (no reinicia al cambiar
+    periodo tarifario) — apta para gráficas.
     """
     ventana = ventana_min // intervalo_min
     tmp = pd.DataFrame({"kw": potencia_kw, "mes": mes_operativo})
@@ -24,6 +26,39 @@ def demanda_rodante_15min_por_mes(
         lambda s: s.rolling(window=ventana, min_periods=ventana).mean()
     )
     return rodante.fillna(0)
+
+
+def mascara_valida_para_maximo(
+    periodo: pd.Series,
+    *,
+    n_excluir: int = 2,
+) -> pd.Series:
+    """
+    True donde la demanda rolada puede usarse para máximos por periodo.
+
+    Excluye los ``n_excluir`` primeros intervalos de cada racha de PERIODO
+    (con ventana 15 min = 3×5 min, los 2 primeros aún pueden mezclar la
+    tarifa anterior en un rolling continuo).
+    """
+    p = periodo.copy()
+    p = p.where(p.notna() & (p.astype(str).str.strip() != ""), other=pd.NA)
+    prev = p.shift(1)
+    nueva_racha = p.isna() | prev.isna() | p.ne(prev)
+    racha = nueva_racha.cumsum()
+    orden = racha.groupby(racha).cumcount()
+    return p.notna() & (orden >= n_excluir)
+
+
+def aplicar_mascara_demanda_maximo(
+    demanda: pd.Series,
+    periodo: pd.Series,
+    *,
+    n_excluir: int = 2,
+) -> pd.Series:
+    """Demanda rolada con NA en inicios de periodo (no cuentan para idxmax)."""
+    valida = mascara_valida_para_maximo(periodo, n_excluir=n_excluir)
+    out = pd.to_numeric(demanda, errors="coerce").where(valida)
+    return out
 
 
 def demanda_rodante_15min_por_periodo(
@@ -34,16 +69,14 @@ def demanda_rodante_15min_por_periodo(
     intervalo_min: int = 5,
 ) -> pd.Series:
     """
-    Media móvil 15 min reiniciada en cada cambio de periodo tarifario
-    (modo conservador / aislamiento TOU).
+    Media móvil 15 min reiniciada en cada cambio de periodo tarifario.
 
-    No mezcla subintervalos de tarifas distintas. Hasta completar N
-    intervalos consecutivos de la misma tarifa el valor es 0
-    (con 5 min y ventana 15 min: los 2 primeros de cada racha → 0).
+    Conservada por compatibilidad / pruebas. El flujo BESS publica la
+    demanda con ``demanda_rodante_15min_por_mes`` y aísla TOU al detectar
+    máximos vía ``mascara_valida_para_maximo``.
     """
     ventana = ventana_min // intervalo_min
     p = periodo.copy()
-    # Normalizar: NaN / vacío rompen racha
     p = p.where(p.notna() & (p.astype(str).str.strip() != ""), other=pd.NA)
     prev = p.shift(1)
     nueva_racha = p.isna() | prev.isna() | p.ne(prev)

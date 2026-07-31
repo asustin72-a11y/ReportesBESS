@@ -15,18 +15,18 @@ from bess.config.esquema_tarifa import esquema_tarifa_prefijo, normalizar_esquem
 from bess.core.atomic_io import ruta_temporal_atomica
 from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
 from bess.core.dates import agregar_fecha_operativa
-from bess.core.demand import demanda_rodante_15min_por_periodo
+from bess.core.demand import demanda_rodante_15min_por_mes
 from bess.core.kvarh import columnas_kvarh as _columnas_kvarh
 from bess.data.ingest.readers import leer_sin_agrupar
 
 from bess.core.console import log
 print = log
 
-# Ventana de la demanda rodante (bess.core.demand.demanda_rodante_15min_por_periodo):
-# 15 min / 5 min = 3 filas, reinicio al cambiar PERIODO (aislamiento TOU).
+# Ventana de la demanda rodante (bess.core.demand.demanda_rodante_15min_por_mes):
+# 15 min / 5 min = 3 filas, reinicio al cambiar de mes operativo.
 # Para que la primera fila de una ventana incremental calcule el mismo
 # rolling que una corrida completa, hacen falta las 2 filas previas como
-# contexto (si son de otro periodo, el groupby por racha las separa solas).
+# contexto.
 _VENTANA_DEMANDA_FILAS = 15 // 5
 _CONTEXTO_FILAS = _VENTANA_DEMANDA_FILAS - 1
 
@@ -227,11 +227,13 @@ def _calcular_derivados(df_lote, prefijo, esquema, col_con, col_sin):
     df_lote[f"Mejora_BESS_{prefijo}_kW"] = df_lote[f"Mejora_BESS_{prefijo}_kWh"] * 12
 
     df_lote = agregar_fecha_operativa(df_lote, col_fecha_hora="FECHA_HORA")
+    # Mes operativo a partir de FECHA (dd/mm/yyyy) → YYYY-MM
+    mes_op = pd.to_datetime(df_lote["FECHA"], format="%d/%m/%Y", errors="coerce").dt.strftime(
+        "%Y-%m"
+    )
     for col in (col_con, col_sin):
         col_demanda = f"{col}_DEM_15min"
-        df_lote[col_demanda] = demanda_rodante_15min_por_periodo(
-            df_lote[col], df_lote["PERIODO"]
-        )
+        df_lote[col_demanda] = demanda_rodante_15min_por_mes(df_lote[col], mes_op)
 
     return df_lote
 
@@ -250,12 +252,13 @@ def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo, esquema_tarif
     Lo anterior a la ventana se preserva crudo
     (_leer_previas_a_ventana_combinado), sin reparsear sus valores
     numéricos, para no arriesgar diferencias de redondeo en datos ya
-    cerrados. Para la demanda rodante (rolling de 3 filas, reinicio
-    mensual) se incluyen también las filas de contexto necesarias antes
-    del inicio de la ventana (ver _CONTEXTO_FILAS), que se descartan del
-    archivo final -- solo sirven para que el rolling arranque igual que en
-    una corrida completa. La primera vez (o si cambia el formato de
-    columnas) procesa completo, como antes.
+    cerrados. Para la demanda rodante (rolling de 3 filas, reinicio al
+    cambiar de mes operativo) se incluyen también las filas de
+    contexto necesarias antes del inicio de la ventana (ver
+    _CONTEXTO_FILAS), que se descartan del archivo final -- solo sirven
+    para que el rolling arranque igual que en una corrida completa. La
+    primera vez (o si cambia el formato de columnas) procesa completo,
+    como antes.
 
     El DataFrame devuelto siempre es el resultado del merge BESS×medidor
     completo (para que quien llama pueda verificar `len(...) == 0` igual

@@ -16,7 +16,10 @@ from bess.config.subestaciones import (
     subestacion_por_id,
 )
 from bess.core.consumo import kwh_neto_consumo
-from bess.core.demand import demanda_rodante_15min_por_periodo
+from bess.core.demand import (
+    aplicar_mascara_demanda_maximo,
+    demanda_rodante_15min_por_mes,
+)
 from bess.core.numbers import redondear_arriba_kw, redondear_mxn_energia
 from bess.tariffs.loader import cargar_tarifas
 
@@ -95,8 +98,10 @@ def _filtrar_mes_hasta(df: pd.DataFrame, fecha_corte: date) -> pd.DataFrame:
 
 def _max_punta_rodada(calc: pd.DataFrame, col_kw: str) -> float:
     col_dem = f"{col_kw}_DEM15"
-    punta = calc.loc[calc["PERIODO"] == "Punta", col_dem]
-    if punta.empty:
+    # Máscara sobre la serie completa (rachas reales de PERIODO), luego filtrar Punta
+    enmascarada = aplicar_mascara_demanda_maximo(calc[col_dem], calc["PERIODO"])
+    punta = enmascarada.loc[calc["PERIODO"] == "Punta"]
+    if punta.dropna().empty:
         return 0.0
     return float(punta.max())
 
@@ -206,10 +211,16 @@ def calcular_participacion_capacidad(
         raise ParticipacionCapacidadError(
             "El combinado no trae columna PERIODO; regenerar reportes."
         )
+    if "FECHA" in calc.columns:
+        mes_op = pd.to_datetime(
+            calc["FECHA"], format="%d/%m/%Y", errors="coerce"
+        ).dt.strftime("%Y-%m")
+    else:
+        mes_op = pd.to_datetime(
+            calc["FECHA_HORA"], format="%d/%m/%Y %H:%M", errors="coerce"
+        ).dt.strftime("%Y-%m")
     for col in ("P_Dcb_kW", "P_Dc_kW", "P_Db_kW", "P_D0_kW"):
-        calc[f"{col}_DEM15"] = demanda_rodante_15min_por_periodo(
-            calc[col], calc["PERIODO"]
-        )
+        calc[f"{col}_DEM15"] = demanda_rodante_15min_por_mes(calc[col], mes_op)
 
     escenarios = {
         "D0": ("P_D0_kW", "E_D0_kWh", "Sin recursos"),

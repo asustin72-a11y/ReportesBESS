@@ -1,8 +1,8 @@
 """Pruebas de combinado por minuto incremental (Fase 5.1 del plan CSV->SQLite).
 
 generar_combinado_por_minuto() calculaba columnas derivadas (HORA, PERIODO,
-kW, demanda rodante 15 min con reinicio al cambiar PERIODO / aislamiento
-TOU...) sobre el histórico completo en cada corrida y reescribía
+kW, demanda rodante 15 min con reinicio al cambiar de mes operativo...)
+sobre el histórico completo en cada corrida y reescribía
 COMBINADO_POR_MINUTO_*.csv entero.
 Ahora, si el destino ya tiene un cursor legible (última FECHA_HORA) y
 columnas compatibles, solo procesa y reescribe una ventana de los últimos
@@ -16,7 +16,7 @@ vez de quedarse pegado al primer valor que vio para esa fecha.
 
 Las pruebas cubren: primera corrida completa, incremental == completo con
 un split a mitad de mes, incremental == completo con un split justo en la
-frontera de un mes (contexto cross-mes / misma racha de periodo), no-op
+frontera de un mes (contexto cross-mes), no-op
 sin filas en la ventana, fallback a completo si cambia el formato de
 columnas, una comparación con datos reales de IUSA_1 (ION ∩ BESS), que un
 día abierto recoge una actualización posterior del origen, que los días
@@ -113,8 +113,8 @@ def test_generar_combinado_incremental_equivale_a_completo_split_mitad(tmp_path,
 
 def test_generar_combinado_incremental_equivale_a_completo_split_frontera_mes(tmp_path, monkeypatch):
     """Split justo donde termina enero y empieza febrero: el contexto
-    (fin de enero) puede ser la misma racha de PERIODO que el inicio de
-    febrero -- con aislamiento TOU no hay reinicio mensual forzado.
+    (fin de enero) alimenta el rolling del nuevo mes solo si se incluye;
+    al reiniciar por mes operativo, febrero arranca en 0 los 2 primeros.
     Incremental y completo deben coincidir."""
     fechas = pd.date_range("2026-01-31 23:45:00", "2026-02-01 01:00:00", freq="5min")
     corte = fechas[fechas < pd.Timestamp("2026-02-01 00:05:00")]
@@ -148,12 +148,10 @@ def test_generar_combinado_incremental_equivale_a_completo_split_frontera_mes(tm
 
     pd.testing.assert_frame_equal(salida_inc, salida_full)
 
-    # Contrato TOU: si PERIODO no cambia en la medianoche, no hay reinicio
-    # mensual forzado (a diferencia del algoritmo anterior).
-    assert (
-        salida_inc.loc[salida_inc["FECHA_HORA"] == "01/02/2026 00:05", "PERIODO"].iloc[0]
-        == salida_inc.loc[salida_inc["FECHA_HORA"] == "31/01/2026 23:55", "PERIODO"].iloc[0]
-    )
+    # Reinicio mensual: primeros intervalos de febrero en DEM_15min son 0
+    col_dem = f"IUSA_CON_BESS_{MED_ION.prefijo}_kW_DEM_15min"
+    fila_feb = salida_inc.loc[salida_inc["FECHA_HORA"] == "01/02/2026 00:05"].iloc[0]
+    assert float(fila_feb[col_dem]) == 0.0
 
 
 def test_generar_combinado_sin_datos_nuevos_es_no_op(tmp_path, monkeypatch):

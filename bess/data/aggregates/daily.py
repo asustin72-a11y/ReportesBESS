@@ -20,6 +20,7 @@ from bess.core.kvarh import (
     normalizar_columnas_kvarh as _normalizar_columnas_kvarh,
 )
 from bess.core.dates import agregar_fecha_operativa
+from bess.core.demand import aplicar_mascara_demanda_maximo
 from bess.data.aggregates._incremental_dia import (
     columnas_dia,
     combinar_cola_diaria,
@@ -242,11 +243,19 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
     df_med_diario = df_med_ent_pivot.merge(df_med_rec_pivot, on="FECHA", how="outer").fillna(0)
     df_med_diario = df_med_diario.merge(df_sin_pivot, on="FECHA", how="left").fillna(0)
 
-    # Demandas máximas (rolling 15 min en combinado por minuto)
+    # Demandas máximas (rolling 15 min continuo; máscara TOU en inicios de periodo)
     col_con_dem = f"IUSA_CON_BESS_{prefijo}_kW_DEM_15min"
     col_sin_dem = f"IUSA_SIN_BESS_{prefijo}_kW_DEM_15min"
 
-    idx_con_max = _idxmax_por_grupo(df_minuto, ["FECHA", "PERIODO"], col_con_dem).dropna()
+    df_minuto = df_minuto.copy()
+    df_minuto["_DEM_CON_MAX"] = aplicar_mascara_demanda_maximo(
+        df_minuto[col_con_dem], df_minuto["PERIODO"]
+    )
+    df_minuto["_DEM_SIN_MAX"] = aplicar_mascara_demanda_maximo(
+        df_minuto[col_sin_dem], df_minuto["PERIODO"]
+    )
+
+    idx_con_max = _idxmax_por_grupo(df_minuto, ["FECHA", "PERIODO"], "_DEM_CON_MAX").dropna()
     df_con_max = df_minuto.loc[
         idx_con_max,
         ["FECHA", "PERIODO", col_con_dem, "FECHA_HORA"],
@@ -288,7 +297,7 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
         "",
     )
 
-    idx_sin_max = _idxmax_por_grupo(df_minuto, ["FECHA", "PERIODO"], col_sin_dem).dropna()
+    idx_sin_max = _idxmax_por_grupo(df_minuto, ["FECHA", "PERIODO"], "_DEM_SIN_MAX").dropna()
     df_sin_max = df_minuto.loc[
         idx_sin_max,
         ["FECHA", "PERIODO", col_sin_dem, "FECHA_HORA"],
