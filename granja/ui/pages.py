@@ -46,14 +46,31 @@ _MESES_ES = (
 _COLS_ENERGIA = ("Base", "Intermedio", "Punta", "Total")
 _COLS_INGRESO = ("Ingreso_Base", "Ingreso_Intermedio", "Ingreso_Punta", "Ingreso_Total")
 
+_RENAME_TABLA = {
+    "etiqueta": "Medidor",
+    "fecha": "Fecha",
+    "Base": "Base (kWh)",
+    "Intermedio": "Intermedio (kWh)",
+    "Punta": "Punta (kWh)",
+    "Total": "Total (kWh)",
+    "Ingreso_Base": "Ingreso Base ($)",
+    "Ingreso_Intermedio": "Ingreso Intermedio ($)",
+    "Ingreso_Punta": "Ingreso Punta ($)",
+    "Ingreso_Total": "Ingreso Total ($)",
+}
+
 
 def _fmt_mxn(valor: float) -> str:
     """Vista: MXN a entero half-up (≥0.5 arriba), igual que kWh."""
     return f"${redondear_kwh(valor):,}"
 
 
+def _fmt_kwh_tabla(valor) -> str:
+    return f"{redondear_kwh(valor):,}"
+
+
 def _vista_energia_ingreso(df: pd.DataFrame) -> pd.DataFrame:
-    """Copia para pantalla: kWh y MXN a enteros (half-up ≥0.5)."""
+    """Copia numérica para gráficas: kWh y MXN a enteros (half-up ≥0.5)."""
     out = df.copy()
     for col in _COLS_ENERGIA:
         if col in out.columns:
@@ -62,6 +79,40 @@ def _vista_energia_ingreso(df: pd.DataFrame) -> pd.DataFrame:
         if col in out.columns:
             out[col] = out[col].map(lambda v: redondear_kwh(v))
     return out
+
+
+def _tabla_energia_ingreso(df: pd.DataFrame) -> pd.DataFrame:
+    """Tabla para pantalla: miles, $ en ingresos y unidades en encabezados."""
+    num = _vista_energia_ingreso(df)
+    out = num.copy()
+    if "medidor_id" in out.columns:
+        out = out.drop(columns=["medidor_id"])
+    for col in _COLS_ENERGIA:
+        if col in out.columns:
+            out[col] = out[col].map(_fmt_kwh_tabla)
+    for col in _COLS_INGRESO:
+        if col in out.columns:
+            out[col] = out[col].map(_fmt_mxn)
+    if "fecha" in out.columns:
+        out["fecha"] = out["fecha"].astype(str)
+    renombrar = {k: v for k, v in _RENAME_TABLA.items() if k in out.columns}
+    out = out.rename(columns=renombrar)
+    preferido = [
+        "Fecha",
+        "Medidor",
+        "Base (kWh)",
+        "Intermedio (kWh)",
+        "Punta (kWh)",
+        "Total (kWh)",
+        "Ingreso Base ($)",
+        "Ingreso Intermedio ($)",
+        "Ingreso Punta ($)",
+        "Ingreso Total ($)",
+    ]
+    cols = [c for c in preferido if c in out.columns] + [
+        c for c in out.columns if c not in preferido
+    ]
+    return out[cols]
 
 
 def _fmt_precio(valor: float) -> str:
@@ -455,7 +506,11 @@ def _tab_dashboard() -> None:
         st.subheader("Resumen por día")
         vista_dia = _vista_energia_ingreso(por_dia)
         vista_dia["fecha"] = vista_dia["fecha"].astype(str)
-        st.dataframe(vista_dia, use_container_width=True, hide_index=True)
+        st.dataframe(
+            _tabla_energia_ingreso(por_dia),
+            use_container_width=True,
+            hide_index=True,
+        )
 
         fig_dia = px.bar(
             vista_dia,
@@ -511,7 +566,11 @@ def _tab_dashboard() -> None:
             st.plotly_chart(fig_t, use_container_width=True)
 
     st.subheader("Energía e ingreso por MEGA")
-    st.dataframe(_vista_energia_ingreso(detalle), use_container_width=True, hide_index=True)
+    st.dataframe(
+        _tabla_energia_ingreso(detalle),
+        use_container_width=True,
+        hide_index=True,
+    )
 
 
 def _sidebar_sync() -> None:
