@@ -1,0 +1,19 @@
+# Reglas sudoers para auto-reparación NTP/zona del preflight BESS.
+# Instalar en el servidor (una sola vez, como root):
+#
+#   sudo cp deploy/sudoers-bess-ntp.example /etc/sudoers.d/bess-ntp
+#   sudo chmod 440 /etc/sudoers.d/bess-ntp
+#   sudo visudo -cf /etc/sudoers.d/bess-ntp
+#
+# Usuario típico del cron: bess
+# El preflight usa siempre «sudo -n» (nunca pide contraseña).
+
+bess ALL=(root) NOPASSWD: /usr/bin/timedatectl set-timezone America/Mexico_City
+bess ALL=(root) NOPASSWD: /usr/bin/timedatectl set-ntp true
+bess ALL=(root) NOPASSWD: /usr/bin/timedatectl set-ntp false
+bess ALL=(root) NOPASSWD: /bin/systemctl restart systemd-timesyncd
+bess ALL=(root) NOPASSWD: /bin/systemctl restart chronyd
+bess ALL=(root) NOPASSWD: /bin/systemctl restart chrony
+bess ALL=(root) NOPASSWD: /usr/bin/systemctl restart systemd-timesyncd
+bess ALL=(root) NOPASSWD: /usr/bin/systemctl restart chronyd
+bess ALL=(root) NOPASSWD: /usr/bin/systemctl restart chrony

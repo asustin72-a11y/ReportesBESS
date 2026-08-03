@@ -165,7 +165,8 @@ Errores frecuentes en el log:
 | Mensaje en log | Causa | Acción |
 |----------------|-------|--------|
 | `docker no encontrado` | Cron sin PATH | `bash deploy/install-cron.sh` (v5.6.2+) |
-| `BLOQUEO: preflight reloj/zona` | Zona distinta a `America/Mexico_City` o NTP desincronizado | `timedatectl status` · `cat data/sync_preflight.json` |
+| `BLOQUEO: preflight reloj/zona` | Zona distinta a `America/Mexico_City` o NTP desincronizado | El preflight **intenta auto-reparar** (`timedatectl set-ntp`, restart timesyncd/chrony) si hay sudoers NOPASSWD. Instalar: `sudo cp deploy/sudoers-bess-ntp.example /etc/sudoers.d/bess-ntp` · `timedatectl status` · `cat data/sync_preflight.json` |
+| `sudo -n denegado` / `NOPASSWD` en preflight | Usuario `bess` sin reglas de reparación | Ver `deploy/sudoers-bess-ntp.example` |
 | Cron dispara pero no hay líneas nuevas en el log | Shebang con CRLF (`\r`) o script no ejecutable | `file scripts/cron_sincronizar.sh` · `sed -i 's/\r$//' scripts/cron_sincronizar.sh` · `bash deploy/install-cron.sh` |
 | `contenedor bess-app no esta en ejecucion` | Docker caído | `docker compose up -d` |
 | `ERROR (codigo N)` | Fallo sync/procesar | Ver líneas anteriores en el mismo log |

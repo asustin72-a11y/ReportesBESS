@@ -33,6 +33,11 @@ def advertencias_sidebar() -> list[str]:
         texto = str(msg).strip()
         if texto:
             mensajes.append(texto)
+    reparaciones = [str(x).strip() for x in (estado.get("reparaciones") or []) if str(x).strip()]
+    if reparaciones and estado.get("ok"):
+        mensajes.append(
+            "Reloj auto-reparado: " + "; ".join(reparaciones[:3])
+        )
 
     # Formato anterior (v5.6.4): solo "advertencias" bloqueaba todo
     if not mensajes and not estado.get("ok"):
