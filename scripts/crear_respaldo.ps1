@@ -69,7 +69,14 @@ if (-not (Test-Path $gitkeep)) { Set-Content -Path $gitkeep -Value "" -Encoding 
 
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
 Write-Host "Comprimiendo -> $zipPath"
-Compress-Archive -Path (Join-Path $staging "*") -DestinationPath $zipPath -CompressionLevel Optimal
+# tar es mas estable que Compress-Archive cuando antivirus/IDE bloquean archivos momentaneamente
+Push-Location $staging
+try {
+    & tar -a -cf $zipPath *
+    if ($LASTEXITCODE -ne 0) { throw "tar fallo con codigo $LASTEXITCODE" }
+} finally {
+    Pop-Location
+}
 
 Remove-Item $staging -Recurse -Force
 
