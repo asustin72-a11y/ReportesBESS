@@ -3,7 +3,7 @@
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS
 (ION y BANCO), con portal de suite hacia **Granja Solar** (21 MEGAs).
 
-**Versión actual:** 5.18.5 — Suite: BESS | Granja | Descargas API.
+**Versión actual:** 5.18.5 — Suite: BESS | Granja | Descargas | Análisis de Perfil | Consultar Tarifa.
 
 ## Ejecución local (Suite)
 
@@ -13,9 +13,16 @@ python -m playwright install chromium
 streamlit run streamlit_app.py
 ```
 
-Tras el login se elige el módulo **BESS** o **Granja Solar**.  
-Solo BESS: `streamlit run streamlit_bess.py` · Solo Granja: `streamlit run streamlit_granja.py`.
+Tras el login se elige el módulo **BESS**, **Granja** o **Descargas**.  
+Entradas directas:
 
+| App | Entry | Docs |
+|-----|-------|------|
+| Solo BESS | `streamlit run streamlit_bess.py` | — |
+| Granja Solar | `streamlit run streamlit_granja.py` | [granja/README.md](granja/README.md) |
+| Descargas | `streamlit run streamlit_descargas.py` | [descargas/README.md](descargas/README.md) |
+| Análisis de Perfil | `streamlit run streamlit_analisis_perfil.py` | [analisis_perfil/README.md](analisis_perfil/README.md) |
+| Consultar Tarifa | `streamlit run streamlit_tarifas_cfe.py` | [tarifas_cfe/README.md](tarifas_cfe/README.md) |
 ## Documentación
 
 | Documento | Descripción |

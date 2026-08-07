@@ -10,7 +10,7 @@ from bess.data.ingest.iusasol.client import IusasolError
 from bess.ui.components import obtener_logo_html
 from bess.ui.styles import aplicar_estilos
 
-from descargas import NOMBRE_APP
+from descargas import NOMBRE_APP, VERSION
 from descargas.config import AVISO_GRANJA_REQUESTS, SECCIONES, ZONA
 from descargas.service import (
     MedidorInfo,
@@ -31,7 +31,7 @@ def render_panel_descargas(*, mostrar_titulo: bool = True) -> None:
     """Panel embebible (suite) o contenido principal del entry standalone."""
     if mostrar_titulo:
         st.markdown(f"### {NOMBRE_APP}")
-        st.caption("Clientes · Granja · Porteo → CSV (API IUSASOL)")
+        st.caption(f"Clientes · Granja · Porteo → CSV (API IUSASOL) · v{VERSION}")
 
     claves = [k for k, _ in SECCIONES]
     etiquetas = {k: e for k, e in SECCIONES}
@@ -113,7 +113,7 @@ def run_pages(*, desde_suite: bool = False) -> None:
                 <div>
                     <h1 class="app-header-title">{NOMBRE_APP}</h1>
                     <p class="app-header-sub">{rol_tipo}: {nombre} ·
-                       Clientes · Granja · Porteo → CSV</p>
+                       Clientes · Granja · Porteo → CSV · v{VERSION}</p>
                 </div>
             </div>
             """,
@@ -148,7 +148,7 @@ def _render_header_standalone() -> None:
             {logo_block}
             <div>
                 <h1 class="app-header-title">{NOMBRE_APP}</h1>
-                <p class="app-header-sub">Clientes · Granja · Porteo → CSV</p>
+                <p class="app-header-sub">Clientes · Granja · Porteo → CSV · v{VERSION}</p>
             </div>
         </div>
         """,
@@ -157,6 +157,7 @@ def _render_header_standalone() -> None:
 
 def _sidebar() -> None:
     st.markdown("### Descarga API")
+    st.caption(f"Suite IUSASOL · v{VERSION}")
     st.caption(
         "Clientes = ISOL · Granja = Farm · Porteo = Reports/Porteo. "
         "No escribe en SQLite ni al pipeline BESS."

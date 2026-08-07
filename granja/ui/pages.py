@@ -21,6 +21,7 @@ from bess.ui.components import obtener_logo_html
 from bess.ui.sidebar import _ajustar_sidebar_por_rol
 from bess.ui.styles import aplicar_estilos, aplicar_estilos_login
 
+from granja import __version__ as VERSION
 from granja.config import CAPACIDAD_MW, FECHA_INICIO_SYNC, NOMBRE_APP
 from granja.config.meters import NOMBRES_MEGA
 from granja.data.aggregates import (
@@ -1025,7 +1026,7 @@ def _render_header(*, desde_suite: bool = False) -> None:
                 <div>
                     <h1 class="app-header-title">{NOMBRE_APP}</h1>
                     <p class="app-header-sub">{rol_tipo}: {nombre} ·
-                       21 MEGAs · DIST · {CAPACIDAD_MW:.0f} MW</p>
+                       21 MEGAs · DIST · {CAPACIDAD_MW:.0f} MW · v{VERSION}</p>
                 </div>
             </div>
             """,
@@ -1058,7 +1059,7 @@ def _sidebar_branding() -> None:
                     padding:16px;border-radius:12px;text-align:center;margin-bottom:8px;">
             {logo_block}
             <p style="color:rgba(255,255,255,0.9);margin:4px 0 0;font-size:12px;font-weight:500;">
-                Granja Solar · Panel local
+                Granja Solar · Panel local · v{VERSION}
             </p>
         </div>
         """,
