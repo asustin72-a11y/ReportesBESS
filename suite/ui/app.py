@@ -1,13 +1,16 @@
-"""Aplicación Streamlit — Suite IUSASOL (BESS + Granja + Descargas)."""
+"""Aplicación Streamlit — Suite IUSASOL."""
 
 from __future__ import annotations
 
 import streamlit as st
 
 from suite import (
+    MODULO_ANALISIS_PERFIL,
     MODULO_BESS,
+    MODULO_CONSULTAR_TARIFA,
     MODULO_DESCARGAS,
     MODULO_GRANJA,
+    MODULOS_VALIDOS,
     NOMBRE_SUITE,
     SUBTITULO_SUITE,
 )
@@ -56,7 +59,7 @@ def main() -> None:
         st.rerun()
 
     modulo = st.session_state.get("suite_modulo")
-    if modulo not in (MODULO_BESS, MODULO_GRANJA, MODULO_DESCARGAS):
+    if modulo not in MODULOS_VALIDOS:
         restaurar_ui_app(restaurar_sidebar=False)
         render_selector_modulos()
         return
@@ -73,9 +76,21 @@ def main() -> None:
         granja_main(desde_suite=True)
         return
 
-    from descargas.ui.pages import run_pages as descargas_main
+    if modulo == MODULO_DESCARGAS:
+        from descargas.ui.pages import run_pages as descargas_main
 
-    descargas_main(desde_suite=True)
+        descargas_main(desde_suite=True)
+        return
+
+    if modulo == MODULO_ANALISIS_PERFIL:
+        from analisis_perfil.ui.pages import run_pages as analisis_main
+
+        analisis_main(desde_suite=True)
+        return
+
+    from tarifas_cfe.ui.pages import run_pages as tarifas_main
+
+    tarifas_main(desde_suite=True)
 
 
 if __name__ == "__main__":

@@ -1631,7 +1631,7 @@ def _mostrar_aportaciones(aportaciones: dict) -> None:
         )
 
 
-def run_pages() -> None:
+def run_pages(*, desde_suite: bool = False) -> None:
     from bess.ui.auth import init_session, preparar_ui_login, restaurar_ui_app
     from bess.ui.styles import aplicar_estilos_login
 
@@ -1643,13 +1643,15 @@ def run_pages() -> None:
         logout()
         st.rerun()
 
-    if not st.session_state.get("autenticado"):
+    if not desde_suite and not st.session_state.get("autenticado"):
         preparar_ui_login()
         aplicar_estilos_login()
         _login_analisis()
         if not st.session_state.get("autenticado"):
             return
         st.rerun()
+    elif desde_suite and not st.session_state.get("autenticado"):
+        return
 
     restaurar_ui_app(restaurar_sidebar=False)
     aplicar_estilos()

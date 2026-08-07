@@ -51,7 +51,7 @@ _MESES_LABEL = {
 }
 
 
-def run_pages() -> None:
+def run_pages(*, desde_suite: bool = False) -> None:
     init_session()
 
     if st.session_state.pop("_logout_pendiente", False):
@@ -60,15 +60,17 @@ def run_pages() -> None:
         logout()
         st.rerun()
 
-    if not st.session_state.get("autenticado"):
+    if not desde_suite and not st.session_state.get("autenticado"):
         preparar_ui_login()
         aplicar_estilos_login()
         _login_consultar_tarifa()
         if not st.session_state.get("autenticado"):
             return
         st.rerun()
+    elif desde_suite and not st.session_state.get("autenticado"):
+        return
 
-    restaurar_ui_app()
+    restaurar_ui_app(restaurar_sidebar=False)
     aplicar_estilos()
     _render_header()
 
@@ -92,7 +94,6 @@ def run_pages() -> None:
         _panel_consulta()
     else:
         _panel_descargas_reporte()
-
 
 def _login_consultar_tarifa() -> None:
     st.markdown('<div class="login-page-marker"></div>', unsafe_allow_html=True)

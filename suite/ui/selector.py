@@ -9,11 +9,14 @@ from bess.ui.auth import get_usuarios
 from bess.ui.components import boton_cerrar_sesion, obtener_logo_html
 from bess.ui.styles import aplicar_estilos
 from suite import (
+    MODULO_ANALISIS_PERFIL,
     MODULO_BESS,
+    MODULO_CONSULTAR_TARIFA,
     MODULO_DESCARGAS,
     MODULO_GRANJA,
     NOMBRE_SUITE,
     SUBTITULO_SUITE,
+    VERSION,
 )
 
 
@@ -42,7 +45,8 @@ def render_selector_modulos() -> None:
                 {logo_block}
                 <div>
                     <h1 class="app-header-title">{NOMBRE_SUITE}</h1>
-                    <p class="app-header-sub">{rol_tipo}: {nombre} · {SUBTITULO_SUITE}</p>
+                    <p class="app-header-sub">{rol_tipo}: {nombre} ·
+                       {SUBTITULO_SUITE} · v{VERSION}</p>
                 </div>
             </div>
             """,
@@ -53,54 +57,75 @@ def render_selector_modulos() -> None:
         boton_cerrar_sesion(key="suite_hdr_logout")
 
     st.markdown("##### Elija el módulo")
-    st.caption("Misma sesión y base de datos. Puede cambiar de módulo en cualquier momento.")
+    st.caption(
+        "Misma sesión y base de datos. Puede cambiar de módulo en cualquier momento."
+    )
 
-    col_bess, col_granja, col_descargas = st.columns(3)
-    with col_bess:
+    def _tarjeta(
+        titulo: str,
+        caption: str,
+        boton: str,
+        key: str,
+        modulo: str,
+    ) -> None:
         with st.container(border=True):
-            st.markdown("### BESS")
-            st.caption(
-                "Subestaciones, demanda, arbitraje, recibo CFE, pipeline de sync "
-                "y reportes de batería."
-            )
+            st.markdown(f"### {titulo}")
+            st.caption(caption)
             if st.button(
-                "Abrir BESS",
+                boton,
                 type="primary",
                 use_container_width=True,
-                key="suite_abrir_bess",
+                key=key,
             ):
-                st.session_state["suite_modulo"] = MODULO_BESS
+                st.session_state["suite_modulo"] = modulo
                 st.session_state.pop("sidebar_inicial_aplicada", None)
                 st.rerun()
-    with col_granja:
-        with st.container(border=True):
-            st.markdown("### Granja Solar")
-            st.caption(
-                "21 MEGAs · energía e ingresos DIST · dashboard y reportes PDF "
-                "diario / mensual."
-            )
-            if st.button(
-                "Abrir Granja",
-                type="primary",
-                use_container_width=True,
-                key="suite_abrir_granja",
-            ):
-                st.session_state["suite_modulo"] = MODULO_GRANJA
-                st.session_state.pop("sidebar_inicial_aplicada", None)
-                st.rerun()
-    with col_descargas:
-        with st.container(border=True):
-            st.markdown("### Descargas API")
-            st.caption(
-                "Perfiles Clientes (ISOL), Granja (Farm) y Porteo → CSV. "
-                "Disponible para todos los usuarios."
-            )
-            if st.button(
-                "Abrir Descargas",
-                type="primary",
-                use_container_width=True,
-                key="suite_abrir_descargas",
-            ):
-                st.session_state["suite_modulo"] = MODULO_DESCARGAS
-                st.session_state.pop("sidebar_inicial_aplicada", None)
-                st.rerun()
+
+    r1 = st.columns(3)
+    with r1[0]:
+        _tarjeta(
+            "BESS",
+            "Subestaciones, demanda, arbitraje, recibo CFE, pipeline de sync "
+            "y reportes de batería.",
+            "Abrir BESS",
+            "suite_abrir_bess",
+            MODULO_BESS,
+        )
+    with r1[1]:
+        _tarjeta(
+            "Granja Solar",
+            "21 MEGAs · energía e ingresos DIST · dashboard y reportes PDF "
+            "diario / mensual.",
+            "Abrir Granja",
+            "suite_abrir_granja",
+            MODULO_GRANJA,
+        )
+    with r1[2]:
+        _tarjeta(
+            "Descargas API",
+            "Perfiles Clientes (ISOL), Granja (Farm) y Porteo → CSV. "
+            "Disponible para todos los usuarios.",
+            "Abrir Descargas",
+            "suite_abrir_descargas",
+            MODULO_DESCARGAS,
+        )
+
+    r2 = st.columns(3)
+    with r2[0]:
+        _tarjeta(
+            "Análisis de Perfil",
+            "Perfiles cincominutales · tarifas T01 / GDMTH / DIST · "
+            "PDF, CSV recibo y calidad de datos.",
+            "Abrir Análisis",
+            "suite_abrir_analisis",
+            MODULO_ANALISIS_PERFIL,
+        )
+    with r2[1]:
+        _tarjeta(
+            "Consultar Tarifa",
+            "Cuotas vigentes en CFE (Hogar, Negocio, Industria, Agrícola) "
+            "y descarga de reportes CSV.",
+            "Abrir Tarifas",
+            "suite_abrir_tarifas",
+            MODULO_CONSULTAR_TARIFA,
+        )
