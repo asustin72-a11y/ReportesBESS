@@ -9,12 +9,9 @@ import streamlit as st
 
 from bess.config.paths import DIRECTORIO_BASE
 from bess.config.users import ETIQUETA_ROL, verificar_password
-from bess.data.ingest.cfe import (
+from bess.data.ingest.cfe.catalog import (
     CATEGORIAS,
     INICIOS_VERANO,
-    CfeTarifasError,
-    consultar_tarifa_catalogo,
-    explorar_opciones_geo,
     tarifas_por_categoria,
 )
 from bess.ui.auth import (
@@ -27,6 +24,7 @@ from bess.ui.components import (
     boton_cerrar_sesion,
     boton_volver_suite,
     en_suite,
+    marcar_barra_sesion,
     obtener_logo_html,
 )
 from bess.ui.styles import aplicar_estilos, aplicar_estilos_login
@@ -171,6 +169,7 @@ def _render_header() -> None:
         c1, c3 = st.columns([6, 1.3])
         c2 = None
     with c1:
+        marcar_barra_sesion()
         st.markdown(
             f"""
             <div class="app-header">
@@ -234,6 +233,17 @@ def _sidebar_ayuda() -> None:
                 st.caption(f"`{t.codigo}` — {t.nombre}")
 
 
+def _cfe_client():
+    """Import diferido: Playwright solo al consultar CFE, no al abrir el módulo."""
+    from bess.data.ingest.cfe.tarifas_client import (
+        CfeTarifasError,
+        consultar_tarifa_catalogo,
+        explorar_opciones_geo,
+    )
+
+    return CfeTarifasError, consultar_tarifa_catalogo, explorar_opciones_geo
+
+
 def _panel_descargas_reporte() -> None:
     st.markdown(
         '<div class="section-container">'
@@ -273,6 +283,10 @@ def _panel_descargas_reporte() -> None:
             return
 
         cols = st.columns(3)
+        from bess.ui.components import marcar_fila_controles
+
+        with cols[0]:
+            marcar_fila_controles()
         for i, ruta in enumerate(archivos):
             with cols[i % 3]:
                 st.download_button(
@@ -349,6 +363,7 @@ def _panel_consulta() -> None:
             if st.button("Cargar estados CFE", key="tcfe_btn_estados"):
                 with st.spinner("Leyendo catálogo geográfico CFE…"):
                     try:
+                        _, _, explorar_opciones_geo = _cfe_client()
                         st.session_state[geo_cache_key] = explorar_opciones_geo(
                             defn.url, anio=int(anio), mes=int(mes)
                         )
@@ -370,6 +385,7 @@ def _panel_consulta() -> None:
             if estado and st.button("Cargar municipios", key="tcfe_btn_mpo"):
                 with st.spinner("Municipios…"):
                     try:
+                        _, _, explorar_opciones_geo = _cfe_client()
                         data = explorar_opciones_geo(
                             defn.url, anio=int(anio), mes=int(mes), estado=estado
                         )
@@ -395,6 +411,7 @@ def _panel_consulta() -> None:
             ):
                 with st.spinner("Divisiones…"):
                     try:
+                        _, _, explorar_opciones_geo = _cfe_client()
                         data = explorar_opciones_geo(
                             defn.url,
                             anio=int(anio),
@@ -454,6 +471,7 @@ def _panel_consulta() -> None:
 
     with st.spinner(f"Consultando {defn.codigo} en CFE…"):
         try:
+            CfeTarifasError, consultar_tarifa_catalogo, _ = _cfe_client()
             resultado = consultar_tarifa_catalogo(
                 defn.codigo,
                 anio=int(anio),

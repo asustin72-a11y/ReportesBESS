@@ -187,11 +187,10 @@ def _evaluar_reporte(
     etiqueta: str,
     medidor_id: str,
     ruta_reporte,
-    resumen: dict,
+    sync_por_medidor: dict,
     ultima_fecha_hora_escrita,
 ) -> "DesfaseReporte":
-    info = resumen.get(medidor_id)
-    ultima_sync = _parse_fecha_sync(info.ultima_sync) if info else None
+    ultima_sync = _parse_fecha_sync(sync_por_medidor.get(medidor_id))
 
     ultima_reporte: datetime | None = None
     try:
@@ -218,11 +217,11 @@ def evaluar_desfase_reportes() -> list[DesfaseReporte]:
     corriente (11:25) y su combinado congelado varias horas atrás (08:20),
     sin que el aviso original (solo consumo) lo detectara.
     """
-    from bess.ui.db_tools.service import resumen_medidores
     from bess.data.aggregates.combined import ultima_fecha_hora_escrita
+    from bess.ui.db_tools.service import sync_state_por_medidor
 
     try:
-        resumen = {r.medidor_id: r for r in resumen_medidores()}
+        sync_por_medidor = sync_state_por_medidor()
     except Exception:
         return []
 
@@ -232,7 +231,7 @@ def evaluar_desfase_reportes() -> list[DesfaseReporte]:
         if med:
             resultado.append(_evaluar_reporte(
                 sub.id, sub.nombre, med.nombre, med.ruta_combinado(),
-                resumen, ultima_fecha_hora_escrita,
+                sync_por_medidor, ultima_fecha_hora_escrita,
             ))
 
         recurso = subestaciones_mod.recurso_generacion_subestacion(sub.id)
@@ -242,30 +241,41 @@ def evaluar_desfase_reportes() -> list[DesfaseReporte]:
             )
             resultado.append(_evaluar_reporte(
                 sub.id, f"{sub.nombre} · Generación", recurso.prefijo_reporte,
-                ruta_gen, resumen, ultima_fecha_hora_escrita,
+                ruta_gen, sync_por_medidor, ultima_fecha_hora_escrita,
             ))
     return resultado
 
 
-def render_aviso_reporte_desactualizado():
-    """Aviso persistente (a diferencia de render_banner_pipeline, no se
-    borra al mostrarse) si algún reporte quedó notablemente atrás respecto
-    a su última sincronización. Se evalúa en cada render de página."""
+@st.cache_data(ttl=60, show_spinner=False)
+def _desfases_atrasados_cached() -> tuple[tuple[str, str, str, float], ...]:
+    """Cachea solo los atrasados (serializable) para no reescanear en cada widget."""
     desfases = evaluar_desfase_reportes()
-    atrasados = [
-        d for d in desfases
-        if d.desfase is not None and d.desfase > UMBRAL_DESFASE_REPORTE
-    ]
+    atrasados = []
+    for d in desfases:
+        if d.desfase is None or d.desfase <= UMBRAL_DESFASE_REPORTE:
+            continue
+        atrasados.append(
+            (
+                d.etiqueta,
+                d.ultima_reporte.strftime("%d/%m/%Y %H:%M") if d.ultima_reporte else "—",
+                d.ultima_sync.strftime("%d/%m/%Y %H:%M") if d.ultima_sync else "—",
+                d.desfase.total_seconds() / 3600,
+            )
+        )
+    return tuple(atrasados)
+
+
+def render_aviso_reporte_desactualizado():
+    """Aviso persistente si algún reporte quedó atrás respecto a su sync."""
+    atrasados = _desfases_atrasados_cached()
     if not atrasados:
         return
 
     lineas = []
-    for d in atrasados:
-        horas = d.desfase.total_seconds() / 3600
+    for etiqueta, ult_rep, ult_sync, horas in atrasados:
         lineas.append(
-            f"- **{d.etiqueta}**: reporte hasta "
-            f"{d.ultima_reporte:%d/%m/%Y %H:%M}, sincronizado hasta "
-            f"{d.ultima_sync:%d/%m/%Y %H:%M} (≈{horas:.0f} h de diferencia)"
+            f"- **{etiqueta}**: reporte hasta {ult_rep}, sincronizado hasta "
+            f"{ult_sync} (≈{horas:.0f} h de diferencia)"
         )
     st.warning(
         "⚠️ **El reporte mostrado no incluye los datos ya sincronizados "

@@ -55,7 +55,8 @@ def aplicar_estilos():
         div[data-testid="stVerticalBlockBorderWrapper"] div[data-testid="stDataFrame"] {
             border: 1px solid #e2e8f0;
             border-radius: 10px;
-            overflow: hidden;
+            overflow-x: auto;
+            overflow-y: hidden;
             background: #f8fafc;
             margin: 8px 0 14px 0;
         }
@@ -810,7 +811,7 @@ def aplicar_estilos():
 
         /* ====== RESPONSIVE MOBILE ====== */
         @media (max-width: 768px) {
-            /* Header: reducir título y ocultar logo */
+            /* Header: reducir título; permitir wrap */
             .app-header {
                 gap: 8px !important;
                 flex-wrap: wrap;
@@ -820,10 +821,54 @@ def aplicar_estilos():
             }
             .app-header-title {
                 font-size: 1.1rem !important;
-                white-space: nowrap;
+                white-space: normal !important;
             }
             .app-header-sub {
                 font-size: 0.75rem !important;
+            }
+
+            /* Barra de sesión (título + Volver / Cerrar): apilar */
+            [data-testid="stHorizontalBlock"]:has(.suite-session-bar-marker) {
+                flex-wrap: wrap !important;
+                gap: 0.4rem !important;
+            }
+            [data-testid="stHorizontalBlock"]:has(.suite-session-bar-marker)
+                > [data-testid="column"] {
+                flex: 0 0 100% !important;
+                min-width: 100% !important;
+                max-width: 100% !important;
+            }
+
+            /* Filas densas de controles / atajos */
+            [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker) {
+                flex-wrap: wrap !important;
+                overflow-x: auto !important;
+                gap: 0.35rem !important;
+            }
+            [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker)
+                > [data-testid="column"] {
+                flex: 1 1 42% !important;
+                min-width: 42% !important;
+                max-width: 100% !important;
+            }
+
+            /* Métricas compactas (tendencia, etc.) */
+            [data-testid="stHorizontalBlock"]:has(.metric-compact) {
+                flex-wrap: wrap !important;
+            }
+            [data-testid="stHorizontalBlock"]:has(.metric-compact)
+                > [data-testid="column"] {
+                flex: 0 0 48% !important;
+                min-width: 48% !important;
+                max-width: 48% !important;
+                margin-bottom: 8px;
+            }
+
+            /* Tablas: scroll horizontal */
+            div[data-testid="stDataFrame"],
+            div[data-testid="stDataFrame"] > div {
+                overflow-x: auto !important;
+                max-width: 100% !important;
             }
 
             /* Navegación principal: botones compactos pero legibles */
@@ -912,6 +957,18 @@ def aplicar_estilos():
 
             /* Métricas: una sola columna */
             [data-testid="stHorizontalBlock"]:has(> [data-testid="column"] .metric-card) > [data-testid="column"] {
+                flex: 0 0 100% !important;
+                min-width: 100% !important;
+                max-width: 100% !important;
+            }
+            [data-testid="stHorizontalBlock"]:has(.metric-compact)
+                > [data-testid="column"] {
+                flex: 0 0 100% !important;
+                min-width: 100% !important;
+                max-width: 100% !important;
+            }
+            [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker)
+                > [data-testid="column"] {
                 flex: 0 0 100% !important;
                 min-width: 100% !important;
                 max-width: 100% !important;
@@ -1016,6 +1073,27 @@ def aplicar_estilos_login():
         }
         [data-testid="stAppViewContainer"]:has(.login-page-marker) [data-testid="column"] {
             min-width: 0 !important;
+        }
+        @media (max-width: 768px) {
+            [data-testid="stAppViewContainer"]:has(.login-page-marker)
+                [data-testid="stHorizontalBlock"] {
+                flex-wrap: wrap !important;
+            }
+            [data-testid="stAppViewContainer"]:has(.login-page-marker)
+                [data-testid="stHorizontalBlock"] > [data-testid="column"] {
+                flex: 0 0 100% !important;
+                min-width: 100% !important;
+                max-width: 100% !important;
+            }
+            [data-testid="stAppViewContainer"]:has(.login-page-marker)
+                > .main .block-container {
+                padding-left: 0.75rem !important;
+                padding-right: 0.75rem !important;
+                padding-top: 1.25rem !important;
+            }
+            .login-title {
+                white-space: normal !important;
+            }
         }
         .login-page-marker {
             display: none;

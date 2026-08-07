@@ -76,6 +76,17 @@ def resumen_medidores() -> list[ResumenMedidor]:
     ]
 
 
+def sync_state_por_medidor() -> dict[str, str | None]:
+    """Mapa medidor_id → ultima_fecha de sync_state (barato; sin COUNT de perfil)."""
+    if not RUTA_BD_PERFILES.is_file():
+        return {}
+    with db.conectar_bd() as conn:
+        filas = conn.execute(
+            "SELECT medidor_id, ultima_fecha FROM sync_state"
+        ).fetchall()
+    return {row["medidor_id"]: row["ultima_fecha"] for row in filas}
+
+
 def ultimos_sync_log(limite: int = 15) -> list[dict]:
     if not RUTA_BD_PERFILES.is_file():
         return []

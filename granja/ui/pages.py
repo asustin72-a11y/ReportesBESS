@@ -313,8 +313,12 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
         "Formato: día/mes/año."
     )
 
-    atajos = st.columns(6)
-    for col, (label, atajo) in zip(atajos, etiquetas):
+    atajos_cols = st.columns(6)
+    from bess.ui.components import marcar_fila_controles
+
+    with atajos_cols[0]:
+        marcar_fila_controles()
+    for col, (label, atajo) in zip(atajos_cols, etiquetas):
         with col:
             tipo = "primary" if atajo == activo else "secondary"
             if st.button(
@@ -997,6 +1001,7 @@ def _render_header(*, desde_suite: bool = False) -> None:
         boton_cerrar_sesion,
         boton_volver_suite,
         en_suite,
+        marcar_barra_sesion,
     )
 
     logo_html = obtener_logo_html(288)
@@ -1019,6 +1024,7 @@ def _render_header(*, desde_suite: bool = False) -> None:
         c1, c3 = st.columns([6, 1.3])
         c2 = None
     with c1:
+        marcar_barra_sesion()
         st.markdown(
             f"""
             <div class="app-header">

@@ -1669,7 +1669,12 @@ def run_pages(*, desde_suite: bool = False) -> None:
 
 def _render_barra_sesion() -> None:
     from bess.config.users import ETIQUETA_ROL
-    from bess.ui.components import boton_cerrar_sesion, boton_volver_suite, en_suite
+    from bess.ui.components import (
+        boton_cerrar_sesion,
+        boton_volver_suite,
+        en_suite,
+        marcar_barra_sesion,
+    )
 
     usuario = st.session_state.get("usuario") or "—"
     rol = st.session_state.get("rol") or ""
@@ -1677,6 +1682,7 @@ def _render_barra_sesion() -> None:
     n_btn = 1 + (1 if en_suite() else 0)
     cols = st.columns([4, *[1] * n_btn])
     with cols[0]:
+        marcar_barra_sesion()
         st.caption(f"Sesión: **{usuario}** · {etiqueta}")
     idx = 1
     if en_suite():

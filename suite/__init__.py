@@ -5,10 +5,7 @@ from __future__ import annotations
 from bess import __version__ as VERSION
 
 NOMBRE_SUITE = "Suite IUSASOL"
-SUBTITULO_SUITE = (
-    "Reporteadores de energía · BESS, Granja, Descargas, "
-    "Análisis de Perfil y Consultar Tarifa"
-)
+SUBTITULO_SUITE = "Reporteadores de energía IUSASOL"
 
 MODULO_BESS = "bess"
 MODULO_GRANJA = "granja"

@@ -193,6 +193,43 @@ def aplicar_estilos() -> None:
             border: 1px solid #a8d4ee;
             color: {p};
         }}
+        @media (max-width: 768px) {{
+            [data-testid="stAppViewContainer"] > .main .block-container {{
+                padding-left: 0.6rem !important;
+                padding-right: 0.6rem !important;
+                padding-top: 0.75rem !important;
+            }}
+            .ius-header {{
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+                padding: 14px 14px;
+            }}
+            .ius-header-title {{ font-size: 1.15rem; }}
+            .ius-header-sub {{ font-size: 0.8rem; }}
+            .section-title {{ font-size: 1.15rem; }}
+            .section-header {{ padding: 10px 12px; }}
+            .resumen-bidi-grid {{
+                grid-template-columns: 1fr !important;
+            }}
+            [data-testid="stHorizontalBlock"]:has(.suite-session-bar-marker) {{
+                flex-wrap: wrap !important;
+            }}
+            [data-testid="stHorizontalBlock"]:has(.suite-session-bar-marker)
+                > [data-testid="column"] {{
+                flex: 0 0 100% !important;
+                min-width: 100% !important;
+                max-width: 100% !important;
+            }}
+            div[data-testid="stDataFrame"] {{
+                overflow-x: auto !important;
+                max-width: 100% !important;
+            }}
+        }}
+        @media (max-width: 480px) {{
+            .ius-header-title {{ font-size: 1.05rem; }}
+            .section-title {{ font-size: 1.05rem; }}
+        }}
     </style>
     """,
         unsafe_allow_html=True,

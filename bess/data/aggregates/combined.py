@@ -43,17 +43,37 @@ _MARGEN_REEXPORTAR_DIAS = 1
 
 def _cursor_combinado(ruta_salida) -> "pd.Timestamp | None":
     """Última FECHA_HORA ya escrita en un COMBINADO_POR_MINUTO_*.csv
-    existente, o None si no existe/está vacío/no se puede leer."""
+    existente, o None si no existe/está vacío/no se puede leer.
+
+    Lee solo la cola del archivo (no carga toda la columna).
+    """
     if not os.path.exists(ruta_salida):
         return None
     try:
-        fechas = pd.read_csv(ruta_salida, usecols=["FECHA_HORA"])["FECHA_HORA"]
-    except (ValueError, KeyError, OSError):
+        with open(ruta_salida, "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            if size <= 0:
+                return None
+            # Últimas ~8 KiB suelen bastar para varias filas del combinado.
+            fh.seek(max(0, size - 8192), os.SEEK_SET)
+            cola = fh.read().decode("utf-8", errors="replace")
+        lineas = [ln.strip() for ln in cola.splitlines() if ln.strip()]
+        if not lineas:
+            return None
+        # Si arrancamos a mitad de línea, descartar el primer fragmento.
+        if size > 8192 and "," in lineas[0] and not lineas[0][0].isdigit():
+            lineas = lineas[1:]
+        for linea in reversed(lineas):
+            # FECHA_HORA es la primera columna: dd/mm/YYYY HH:MM
+            primera = linea.split(",", 1)[0].strip().strip('"')
+            try:
+                return pd.Timestamp(datetime.strptime(primera, "%d/%m/%Y %H:%M"))
+            except ValueError:
+                continue
         return None
-    dt = pd.to_datetime(fechas, format="%d/%m/%Y %H:%M", errors="coerce").dropna()
-    if dt.empty:
+    except OSError:
         return None
-    return dt.max()
 
 
 def ultima_fecha_hora_escrita(ruta_salida) -> "pd.Timestamp | None":

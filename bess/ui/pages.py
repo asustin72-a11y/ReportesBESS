@@ -155,6 +155,7 @@ def render_barra_superior(rol: str | None):
         boton_cerrar_sesion,
         boton_volver_suite,
         en_suite,
+        marcar_barra_sesion,
     )
 
     logo_html = obtener_logo_html(288)
@@ -171,6 +172,7 @@ def render_barra_superior(rol: str | None):
         c1, c3 = st.columns([6, 1.3])
         c2 = None
     with c1:
+        marcar_barra_sesion()
         st.markdown(f"""
         <div class="app-header">
             {logo_block}
@@ -1287,6 +1289,14 @@ def tab_tendencia(df, prefijo):
             """, unsafe_allow_html=True)
 
 # ========== MAIN ==========
+@st.cache_data(ttl=120, show_spinner="Cargando perfil…")
+def _cargar_combinado_csv(ruta: str, mtime: float) -> pd.DataFrame:
+    """Cachea el COMBINADO por ruta + mtime (se invalida al regenerar el CSV)."""
+    df = pd.read_csv(ruta)
+    df["DATETIME"] = pd.to_datetime(df["FECHA_HORA"], format="%d/%m/%Y %H:%M")
+    return df
+
+
 def _bloque_reporteador(prefijo, medidor):
     """Navegación + contenido principal."""
     if not st.session_state.get('autenticado', False):
@@ -1309,9 +1319,7 @@ def _bloque_reporteador(prefijo, medidor):
             )
         return
 
-    df = pd.read_csv(ruta_p)
-    df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
-
+    df = _cargar_combinado_csv(str(ruta_p), ruta_p.stat().st_mtime)
     sub_id = st.session_state.get("subestacion_principal")
     seccion = render_navegacion_principal(sub_id)
 

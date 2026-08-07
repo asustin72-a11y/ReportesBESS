@@ -162,3 +162,19 @@ def boton_cerrar_sesion(*, key: str) -> None:
     if st.button("Cerrar sesión", use_container_width=True, key=key):
         st.session_state["_logout_pendiente"] = True
         st.rerun()
+
+
+def marcar_barra_sesion() -> None:
+    """Ancla CSS para apilar título + acciones en pantallas angostas."""
+    st.markdown(
+        '<div class="suite-session-bar-marker" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )
+
+
+def marcar_fila_controles() -> None:
+    """Ancla CSS para envolver filas densas de controles (atajos, fechas)."""
+    st.markdown(
+        '<div class="suite-controls-row-marker" aria-hidden="true"></div>',
+        unsafe_allow_html=True,
+    )

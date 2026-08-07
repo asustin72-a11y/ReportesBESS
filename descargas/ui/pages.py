@@ -57,6 +57,7 @@ def run_pages(*, desde_suite: bool = False) -> None:
         boton_cerrar_sesion,
         boton_volver_suite,
         en_suite,
+        marcar_barra_sesion,
     )
 
     init_session()
@@ -106,6 +107,7 @@ def run_pages(*, desde_suite: bool = False) -> None:
         c1, c3 = st.columns([6, 1.3])
         c2 = None
     with c1:
+        marcar_barra_sesion()
         st.markdown(
             f"""
             <div class="app-header">

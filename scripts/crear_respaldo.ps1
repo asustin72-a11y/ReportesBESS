@@ -1,7 +1,7 @@
-# Genera ZIP portable de BESS para otra computadora.
+# Genera ZIP portable de la Suite IUSASOL para otra computadora.
 # Uso: .\scripts\crear_respaldo.ps1
 #      .\scripts\crear_respaldo.ps1 -SinSecretos   # sin .env ni secrets.toml
-# Salida: backups\BESS_v5.5.0_respaldo_YYYY-MM-DD.zip
+# Salida: backups\BESS_vX.Y.Z_respaldo_YYYY-MM-DD.zip
 
 param(
     [switch]$SinSecretos
@@ -26,7 +26,12 @@ $excludeDirs = @(
     "__pycache__", ".git", ".venv", "venv", "env",
     "build", "dist", "backups", ".cursor", ".devcontainer"
 )
-$robocopyExcludeFiles = @("*.pyc", "*.pyo")
+$robocopyExcludeFiles = @(
+    "*.pyc", "*.pyo",
+    "_pages_189.py",
+    "_test_*.pdf",
+    "_cache_geo_*.json"
+)
 if ($SinSecretos) {
     $robocopyExcludeFiles += @(".env", "secrets.toml")
 }
@@ -38,6 +43,8 @@ if (-not $SinSecretos) {
 Get-ChildItem -Path $root -Force | ForEach-Object {
     if ($excludeDirs -contains $_.Name) { return }
     if ($_.Name -eq "backups") { return }
+    if ($_.Name -eq "_pages_189.py") { return }
+    if ($_.Name -like "_test_*.pdf") { return }
 
     if ($_.PSIsContainer) {
         $dest = Join-Path $staging $_.Name
@@ -45,6 +52,7 @@ Get-ChildItem -Path $root -Force | ForEach-Object {
             $_.FullName, $dest,
             "/E",
             "/XD", "__pycache__", ".git", ".venv", "venv", "env", "build", "dist", "backups", ".cursor",
+            "analisis_perfil_trabajo",
             "/XF") + $robocopyExcludeFiles + @("/NFL", "/NDL", "/NJH", "/NJS", "/nc", "/ns", "/np")
         & robocopy @robocopyArgs | Out-Null
         if ($LASTEXITCODE -ge 8) { throw "robocopy fallo con codigo $LASTEXITCODE" }
