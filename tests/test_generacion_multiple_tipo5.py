@@ -8,10 +8,12 @@ from pathlib import Path
 import pandas as pd
 
 from bess.config.catalog import (
+    GENERACION_GRUPO,
     GENERACION_INDIVIDUAL,
     TIPO_BESS,
     TIPO_FACTURACION,
     TIPO_GENERACION_INDIVIDUAL,
+    TIPO_GENERACION_MULTIPLE,
     Catalogo,
     MedidorCatalogo,
     ReglasTipoMedidor,
@@ -95,6 +97,76 @@ def test_catalogo_exige_al_menos_un_tipo5_en_generacion_2():
     cat = _cat_base([])
     errores = _validar_reglas_negocio(cat)
     assert any("al menos" in e.lower() or "requiere" in e.lower() for e in errores)
+
+
+def test_catalogo_generacion_1_admite_tipo5_ademas_del_grupo():
+    tipos = (
+        ReglasTipoMedidor(1, "Fact", True, False, 0),
+        ReglasTipoMedidor(3, "BESS", False, False, 0),
+        ReglasTipoMedidor(4, "GenMult", False, False, 0),
+        ReglasTipoMedidor(5, "GenInd", False, False, 0),
+    )
+    subs = (
+        SubestacionCatalogo(
+            numero=2,
+            nombre="IUSA_2",
+            generacion=GENERACION_GRUPO,
+            esquema_tarifa="DIST",
+        ),
+    )
+    validado = datetime(2026, 1, 1, 0, 0)
+    meds = (
+        MedidorCatalogo(
+            nombre="ION_TESTIGO_IUSA2",
+            numero_serie="S2",
+            subestacion_numero=2,
+            subestacion_nombre="IUSA_2",
+            tipo_medidor=TIPO_FACTURACION,
+            descarga="ION",
+            ip="172.16.0.2",
+            puerto=502,
+            grupo_generacion="",
+            validado=validado,
+        ),
+        MedidorCatalogo(
+            nombre="BESS_SUR",
+            numero_serie="B2",
+            subestacion_numero=2,
+            subestacion_nombre="IUSA_2",
+            tipo_medidor=TIPO_BESS,
+            descarga="API",
+            ip="0",
+            puerto=0,
+            grupo_generacion="",
+            validado=validado,
+        ),
+        MedidorCatalogo(
+            nombre="Mega01",
+            numero_serie="M1",
+            subestacion_numero=2,
+            subestacion_nombre="IUSA_2",
+            tipo_medidor=TIPO_GENERACION_MULTIPLE,
+            descarga="API",
+            ip="0",
+            puerto=0,
+            grupo_generacion="Generacion_IUSA_2",
+            validado=validado,
+        ),
+        MedidorCatalogo(
+            nombre="GenExtra_IUSA2",
+            numero_serie="GX",
+            subestacion_numero=2,
+            subestacion_nombre="IUSA_2",
+            tipo_medidor=TIPO_GENERACION_INDIVIDUAL,
+            descarga="API",
+            ip="0",
+            puerto=0,
+            grupo_generacion="",
+            validado=validado,
+        ),
+    )
+    cat = Catalogo(tipos=tipos, subestaciones=subs, medidores=meds)
+    assert _validar_reglas_negocio(cat) == []
 
 
 def test_recursos_generacion_lista_todos_tipo5(monkeypatch):

@@ -20,7 +20,7 @@ from bess.data.catalog_db import ruta_bd_catalogo
 
 ETIQUETAS_GENERACION = {
     GENERACION_NINGUNA: "0 — Sin generación",
-    GENERACION_GRUPO: "1 — Grupo (tipo 4, Mega…)",
+    GENERACION_GRUPO: "1 — Grupo (tipo 4; tipo 5 opcional)",
     GENERACION_INDIVIDUAL: "2 — Individual (tipo 5, uno o más)",
 }
 
@@ -30,7 +30,7 @@ REGLAS_RESUMEN = """
 - Exactamente **1** medidor tipo 1 (Neteo / facturación).
 - Al menos **1** medidor tipo 3 (BESS).
 - `Generacion=0` → sin tipos 4 ni 5.
-- `Generacion=1` → medidores tipo 4 con `Grupo_Generacion`; sin tipo 5.
+- `Generacion=1` → medidores tipo 4 con `Grupo_Generacion`; tipo 5 opcional (además del grupo).
 - `Generacion=2` → uno o más medidores tipo 5 (p. ej. cogeneración + solar); sin tipo 4.
 
 **Por medidor**

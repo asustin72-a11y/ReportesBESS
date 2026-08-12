@@ -1,7 +1,7 @@
 # Manual de catálogo — Alta de medidores y subestaciones
 
 **Suite IUSASOL · BESS**  
-**Versión:** 5.18.11  
+**Versión:** 5.18.12  
 **Audiencia:** superadministrador  
 **Alcance:** reglas de negocio del catálogo y pasos para dar de alta un medidor o una subestación nueva
 
@@ -84,7 +84,7 @@ El sistema **rechaza guardar** si alguna de estas reglas falla.
 | Valor | Significado | Medidores de generación permitidos |
 |-------|-------------|--------------------------------------|
 | `0` | Sin generación | Ningún tipo 4 ni tipo 5 |
-| `1` | Grupo (granja) | Uno o más tipo **4**, todos con el mismo `Grupo_Generacion`; **sin** tipo 5 |
+| `1` | Grupo (granja) | Uno o más tipo **4** con el mismo `Grupo_Generacion`; tipo **5** opcional (además del grupo) |
 | `2` | Individual | Uno o más tipo **5** (p. ej. cogeneración + solar); **sin** tipo 4 |
 
 ### 3.3 Por medidor (origen de datos)
@@ -215,7 +215,7 @@ Opcionales: tipo 2 (banco/consumo), más de un BESS, varios tipo 5, etc.
 | Debe tener exactamente 1 medidor tipo 1 | Falta el testigo/facturación o hay dos tipo 1. |
 | Requiere al menos 1 medidor tipo 3 | Falta BESS. |
 | Generacion=2 requiere al menos 1 tipo 5 | Puso modo individual sin medidor individual. |
-| Generacion=1 no admite tipo 5 | Mezcló granja (4) e individual (5); elija un solo modo. |
+| Generacion=1 requiere tipo 4 | Faltan MEGAs / grupo; el tipo 5 solo no basta en modo grupo. |
 | GeneracionMultiple sin Grupo_Generacion | Complete el grupo en todos los MEGAs. |
 | API requiere Numero_Serie | Serie vacía en medidor API. |
 | ION requiere IP válida | IP vacía o `0`. |

@@ -423,11 +423,7 @@ def _validar_reglas_negocio(catalogo: Catalogo) -> list[str]:
                     f'Subestación "{sub.nombre}": medidores GeneracionMultiple sin '
                     f"Grupo_Generacion: {', '.join(sin_grupo)}."
                 )
-            if generacion_individual:
-                errores.append(
-                    f'Subestación "{sub.nombre}": Generacion=1 (grupo) no admite medidor '
-                    f"tipo 5 (GeneracionIndividual)."
-                )
+            # Tipo 5 opcional junto al grupo (p. ej. IUSA_2: Megas + generación individual).
         if sub.generacion == GENERACION_INDIVIDUAL:
             if not generacion_individual:
                 errores.append(

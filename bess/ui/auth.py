@@ -228,10 +228,12 @@ def login(*, titulo: str | None = None, subtitulo: str | None = None):
                 submit = st.form_submit_button("Iniciar Sesión", use_container_width=True, type="primary")
 
                 if submit and usuario and password:
-                    registro = usuarios.get(usuario)
-                    if registro and verificar_password(password, registro['password']):
+                    usuario_clave = usuario.strip()
+                    password_clave = password.strip()
+                    registro = usuarios.get(usuario_clave)
+                    if registro and verificar_password(password_clave, registro['password']):
                         st.session_state.autenticado = True
-                        st.session_state.usuario = usuario
+                        st.session_state.usuario = usuario_clave
                         st.session_state.rol = registro['rol']
                         st.session_state.pop("sidebar_inicial_aplicada", None)
                         st.session_state.pop("suite_modulo", None)
