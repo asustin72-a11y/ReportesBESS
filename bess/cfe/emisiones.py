@@ -9,7 +9,7 @@ import pandas as pd
 
 from bess.config.esquema_tarifa import esquema_tarifa_prefijo, usa_netmetering
 from bess.config.subestaciones import (
-    recurso_generacion_subestacion,
+    recursos_generacion_subestacion,
     ruta_energia_dia_por_prefijo,
     subestacion_por_prefijo,
 )
@@ -21,7 +21,11 @@ from bess.core.energia_periodo import (
 )
 from bess.cfe.daily_data import energia_diaria_tiene_sin_bess
 from bess.cfe.report_data import dias_transcurridos_mes
-from bess.data.aggregates.generacion import sumar_generacion_por_periodo
+from bess.data.aggregates.generacion import (
+    fuente_energetica_medidor,
+    sumar_generacion_medidor_por_periodo,
+    sumar_generacion_por_periodo,
+)
 
 # kg CO2/kWh por periodo tarifario (escenario operativo del reporte).
 # Origen: hipótesis de intensidad marginal relativa punta–base del análisis de
@@ -52,8 +56,9 @@ ESCENARIOS_EF: dict[str, dict[str, Any]] = {
 ESCENARIO_DEFAULT = FACTORES_EMISION["id"]
 ETIQUETA_PERIODO = {"base": "Base", "intermedio": "Intermedio", "punta": "Punta"}
 
-# Fuente energética para el reporte de emisiones (no confundir con tipo de medidor API).
-# IUSA 1: cogeneración a gas; IUSA 2 y Aragón: granja solar.
+# Fuente energética por defecto de la subestación (si no hay desglose por medidor).
+# IUSA 1: históricamente solo cogeneración a gas; con varios tipo 5 se clasifica
+# por nombre (Cogener* → gas; resto → solar). IUSA 2 / Aragón: solar.
 _FUENTE_GENERACION_SUB: dict[str, tuple[str, str]] = {
     "IUSA_1": ("gas", "Cogeneración (gas)"),
     "IUSA_2": ("solar", "Granja solar"),
@@ -62,14 +67,80 @@ _FUENTE_GENERACION_SUB: dict[str, tuple[str, str]] = {
 
 
 def _etiqueta_fuente_generacion(sub_id: str, recurso) -> tuple[str | None, str | None]:
-    """(tipo, etiqueta) para UI/PDF: gas | solar."""
+    """(tipo, etiqueta) para UI/PDF: gas | solar | mixto."""
     if not recurso:
         return None, None
     if sub_id in _FUENTE_GENERACION_SUB:
         return _FUENTE_GENERACION_SUB[sub_id]
     if recurso.tipo == "cogeneracion":
-        return "gas", "Cogeneración (gas)"
+        return fuente_energetica_medidor(recurso.prefijo_reporte)
     return "solar", "Granja solar"
+
+
+def _sumar_periodos(*partes: dict[str, float]) -> dict[str, float]:
+    out = {p: 0.0 for p in PERIODOS}
+    for parte in partes:
+        for p in PERIODOS:
+            out[p] += float(parte.get(p, 0) or 0)
+    return out
+
+
+def _total(d: dict[str, float]) -> float:
+    return sum(float(d.get(p, 0) or 0) for p in PERIODOS)
+
+
+def _generacion_por_fuente(sub, fecha) -> tuple[dict[str, float], dict[str, float], str | None, str | None]:
+    """Devuelve (gen_total, gen_gas, tipo_etiqueta, etiqueta).
+
+    Con varios medidores tipo 5: gas solo nombres Cogener*; solar el resto.
+    Granja (tipo 4) cuenta como solar. Si solo hay una fuente, tipo/etiqueta
+    reflejan esa fuente; si hay ambas, «mixto».
+    """
+    gen_gas = {p: 0.0 for p in PERIODOS}
+    gen_solar = {p: 0.0 for p in PERIODOS}
+    inicio = fecha.replace(day=1)
+    tiene = False
+
+    recursos = recursos_generacion_subestacion(sub.id) if sub else []
+    if not recursos:
+        return gen_gas, gen_gas, None, None
+
+    individuales = {g.nombre for g in (sub.medidores_gen_individual if sub else ())}
+    for recurso in recursos:
+        if recurso.tipo == "granja":
+            raw = sumar_generacion_por_periodo(sub.id, inicio, fecha)
+            if raw is None:
+                continue
+            tiene = True
+            for p in PERIODOS:
+                gen_solar[p] += float(raw.get(p, 0) or 0)
+            continue
+
+        raw = sumar_generacion_medidor_por_periodo(
+            sub.id, recurso.prefijo_reporte, inicio, fecha
+        )
+        if raw is None and recurso.prefijo_reporte in individuales and len(individuales) == 1:
+            # Compat: un solo tipo 5 aún puede vivir solo en el diario agregado.
+            raw = sumar_generacion_por_periodo(sub.id, inicio, fecha)
+        if raw is None:
+            continue
+        tiene = True
+        tipo, _ = fuente_energetica_medidor(recurso.prefijo_reporte)
+        destino = gen_gas if tipo == "gas" else gen_solar
+        for p in PERIODOS:
+            destino[p] += float(raw.get(p, 0) or 0)
+
+    if not tiene:
+        return gen_gas, gen_gas, None, None
+
+    total = _sumar_periodos(gen_gas, gen_solar)
+    hay_gas = _total(gen_gas) > 0
+    hay_solar = _total(gen_solar) > 0
+    if hay_gas and hay_solar:
+        return total, gen_gas, "mixto", "Cogeneración + solar"
+    if hay_gas:
+        return total, gen_gas, "gas", "Cogeneración (gas)"
+    return total, gen_gas, "solar", "Generación solar"
 
 
 @dataclass(frozen=True)
@@ -113,10 +184,6 @@ def _cargar_energia_mes(fecha, prefijo: str) -> pd.DataFrame | None:
     return None if df_r.empty else df_r
 
 
-def _total(d: dict[str, float]) -> float:
-    return sum(float(d.get(p, 0) or 0) for p in PERIODOS)
-
-
 def calcular_huella_carbono_mes(
     fecha,
     prefijo: str,
@@ -153,25 +220,23 @@ def calcular_huella_carbono_mes(
     ent = sumar_ent_por_periodo_df(df) if usa_netmetering(esquema) else {p: 0.0 for p in PERIODOS}
 
     gen = {p: 0.0 for p in PERIODOS}
+    gen_gas = {p: 0.0 for p in PERIODOS}
     tiene_gen = False
     gen_tipo = None
     gen_etiqueta = None
-    recurso = recurso_generacion_subestacion(sub_id) if sub_id else None
-    if recurso:
-        gen_raw = sumar_generacion_por_periodo(sub_id, fecha.replace(day=1), fecha)
-        if gen_raw is not None:
-            gen = {p: float(gen_raw.get(p, 0) or 0) for p in PERIODOS}
-            tiene_gen = True
-            gen_tipo, gen_etiqueta = _etiqueta_fuente_generacion(sub_id, recurso)
+    if sub:
+        gen, gen_gas, gen_tipo, gen_etiqueta = _generacion_por_fuente(sub, fecha)
+        tiene_gen = gen_tipo is not None
 
     t_con = co2_toneladas(consumo_con, ef)
     t_sin = co2_toneladas(consumo_sin, ef) if consumo_sin is not None else None
     # Emisiones de red si esos kWh se tomaran de la red (Marcado por periodo)
     t_gen_desplazado = co2_toneladas(gen, ef) if tiene_gen else 0.0
-    # Cogeneración: escenario plano (un solo EF, independiente del periodo)
+    # Solo la parte a gas usa EF plano local; solar no aporta CO₂ local.
     total_gen_kwh = _total(gen) if tiene_gen else 0.0
-    if tiene_gen and gen_tipo == "gas":
-        t_gen_local = total_gen_kwh * EF_GAS_PLANO_KG_KWH / 1000.0
+    total_gas_kwh = _total(gen_gas) if tiene_gen else 0.0
+    if tiene_gen and total_gas_kwh > 0:
+        t_gen_local = total_gas_kwh * EF_GAS_PLANO_KG_KWH / 1000.0
     else:
         t_gen_local = 0.0
     t_gen_neto = t_gen_desplazado - t_gen_local
@@ -187,11 +252,10 @@ def calcular_huella_carbono_mes(
     for p in PERIODOS:
         co2_con_p = float(consumo_con.get(p, 0) or 0) * float(ef.as_dict()[p]) / 1000.0
         gen_kwh_p = float(gen.get(p, 0) or 0)
+        gas_kwh_p = float(gen_gas.get(p, 0) or 0)
         ef_p = float(ef.as_dict()[p])
         co2_desp_p = gen_kwh_p * ef_p / 1000.0
-        co2_local_p = (
-            gen_kwh_p * EF_GAS_PLANO_KG_KWH / 1000.0 if gen_tipo == "gas" else 0.0
-        )
+        co2_local_p = gas_kwh_p * EF_GAS_PLANO_KG_KWH / 1000.0 if gas_kwh_p > 0 else 0.0
         co2_neto_p = co2_desp_p - co2_local_p
         fila = {
             "periodo": p,
@@ -201,7 +265,7 @@ def calcular_huella_carbono_mes(
             "ent_kwh": float(ent.get(p, 0) or 0),
             "generacion_kwh": gen_kwh_p,
             "ef_kg_kwh": ef_p,
-            "ef_gas_plano_kg_kwh": EF_GAS_PLANO_KG_KWH if gen_tipo == "gas" else None,
+            "ef_gas_plano_kg_kwh": EF_GAS_PLANO_KG_KWH if gas_kwh_p > 0 else None,
             "co2_con_t": round(co2_con_p, 2),
             "co2_gen_desplazado_t": round(co2_desp_p, 2),
             "co2_gen_local_t": round(co2_local_p, 2),
@@ -228,8 +292,8 @@ def calcular_huella_carbono_mes(
         sin_i = co2_toneladas(consumo_sin, ef_i) if consumo_sin is not None else None
         desp_i = co2_toneladas(gen, ef_i) if tiene_gen else 0.0
         local_i = (
-            total_gen_kwh * EF_GAS_PLANO_KG_KWH / 1000.0
-            if (tiene_gen and gen_tipo == "gas")
+            total_gas_kwh * EF_GAS_PLANO_KG_KWH / 1000.0
+            if (tiene_gen and total_gas_kwh > 0)
             else 0.0
         )
         ahorro_i = (sin_i - con_i) if sin_i is not None else None

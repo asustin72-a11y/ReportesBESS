@@ -431,13 +431,8 @@ def _validar_reglas_negocio(catalogo: Catalogo) -> list[str]:
         if sub.generacion == GENERACION_INDIVIDUAL:
             if not generacion_individual:
                 errores.append(
-                    f'Subestación "{sub.nombre}": Generacion=2 (individual) requiere 1 medidor '
-                    f"tipo 5 (GeneracionIndividual)."
-                )
-            if len(generacion_individual) > 1:
-                errores.append(
-                    f'Subestación "{sub.nombre}": Generacion=2 permite solo 1 medidor '
-                    f"GeneracionIndividual."
+                    f'Subestación "{sub.nombre}": Generacion=2 (individual) requiere al menos '
+                    f"1 medidor tipo 5 (GeneracionIndividual)."
                 )
             if generacion_multiple:
                 errores.append(
@@ -447,10 +442,6 @@ def _validar_reglas_negocio(catalogo: Catalogo) -> list[str]:
         if sub.generacion == GENERACION_NINGUNA and generacion_individual:
             errores.append(
                 f'Subestación "{sub.nombre}": medidor GeneracionIndividual con Generacion=0.'
-            )
-        if len(generacion_individual) > 1 and sub.generacion != GENERACION_INDIVIDUAL:
-            errores.append(
-                f'Subestación "{sub.nombre}": solo se permite 1 medidor GeneracionIndividual.'
             )
 
         _ = testigos  # varios permitidos

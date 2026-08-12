@@ -71,10 +71,11 @@ class _SubestacionFalsa:
 
 @dataclass(frozen=True)
 class _RecursoGeneracionFalso:
-    """Mismos campos usados de bess.config.subestaciones.RecursoGeneracion
-    (solo prefijo_reporte -- lo unico que usa evaluar_desfase_reportes())."""
+    """Campos usados de RecursoGeneracion en evaluar_desfase_reportes()."""
 
     prefijo_reporte: str
+    etiqueta: str = "Generación"
+    tipo: str = "cogeneracion"
 
 
 def _preparar(monkeypatch, subs, resumen_por_id, reporte_por_ruta, generacion_por_sub=None):
@@ -87,7 +88,7 @@ def _preparar(monkeypatch, subs, resumen_por_id, reporte_por_ruta, generacion_po
     extension).
 
     evaluar_desfase_reportes() hace "from bess.ui.db_tools.service import
-    resumen_medidores" y "from bess.data.aggregates.combined import
+    sync_state_por_medidor" y "from bess.data.aggregates.combined import
     ultima_fecha_hora_escrita" DENTRO de la funcion (import perezoso, a
     proposito, para que importar bess.ui.pipeline_status no dependa de
     SQLite). bess.ui.db_tools.service importa a su vez, a nivel de modulo,
@@ -99,15 +100,17 @@ def _preparar(monkeypatch, subs, resumen_por_id, reporte_por_ruta, generacion_po
     "from X import Y" de evaluar_desfase_reportes() lo encuentra ya
     cacheado ahi y nunca ejecuta el modulo real.
 
-    subestaciones_mod.recurso_generacion_subestacion, en cambio, se referencia
+    subestaciones_mod.recursos_generacion_subestacion se referencia
     en pipeline_status.py como atributo de modulo ya importado a nivel de
-    archivo (subestaciones_mod.recurso_generacion_subestacion(...), no un
-    "from X import Y" perezoso) -- por eso aqui se parchea directo el
-    atributo del modulo real via monkeypatch.setattr, en vez de sys.modules."""
+    archivo -- por eso aqui se parchea directo el atributo del modulo real
+    via monkeypatch.setattr, en vez de sys.modules."""
     monkeypatch.setattr(pipeline_status, "SUBESTACIONES", tuple(subs))
 
     fake_service = types.ModuleType("bess.ui.db_tools.service")
     fake_service.resumen_medidores = lambda: list(resumen_por_id.values())
+    fake_service.sync_state_por_medidor = lambda: {
+        mid: getattr(r, "ultima_sync", None) for mid, r in resumen_por_id.items()
+    }
     monkeypatch.setitem(sys.modules, "bess.ui.db_tools.service", fake_service)
 
     fake_combined = types.ModuleType("bess.data.aggregates.combined")
@@ -115,11 +118,30 @@ def _preparar(monkeypatch, subs, resumen_por_id, reporte_por_ruta, generacion_po
     monkeypatch.setitem(sys.modules, "bess.data.aggregates.combined", fake_combined)
 
     generacion_por_sub = generacion_por_sub or {}
+
+    def _recursos(sub_id: str):
+        rec = generacion_por_sub.get(sub_id)
+        if rec is None:
+            return []
+        if isinstance(rec, (list, tuple)):
+            return list(rec)
+        return [rec]
+
+    monkeypatch.setattr(
+        pipeline_status.subestaciones_mod,
+        "recursos_generacion_subestacion",
+        _recursos,
+    )
     monkeypatch.setattr(
         pipeline_status.subestaciones_mod,
         "recurso_generacion_subestacion",
-        lambda sub_id: generacion_por_sub.get(sub_id),
+        lambda sub_id: (generacion_por_sub.get(sub_id) or None),
     )
+    # Evitar que st.cache_data reutilice desfases de pruebas anteriores.
+    try:
+        pipeline_status._desfases_atrasados_cached.clear()
+    except Exception:
+        pass
 
 
 def _resumen(medidor_id: str, ultima_sync: str) -> _ResumenMedidorFalso:
@@ -181,7 +203,7 @@ def test_desfase_grande_dispara_alerta(monkeypatch):
     pipeline_status.render_aviso_reporte_desactualizado()
     assert len(warnings) == 1
     assert "IUSA 1" in warnings[0]
-    assert "Procesar todo" in warnings[0]
+    assert "Verificar" in warnings[0] and "Generar reportes" in warnings[0]
 
 
 def test_medidor_sin_sync_state_no_rompe(monkeypatch):

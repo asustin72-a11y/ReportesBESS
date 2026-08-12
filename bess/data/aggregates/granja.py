@@ -117,17 +117,16 @@ def generar_reportes_generacion(
     *,
     columna_kwh: str = "KWH_REC",
     esquema_tarifa_id: str | None = None,
+    escribir_diario_subestacion: bool = False,
 ) -> dict[str, int]:
     """
     Genera a partir del CSV filtrado de generación/cogeneración:
       - COMBINADO_POR_MINUTO_{prefijo}.csv en ArchivosReporte/{sub}/
-      - ENERGIA_Generacion_{sub}_POR_DIA.csv
+      - ENERGIA_{prefijo}_POR_DIA.csv (diario por medidor)
 
-    Ambos son incrementales: el combinado por minuto anexa solo lo nuevo
-    (cursor sobre FECHA_HORA); el diario recalcula solo el último día ya
-    escrito (por si seguía abierto) más los días nuevos, igual que
-    daily.py/bess_daily.py. La primera vez (o si cambia el formato de
-    columnas) procesa completo, como antes.
+    Si `escribir_diario_subestacion=True` (un solo recurso), también escribe
+    ENERGIA_Generacion_{sub}_POR_DIA.csv. Con varios medidores tipo 5, el
+    orquestador llama a consolidar_energia_generacion_subestacion().
     """
     if not os.path.exists(ruta_filtrado):
         print(f"ERROR: No se encuentra {ruta_filtrado}")
@@ -155,10 +154,10 @@ def generar_reportes_generacion(
     filas_nuevas_min = _escribir_combinado_minuto(df_min_out, ruta_min)
     print(f"OK {nombre_min} - {filas_nuevas_min} registro(s) en la ventana reescrita")
 
-    nombre_dia = f"ENERGIA_Generacion_{subestacion}_POR_DIA.csv"
-    ruta_dia = str(rutas_mod.ruta_reporte(subestacion, nombre_dia))
-    cursor = cursor_dia(ruta_dia)
-    incremental = cursor is not None and columnas_dia(ruta_dia) == _COLUMNAS_DIA_GRANJA
+    nombre_dia_med = f"ENERGIA_{prefijo}_POR_DIA.csv"
+    ruta_dia_med = str(rutas_mod.ruta_energia_por_dia(prefijo, subestacion))
+    cursor = cursor_dia(ruta_dia_med)
+    incremental = cursor is not None and columnas_dia(ruta_dia_med) == _COLUMNAS_DIA_GRANJA
 
     df_min_dia = df_min
     if incremental:
@@ -166,26 +165,90 @@ def generar_reportes_generacion(
         df_min_dia = df_min[fecha_dt >= cursor]
 
     if incremental and df_min_dia.empty:
-        print(f"  Sin días nuevos para {nombre_dia} (cursor {cursor.date()})")
-        df_dia = pd.read_csv(ruta_dia)
+        print(f"  Sin días nuevos para {nombre_dia_med} (cursor {cursor.date()})")
+        df_dia = pd.read_csv(ruta_dia_med)
     else:
         df_dia = _energia_por_dia_y_periodo(df_min_dia, columna_kwh)
         if incremental:
-            df_dia = combinar_cola_diaria(df_dia, ruta_dia, _COLUMNAS_DIA_GRANJA)
-        # Escritura atómica (bess.core.atomic_io): ver _escribir_combinado_minuto.
-        with ruta_temporal_atomica(ruta_dia) as ruta_temp:
+            df_dia = combinar_cola_diaria(df_dia, ruta_dia_med, _COLUMNAS_DIA_GRANJA)
+        with ruta_temporal_atomica(ruta_dia_med) as ruta_temp:
             df_dia.to_csv(ruta_temp, index=False)
-    print(f"OK {nombre_dia} - {len(df_dia)} días")
+    print(f"OK {nombre_dia_med} - {len(df_dia)} días")
 
-    return {
+    resultado = {
         nombre_min: len(df_min_out),
-        nombre_dia: len(df_dia),
+        nombre_dia_med: len(df_dia),
     }
+
+    if escribir_diario_subestacion:
+        consolidar_energia_generacion_subestacion(subestacion, [prefijo])
+        nombre_dia_sub = f"ENERGIA_Generacion_{subestacion}_POR_DIA.csv"
+        resultado[nombre_dia_sub] = len(df_dia)
+
+    return resultado
+
+
+def consolidar_energia_generacion_subestacion(
+    subestacion: str,
+    prefijos: list[str],
+) -> int:
+    """Suma ENERGIA_{prefijo}_POR_DIA → ENERGIA_Generacion_{sub}_POR_DIA.csv."""
+    if not prefijos:
+        return 0
+
+    cols = list(_COLUMNAS_DIA_GRANJA)
+    acumulado: pd.DataFrame | None = None
+    for prefijo in prefijos:
+        ruta = rutas_mod.ruta_energia_por_dia(prefijo, subestacion)
+        if not ruta.exists():
+            print(f"  (sin diario {ruta.name}; omitido en consolidación)")
+            continue
+        df = pd.read_csv(ruta, encoding="utf-8-sig")
+        for col in cols:
+            if col not in df.columns:
+                if col == "FECHA":
+                    print(f"ERROR: {ruta.name} sin columna FECHA")
+                    return 0
+                df[col] = 0.0
+        df = df[cols].copy()
+        if acumulado is None:
+            acumulado = df
+        else:
+            merged = acumulado.merge(df, on="FECHA", how="outer", suffixes=("_a", "_b"))
+            out = pd.DataFrame({"FECHA": merged["FECHA"]})
+            for col in cols[1:]:
+                out[col] = (
+                    pd.to_numeric(merged.get(f"{col}_a"), errors="coerce").fillna(0.0)
+                    + pd.to_numeric(merged.get(f"{col}_b"), errors="coerce").fillna(0.0)
+                )
+            acumulado = out
+
+    if acumulado is None or acumulado.empty:
+        return 0
+
+    orden = pd.to_datetime(acumulado["FECHA"], format="%d/%m/%Y", errors="coerce").argsort(
+        kind="stable"
+    )
+    acumulado = acumulado.iloc[orden][cols].reset_index(drop=True)
+    ruta_out = str(
+        rutas_mod.ruta_reporte(subestacion, f"ENERGIA_Generacion_{subestacion}_POR_DIA.csv")
+    )
+    with ruta_temporal_atomica(ruta_out) as ruta_temp:
+        acumulado.to_csv(ruta_temp, index=False)
+    print(
+        f"OK ENERGIA_Generacion_{subestacion}_POR_DIA.csv - {len(acumulado)} días "
+        f"(suma de {len(prefijos)} medidor(es))"
+    )
+    return len(acumulado)
 
 
 def generar_reportes_granja(ruta_filtrado: str, subestacion: str, prefijo: str | None = None) -> dict[str, int]:
     """Compatibilidad: granja IUSA 2 (KWH_REC)."""
     prefijo = prefijo or rutas_mod.nombre_generacion_subestacion(subestacion).replace(".csv", "")
     return generar_reportes_generacion(
-        ruta_filtrado, subestacion, prefijo, columna_kwh="KWH_REC"
+        ruta_filtrado,
+        subestacion,
+        prefijo,
+        columna_kwh="KWH_REC",
+        escribir_diario_subestacion=True,
     )

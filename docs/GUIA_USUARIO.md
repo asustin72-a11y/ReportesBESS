@@ -1,8 +1,9 @@
 # Guía de usuario — Sistema BESS
 
-**Versión:** 5.16.1  
+**Versión:** 5.18.8  
 **Aplicación:** Monitoreo, análisis y reportes de sistemas BESS para subestaciones **IUSA 1**, **IUSA 2** e **IUSA ARAGON**.
 
+> **Suite completa (todos los módulos):** [MANUAL_SUITE.md](MANUAL_SUITE.md)  
 > **PDF con capturas:** `docs/GUIA_USUARIO.pdf`  
 > **Regenerar** (app en `http://localhost:8501`): `python docs/generar_guia_pdf.py`  
 > **Administradores:** ver [GUIA_ADMINISTRADOR.md](GUIA_ADMINISTRADOR.md)

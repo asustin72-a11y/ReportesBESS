@@ -9,7 +9,6 @@ import streamlit as st
 
 from bess.cfe.shapley import ParticipacionCapacidadError, calcular_participacion_capacidad
 from bess.config.subestaciones import (
-    recurso_generacion_subestacion,
     soporta_participacion_capacidad,
     subestacion_por_id,
 )
@@ -18,7 +17,13 @@ from bess.core.dates import serie_fecha_operativa
 from bess.core.numbers import fmt_kwh, redondear_mxn_energia
 from bess.ui.components import render_selector_fecha_unica, section_header, subnav_en_panel
 
-_CODIGOS_ESCENARIO = ("D0", "Dc", "Db", "Dcb")
+_COLORES_PARTICIPANTE = (
+    COLORES["success"],
+    "#d4a017",
+    COLORES["secondary"],
+    "#6c5ce7",
+    "#00b894",
+)
 _LABEL_CRITERIO = {
     "punta": "Demanda punta",
     "factor_carga": "DemandaCalculadaCFE",
@@ -35,7 +40,6 @@ def _fmt_kw(val) -> str:
 
 def _formatear_escenarios_cfe(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
-    out.insert(0, "Código", list(_CODIGOS_ESCENARIO[: len(out)]))
     out["Energía (kWh)"] = out["Energía (kWh)"].map(fmt_kwh)
     for col in ("Demanda punta (kW)", "DemandaCalculadaCFE (kW)", "Capacidad CFE (kW)"):
         out[col] = out[col].map(_fmt_kw)
@@ -149,7 +153,7 @@ def _tarjeta_participante(label: str, kw: int, mxn: float, pct: float, color: st
 def _tarjeta_ahorro_total(kw: int, mxn: float, color: str) -> str:
     return f"""
     <div class="metric-card metric-card-total" style="border-top:4px solid {color}; margin-bottom: 0.5rem;">
-        <div class="label">Ahorro total de capacidad (D0 − Dcb)</div>
+        <div class="label">Ahorro total de capacidad (N − ∅)</div>
         <div class="total-grid">
             <div class="total-item total-item-kw">
                 <div class="item-label">Ahorro de capacidad</div>
@@ -183,12 +187,22 @@ def tab_participacion_capacidad(df, subestacion_id: str):
     fecha_def = datetime.now().date() - timedelta(days=1)
     fecha_def = max(fecha_min, min(fecha_def, fecha_max))
 
-    recurso = recurso_generacion_subestacion(subestacion_id)
-    recurso_label = recurso.etiqueta.lower() if recurso else "generación"
+    n_gen = len(sub.medidores_gen_individual) + (1 if sub.granja_csv else 0)
+    n_part = n_gen + 1  # + BESS
+    if n_part >= 3:
+        desc_part = " · ".join(
+            [g.nombre.replace("_", " ") for g in sub.medidores_gen_individual]
+            + (["Generación"] if sub.granja_csv else [])
+            + ["BESS"]
+        )
+        resumen_shapley = f"{n_part} participantes ({desc_part})."
+    else:
+        resumen_shapley = "generación vs BESS."
+
     fecha_sel = render_selector_fecha_unica(
         "Participación Capacidad",
-        f"Acumulado mensual hasta la fecha de corte. Shapley sobre capacidad CFE "
-        f"({recurso_label} vs BESS).",
+        f"Acumulado mensual hasta la fecha de corte. Shapley sobre capacidad CFE — "
+        f"{resumen_shapley}",
         "Fecha de corte",
         fecha_def,
         fecha_min,
@@ -206,17 +220,23 @@ def tab_participacion_capacidad(df, subestacion_id: str):
         resultado = calcular_participacion_capacidad(subestacion_id, fecha_sel)
     except ParticipacionCapacidadError as exc:
         st.warning(str(exc))
-        if sub.cogeneracion_csv and not sub.ruta_cogeneracion_lectura().exists():
-            st.caption(
-                f"Sincronice el medidor **{sub.cogeneracion_nombre}** (API) desde el panel admin "
-                f"para generar `{sub.cogeneracion_csv}`."
-            )
+        if sub.medidores_gen_individual:
+            faltantes = [
+                g.nombre
+                for g in sub.medidores_gen_individual
+                if not sub.ruta_gen_individual_lectura(g).exists()
+            ]
+            if faltantes:
+                st.caption(
+                    "Sincronice los medidores de generación **"
+                    + ", ".join(faltantes)
+                    + "** (API) desde el panel admin."
+                )
         return
 
-    cfg = resultado["config"]
+    detalle = resultado["participantes_detalle"]
     skw = resultado["shapley_kw"]
     smxn = resultado["shapley_mxn"]
-    pct = resultado["participacion_pct"]
 
     st.markdown(
         _tarjeta_ahorro_total(
@@ -227,36 +247,26 @@ def tab_participacion_capacidad(df, subestacion_id: str):
         unsafe_allow_html=True,
     )
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown(
-            _tarjeta_participante(
-                cfg.etiqueta_generacion,
-                int(skw["generacion"]),
-                float(smxn["generacion"]),
-                float(pct["generacion"]),
-                COLORES["success"],
-            ),
-            unsafe_allow_html=True,
-        )
-    with c2:
-        st.markdown(
-            _tarjeta_participante(
-                "BESS",
-                int(skw["bess"]),
-                float(smxn["bess"]),
-                float(pct["bess"]),
-                COLORES["secondary"],
-            ),
-            unsafe_allow_html=True,
-        )
+    cols = st.columns(len(detalle))
+    for i, part in enumerate(detalle):
+        with cols[i]:
+            st.markdown(
+                _tarjeta_participante(
+                    part["label"],
+                    int(part["kw"]),
+                    float(part["mxn"]),
+                    float(part["pct"]),
+                    _COLORES_PARTICIPANTE[i % len(_COLORES_PARTICIPANTE)],
+                ),
+                unsafe_allow_html=True,
+            )
 
     st.markdown(
         f"""<div class="cap-tarifa">
         Días: <b>{resultado['dias']}</b> ·
-        Criterio que limita Dcb: <b>{resultado['criterio_limitante']}</b> ·
-        Capacidad D0: <b>{resultado['cap']['d0']:,} kW</b> →
-        Dcb: <b>{resultado['cap']['dcb']:,} kW</b> ·
+        Criterio que limita ∅: <b>{resultado['criterio_limitante']}</b> ·
+        Capacidad N: <b>{resultado['cap']['d0']:,} kW</b> →
+        ∅: <b>{resultado['cap']['dcb']:,} kW</b> ·
         Tarifa capacidad: <b>{_fmt_mxn(float(resultado['tarifa_cap']))}/kW</b>
         </div>""",
         unsafe_allow_html=True,
@@ -273,6 +283,11 @@ def tab_participacion_capacidad(df, subestacion_id: str):
         ],
         f"participacion_vista_{subestacion_id}",
     )
+
+    n_jug = len(detalle)
+    # Filas de ahorro / shapley en tablas dinámicas (aprox. tras encabezado)
+    filas_mxn = tuple(range(4, 5 + n_jug))
+    filas_kw = tuple(range(3, 4 + n_jug))
 
     if vista == "part":
         st.dataframe(
@@ -291,14 +306,14 @@ def tab_participacion_capacidad(df, subestacion_id: str):
 
     elif vista == "shap_mxn":
         st.dataframe(
-            _estilizar_concepto_valor(resultado["shapley_mxn_tabla"], (6, 7, 8)),
+            _estilizar_concepto_valor(resultado["shapley_mxn_tabla"], filas_mxn),
             use_container_width=True,
             hide_index=True,
         )
 
     elif vista == "shap_kw":
         st.dataframe(
-            _estilizar_concepto_valor(resultado["shapley_kw_tabla"], (5, 6, 7)),
+            _estilizar_concepto_valor(resultado["shapley_kw_tabla"], filas_kw),
             use_container_width=True,
             hide_index=True,
         )

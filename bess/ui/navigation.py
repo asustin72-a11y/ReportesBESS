@@ -37,7 +37,7 @@ SECCIONES = [
         "pill": "Participación",
         "titulo": "Participación Capacidad",
         "icono": "⚖️",
-        "resumen": "Atribución Shapley de la reducción de capacidad CFE (generación vs BESS).",
+        "resumen": "Atribución Shapley de la reducción de capacidad CFE (recursos de generación y BESS).",
         "capacidades": [
             "Escenarios D0–Dcb",
             "Shapley kW y MXN",
@@ -110,7 +110,7 @@ SECCIONES = [
 def secciones_para_subestacion(sub_id: str | None) -> list[dict]:
     """Filtra Participación y Generación si no aplican a la subestación."""
     from bess.config.subestaciones import (
-        recurso_generacion_subestacion,
+        recursos_generacion_subestacion,
         soporta_participacion_capacidad,
     )
 
@@ -119,7 +119,7 @@ def secciones_para_subestacion(sub_id: str | None) -> list[dict]:
         key = seccion["key"]
         if key == "participacion" and sub_id and not soporta_participacion_capacidad(sub_id):
             continue
-        if key == "generacion" and sub_id and not recurso_generacion_subestacion(sub_id):
+        if key == "generacion" and sub_id and not recursos_generacion_subestacion(sub_id):
             continue
         visibles.append(seccion)
     return visibles

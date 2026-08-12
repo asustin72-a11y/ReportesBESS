@@ -236,26 +236,28 @@ def _filtrar_datos_impl():
                     f"Verifique {sub.granja_csv} en ArchivosFuente y ejecute Verificar."
                 )
 
-        if sub.cogeneracion_csv and sub.cogeneracion_filtrado and fechas_bess_filtradas:
-            ruta_cogen = str(sub.ruta_cogeneracion_lectura() or "")
-            if ruta_cogen and os.path.exists(ruta_cogen):
-                df_cogen, err = _leer_perfil(ruta_cogen, sub.cogeneracion_csv)
+        for gen in sub.medidores_gen_individual:
+            if not fechas_bess_filtradas:
+                break
+            ruta_gen = str(sub.ruta_gen_individual_lectura(gen))
+            if ruta_gen and os.path.exists(ruta_gen):
+                df_gen, err = _leer_perfil(ruta_gen, gen.csv)
                 if err:
-                    return False, f"{sub.nombre} (generación): {err}"
+                    return False, f"{sub.nombre} (generación {gen.nombre}): {err}"
                 filas_escritas = _escribir_filtrado(
-                    df_cogen,
+                    df_gen,
                     fechas_bess_filtradas,
-                    str(sub.ruta_cogeneracion(filtrado=True)),
+                    str(sub.ruta_gen_individual(gen, filtrado=True)),
                 )
                 print(
-                    f"📊 Generación ({sub.cogeneracion_csv}): {len(df_cogen)} registros "
-                    f"→ {sub.cogeneracion_filtrado}: {len(fechas_bess_filtradas)} en total"
+                    f"📊 Generación ({gen.csv}): {len(df_gen)} registros "
+                    f"→ {gen.filtrado}: {len(fechas_bess_filtradas)} en total"
                     + (f" ({filas_escritas} nuevo(s))" if filas_escritas else "")
                 )
             else:
                 print(
-                    f"⚠️ Generación omitida: falta {sub.cogeneracion_csv} en ArchivosProcesados. "
-                    f"Verifique {sub.cogeneracion_csv} en ArchivosFuente y ejecute Verificar."
+                    f"⚠️ Generación omitida: falta {gen.csv} en ArchivosProcesados. "
+                    f"Verifique {gen.csv} en ArchivosFuente y ejecute Verificar."
                 )
 
     if subestaciones_ok == 0:

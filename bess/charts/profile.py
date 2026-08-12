@@ -13,7 +13,7 @@ from bess.charts.layout import _titulo_y_leyenda_externos
 from bess.config import rutas as rutas_mod
 from bess.config.subestaciones import (
     etiqueta_medidor_consumo,
-    recurso_generacion_subestacion,
+    recursos_generacion_subestacion,
     subestacion_por_prefijo,
 )
 from bess.config.theme import COLORES
@@ -71,23 +71,44 @@ def _preparar_df_perfil(df: pd.DataFrame, prefijo: str) -> tuple[pd.DataFrame, b
 
 
 def _unir_generacion_perfil(df: pd.DataFrame, prefijo: str) -> pd.DataFrame:
-    """Une generación (granja o individual) y calcula KW_GENERACION = KWH_REC × 12."""
+    """Une generación (granja y/o N individuales) y calcula KW_GENERACION = KWH_REC × 12."""
     sub = subestacion_por_prefijo(prefijo)
     if not sub:
         return df
-    recurso = recurso_generacion_subestacion(sub.id)
-    if not recurso:
+    recursos = recursos_generacion_subestacion(sub.id)
+    if not recursos:
         return df
-    ruta = rutas_mod.ruta_reporte(
-        sub.id, f"COMBINADO_POR_MINUTO_{recurso.prefijo_reporte}.csv"
-    )
-    if not ruta.exists():
+
+    acumulado: pd.DataFrame | None = None
+    for recurso in recursos:
+        ruta = rutas_mod.ruta_reporte(
+            sub.id, f"COMBINADO_POR_MINUTO_{recurso.prefijo_reporte}.csv"
+        )
+        if not ruta.exists():
+            continue
+        df_gen = pd.read_csv(ruta, encoding="utf-8-sig")
+        if "FECHA_HORA" not in df_gen.columns or "KWH_REC" not in df_gen.columns:
+            continue
+        parte = df_gen[["FECHA_HORA", "KWH_REC"]].rename(
+            columns={"KWH_REC": "KWH_GENERACION"}
+        )
+        if acumulado is None:
+            acumulado = parte
+        else:
+            merged = acumulado.merge(
+                parte, on="FECHA_HORA", how="outer", suffixes=("_a", "_b")
+            )
+            acumulado = pd.DataFrame({
+                "FECHA_HORA": merged["FECHA_HORA"],
+                "KWH_GENERACION": (
+                    pd.to_numeric(merged["KWH_GENERACION_a"], errors="coerce").fillna(0)
+                    + pd.to_numeric(merged["KWH_GENERACION_b"], errors="coerce").fillna(0)
+                ),
+            })
+
+    if acumulado is None:
         return df
-    df_gen = pd.read_csv(ruta, encoding="utf-8-sig")
-    if "FECHA_HORA" not in df_gen.columns or "KWH_REC" not in df_gen.columns:
-        return df
-    df_gen = df_gen[["FECHA_HORA", "KWH_REC"]].rename(columns={"KWH_REC": "KWH_GENERACION"})
-    out = df.merge(df_gen, on="FECHA_HORA", how="left")
+    out = df.merge(acumulado, on="FECHA_HORA", how="left")
     out["KWH_GENERACION"] = pd.to_numeric(out["KWH_GENERACION"], errors="coerce").fillna(0)
     out["KW_GENERACION"] = out["KWH_GENERACION"] * 12
     return out

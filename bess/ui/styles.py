@@ -781,6 +781,39 @@ def aplicar_estilos():
             margin-bottom: 8px;
         }
 
+        /* Marcadores de layout: no ocupan espacio en la columna */
+        .suite-controls-row-marker,
+        .suite-session-bar-marker {
+            display: none !important;
+            height: 0 !important;
+            width: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+        }
+
+        /* Granja / selectores: Días alineado con date_input */
+        .periodo-dias {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            min-height: 4.6rem;
+            padding-bottom: 0.35rem;
+        }
+        .periodo-dias-lbl {
+            font-size: 0.875rem;
+            color: #31333f;
+            margin: 0 0 0.35rem 0;
+            line-height: 1.25;
+        }
+        .periodo-dias-val {
+            font-size: 1.55rem;
+            font-weight: 700;
+            color: #1a5276;
+            line-height: 1.2;
+            margin: 0;
+        }
+
         /* Visualizador (user): barra lateral oculta */
         body.bess-rol-user-mode section[data-testid="stSidebar"],
         body:has(.bess-rol-user) section[data-testid="stSidebar"] {

@@ -313,9 +313,9 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
         "Formato: día/mes/año."
     )
 
-    atajos_cols = st.columns(6)
     from bess.ui.components import marcar_fila_controles
 
+    atajos_cols = st.columns(6, gap="small")
     with atajos_cols[0]:
         marcar_fila_controles()
     for col, (label, atajo) in zip(atajos_cols, etiquetas):
@@ -332,7 +332,12 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
                 st.session_state[k_aplicado] = (d0_a, d1_a)
                 st.rerun()
 
-    c1, c2, c3, c4 = st.columns([2, 2, 1, 1.4])
+    # Misma rejilla visual: fechas | días | consultar, alineados al borde inferior.
+    c1, c2, c3, c4 = st.columns(
+        [2.2, 2.2, 1.0, 1.6],
+        gap="small",
+        vertical_alignment="bottom",
+    )
     with c1:
         desde = st.date_input(
             "Desde",
@@ -357,9 +362,14 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
 
     dias_n = (d1 - d0).days + 1
     with c3:
-        st.metric("Días", dias_n)
+        st.markdown(
+            f'<div class="periodo-dias">'
+            f'<div class="periodo-dias-lbl">Días</div>'
+            f'<div class="periodo-dias-val">{dias_n}</div>'
+            f"</div>",
+            unsafe_allow_html=True,
+        )
     with c4:
-        st.write("")  # alinea el botón con los date_input
         if st.button(
             "Consultar",
             type="primary",

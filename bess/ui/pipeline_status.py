@@ -100,11 +100,9 @@ def _paso_filtrar() -> PasoPipeline:
             requeridos += 1
             if rutas_mod.resolver_ruta_procesado(proc_dir / sub.granja_filtrado).exists():
                 listos += 1
-        if sub.cogeneracion_filtrado:
+        for gen in sub.medidores_gen_individual:
             requeridos += 1
-            if rutas_mod.resolver_ruta_procesado(
-                proc_dir / sub.cogeneracion_filtrado
-            ).exists():
+            if rutas_mod.resolver_ruta_procesado(proc_dir / gen.filtrado).exists():
                 listos += 1
     if listos == 0:
         return PasoPipeline(3, "filtrar", "Filtrar", "pendiente", "Sin datos filtrados")
@@ -234,13 +232,15 @@ def evaluar_desfase_reportes() -> list[DesfaseReporte]:
                 sync_por_medidor, ultima_fecha_hora_escrita,
             ))
 
-        recurso = subestaciones_mod.recurso_generacion_subestacion(sub.id)
-        if recurso:
+        for recurso in subestaciones_mod.recursos_generacion_subestacion(sub.id):
             ruta_gen = rutas_mod.ruta_reporte(
                 sub.id, f"COMBINADO_POR_MINUTO_{recurso.prefijo_reporte}.csv"
             )
+            etiqueta = f"{sub.nombre} · {recurso.etiqueta}"
+            if recurso.etiqueta == "Generación" or recurso.tipo == "granja":
+                etiqueta = f"{sub.nombre} · Generación"
             resultado.append(_evaluar_reporte(
-                sub.id, f"{sub.nombre} · Generación", recurso.prefijo_reporte,
+                sub.id, etiqueta, recurso.prefijo_reporte,
                 ruta_gen, sync_por_medidor, ultima_fecha_hora_escrita,
             ))
     return resultado

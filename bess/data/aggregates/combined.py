@@ -45,12 +45,26 @@ def _cursor_combinado(ruta_salida) -> "pd.Timestamp | None":
     """Última FECHA_HORA ya escrita en un COMBINADO_POR_MINUTO_*.csv
     existente, o None si no existe/está vacío/no se puede leer.
 
-    Lee solo la cola del archivo (no carga toda la columna).
+    Lee solo el encabezado + la cola del archivo (no carga toda la columna).
+    FECHA_HORA es la **segunda** columna (después de FECHA), no la primera:
+    parsear la primera producía falsos desfases (p. ej. un fragmento de cola
+    a mitad de línea se leía como si fuera la última fila del reporte).
     """
     if not os.path.exists(ruta_salida):
         return None
     try:
         with open(ruta_salida, "rb") as fh:
+            encabezado_raw = fh.readline()
+            if not encabezado_raw:
+                return None
+            encabezado = next(
+                csv.reader([encabezado_raw.decode("utf-8", errors="replace")]),
+                None,
+            )
+            if not encabezado or "FECHA_HORA" not in encabezado:
+                return None
+            idx_fecha_hora = encabezado.index("FECHA_HORA")
+
             fh.seek(0, os.SEEK_END)
             size = fh.tell()
             if size <= 0:
@@ -58,17 +72,24 @@ def _cursor_combinado(ruta_salida) -> "pd.Timestamp | None":
             # Últimas ~8 KiB suelen bastar para varias filas del combinado.
             fh.seek(max(0, size - 8192), os.SEEK_SET)
             cola = fh.read().decode("utf-8", errors="replace")
+
         lineas = [ln.strip() for ln in cola.splitlines() if ln.strip()]
         if not lineas:
             return None
-        # Si arrancamos a mitad de línea, descartar el primer fragmento.
-        if size > 8192 and "," in lineas[0] and not lineas[0][0].isdigit():
+        # Si arrancamos a mitad de línea, descartar siempre el primer fragmento
+        # (salvo que leímos el archivo entero desde el byte 0).
+        if size > 8192:
             lineas = lineas[1:]
         for linea in reversed(lineas):
-            # FECHA_HORA es la primera columna: dd/mm/YYYY HH:MM
-            primera = linea.split(",", 1)[0].strip().strip('"')
             try:
-                return pd.Timestamp(datetime.strptime(primera, "%d/%m/%Y %H:%M"))
+                campos = next(csv.reader([linea]))
+            except Exception:
+                continue
+            if len(campos) <= idx_fecha_hora:
+                continue
+            valor = campos[idx_fecha_hora].strip().strip('"')
+            try:
+                return pd.Timestamp(datetime.strptime(valor, "%d/%m/%Y %H:%M"))
             except ValueError:
                 continue
         return None

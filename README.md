@@ -3,7 +3,7 @@
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS
 (ION y BANCO), con portal de suite hacia **Granja Solar** (21 MEGAs).
 
-**Versión actual:** 5.18.7 — Suite: UX móvil + rendimiento (cache COMBINADO / desfase).
+**Versión actual:** 5.18.8 — Generación múltiple tipo 5, Shapley N participantes y manual de catálogo.
 
 ## Ejecución local (Suite)
 
@@ -28,7 +28,8 @@ Entradas directas:
 | Documento | Descripción |
 |-----------|-------------|
 | [docs/INDICE_DOCUMENTACION.md](docs/INDICE_DOCUMENTACION.md) | Índice de manuales y notas de versión |
-| [docs/GUIA_USUARIO.md](docs/GUIA_USUARIO.md) · [PDF](docs/GUIA_USUARIO.pdf) | Manual del reporteador |
+| [docs/MANUAL_SUITE.md](docs/MANUAL_SUITE.md) · [PDF](docs/MANUAL_SUITE.pdf) | Manual de usuario de toda la Suite (5 módulos) |
+| [docs/GUIA_USUARIO.md](docs/GUIA_USUARIO.md) · [PDF](docs/GUIA_USUARIO.pdf) | Detalle del reporteador BESS |
 | [docs/GUIA_ADMINISTRADOR.md](docs/GUIA_ADMINISTRADOR.md) · [PDF](docs/GUIA_ADMINISTRADOR.pdf) | Pipeline, superadmin, catálogo, cursores, reconciliación y Rebuild CSV |
 | [docs/DOCKER.md](docs/DOCKER.md) | Despliegue Docker |
 

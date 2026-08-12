@@ -82,25 +82,34 @@ def _archivos_cadena_medidor(medidor_id: str, sub_id: str, tipo: int | None) -> 
                 break
         rutas.append(sub.ruta_bess(filtrado=True))
         rutas.append(rutas_mod.ruta_energia_bess_por_dia(sub_id))
-    elif tipo == TIPO_COGENERACION or (
-        sub.cogeneracion_nombre and medidor_id == sub.cogeneracion_nombre
+    elif tipo == TIPO_COGENERACION or any(
+        g.nombre == medidor_id for g in sub.medidores_gen_individual
     ):
-        if sub.cogeneracion_nombre:
+        gen = next(
+            (g for g in sub.medidores_gen_individual if g.nombre == medidor_id),
+            None,
+        )
+        if gen is None and sub.cogeneracion_nombre:
+            gen_nombre = sub.cogeneracion_nombre
+        elif gen is not None:
+            gen_nombre = gen.nombre
+        else:
+            gen_nombre = None
+        if gen_nombre:
             rutas.append(
-                rutas_mod.ruta_procesado_medidor(
-                    sub.cogeneracion_nombre, sub_id, filtrado=False
+                rutas_mod.ruta_procesado_medidor(gen_nombre, sub_id, filtrado=False)
+            )
+            rutas.append(
+                rutas_mod.ruta_procesado_medidor(gen_nombre, sub_id, filtrado=True)
+            )
+            rutas.append(
+                rutas_mod.ruta_reporte(sub_id, f"COMBINADO_POR_MINUTO_{gen_nombre}.csv")
+            )
+            rutas.append(rutas_mod.ruta_energia_por_dia(gen_nombre, sub_id))
+            rutas.append(
+                rutas_mod.ruta_reporte(
+                    sub_id, f"ENERGIA_Generacion_{sub_id}_POR_DIA.csv"
                 )
-            )
-            rutas.append(
-                rutas_mod.ruta_procesado_medidor(
-                    sub.cogeneracion_nombre, sub_id, filtrado=True
-                )
-            )
-            rutas.append(
-                rutas_mod.ruta_combinado_minuto(sub.cogeneracion_nombre, sub_id)
-            )
-            rutas.append(
-                rutas_mod.ruta_energia_por_dia(sub.cogeneracion_nombre, sub_id)
             )
 
     vistos: set[str] = set()

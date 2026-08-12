@@ -8,7 +8,7 @@ from bess.config.constants import etiqueta_medidor
 from bess.config.subestaciones import (
     SUBESTACIONES,
     medidor_consumo_por_prefijo,
-    recurso_generacion_subestacion,
+    recursos_generacion_subestacion,
     ruta_combinado_por_prefijo,
 )
 from bess.core.consumo import usa_consumo_neto
@@ -16,7 +16,10 @@ from bess.core.ui_progress import emit_ui_progress, ui_progress_habilitado
 from bess.data.aggregates.accumulated import generar_acumulados
 from bess.data.aggregates.bess_daily import generar_bess_diario_subestacion
 from bess.data.aggregates.combined import generar_combinado_por_minuto
-from bess.data.aggregates.granja import generar_reportes_generacion
+from bess.data.aggregates.granja import (
+    consolidar_energia_generacion_subestacion,
+    generar_reportes_generacion,
+)
 from bess.data.aggregates.daily import generar_diarios_con_demandas
 from bess.data.ingest.readers import leer_sin_agrupar
 
@@ -27,9 +30,9 @@ print = log
 
 def _reporte_ui_total() -> int:
     n_grupos = sum(len(s.medidores_consumo) for s in SUBESTACIONES)
-    n_gen = sum(1 for s in SUBESTACIONES if recurso_generacion_subestacion(s.id))
+    n_gen = sum(len(recursos_generacion_subestacion(s.id)) for s in SUBESTACIONES)
     # validar + grupos + BESS diario + generación + cierre
-    return 2 + n_grupos + n_gen
+    return 2 + n_grupos + max(n_gen, 1)
 
 
 def _reporte_ui(step: int, total: int, label: str) -> None:
@@ -185,25 +188,42 @@ def _reporte_bess_impl():
     print("GENERANDO REPORTES GENERACIÓN")
     print("=" * 60)
     for sub in SUBESTACIONES:
-        recurso = recurso_generacion_subestacion(sub.id)
-        if recurso is None:
+        recursos = recursos_generacion_subestacion(sub.id)
+        if not recursos:
             continue
-        paso += 1
-        _reporte_ui(paso, total, f"Generación · {sub.nombre}")
-        if recurso.tipo == "granja":
-            ruta_gen = str(sub.ruta_generacion_lectura(filtrado=True))
-        else:
-            ruta_gen = str(sub.ruta_cogeneracion_lectura(filtrado=True) or "")
-        if ruta_gen and os.path.exists(ruta_gen):
-            generar_reportes_generacion(
-                ruta_gen,
-                sub.id,
-                recurso.prefijo_reporte,
-                columna_kwh=recurso.columna_kwh,
-                esquema_tarifa_id=sub.esquema_tarifa_id,
-            )
-        else:
-            print(f"⚠️ {sub.nombre}: sin {recurso.csv_filtrado} (omitido)")
+        prefijos_ok: list[str] = []
+        for recurso in recursos:
+            paso += 1
+            _reporte_ui(paso, total, f"Generación · {sub.nombre} · {recurso.prefijo_reporte}")
+            if recurso.tipo == "granja":
+                ruta_gen = str(sub.ruta_generacion_lectura(filtrado=True))
+            else:
+                gen = next(
+                    (
+                        g
+                        for g in sub.medidores_gen_individual
+                        if g.nombre == recurso.prefijo_reporte
+                    ),
+                    None,
+                )
+                if gen is not None:
+                    ruta_gen = str(sub.ruta_gen_individual_lectura(gen, filtrado=True))
+                else:
+                    ruta_gen = str(sub.ruta_cogeneracion_lectura(filtrado=True) or "")
+            if ruta_gen and os.path.exists(ruta_gen):
+                generar_reportes_generacion(
+                    ruta_gen,
+                    sub.id,
+                    recurso.prefijo_reporte,
+                    columna_kwh=recurso.columna_kwh,
+                    esquema_tarifa_id=sub.esquema_tarifa_id,
+                    escribir_diario_subestacion=False,
+                )
+                prefijos_ok.append(recurso.prefijo_reporte)
+            else:
+                print(f"⚠️ {sub.nombre}: sin {recurso.csv_filtrado} (omitido)")
+        if prefijos_ok:
+            consolidar_energia_generacion_subestacion(sub.id, prefijos_ok)
 
     paso += 1
     _reporte_ui(paso, total, "Finalizando reportes")

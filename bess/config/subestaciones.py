@@ -68,6 +68,15 @@ class MedidorConsumo:
 
 
 @dataclass(frozen=True)
+class MedidorGeneracionIndividual:
+    """Medidor tipo 5 (cogeneración o solar individual) en una subestación."""
+
+    nombre: str
+    csv: str
+    filtrado: str
+
+
+@dataclass(frozen=True)
 class Subestacion:
     """Subestación con medidores de consumo y agregados BESS / generación."""
 
@@ -86,6 +95,7 @@ class Subestacion:
     cogeneracion_csv: str | None = None
     cogeneracion_filtrado: str | None = None
     cogeneracion_nombre: str | None = None
+    medidores_gen_individual: tuple[MedidorGeneracionIndividual, ...] = ()
     esquema_tarifa_id: str = "DIST"
 
     @property
@@ -160,6 +170,19 @@ class Subestacion:
         fuente = rutas_mod.ruta_fuente(self.id, self.cogeneracion_csv or "")
         return fuente if fuente.exists() else ruta
 
+    def ruta_gen_individual(self, med: MedidorGeneracionIndividual, *, filtrado: bool = False) -> Path:
+        archivo = med.filtrado if filtrado else med.csv
+        return rutas_mod.ruta_procesado(self.id, archivo)
+
+    def ruta_gen_individual_lectura(
+        self, med: MedidorGeneracionIndividual, *, filtrado: bool = False
+    ) -> Path:
+        ruta = self.ruta_gen_individual(med, filtrado=filtrado)
+        if ruta.exists():
+            return ruta
+        fuente = rutas_mod.ruta_fuente(self.id, med.csv)
+        return fuente if fuente.exists() else ruta
+
     def ruta_energia_bess_dia(self) -> Path:
         return rutas_mod.ruta_energia_bess_por_dia(self.id)
 
@@ -215,11 +238,20 @@ def _construir_subestaciones() -> tuple[Subestacion, ...]:
         generacion_individual_meds = [
             m for m in meds_sub if m.tipo_medidor == TIPO_GENERACION_INDIVIDUAL
         ]
-        if generacion_individual_meds:
-            gen = generacion_individual_meds[0]
-            cogeneracion_nombre = gen.nombre
-            cogeneracion_csv = rutas_mod.nombre_archivo_medidor(gen.nombre)
-            cogeneracion_filtrado = rutas_mod.nombre_archivo_filtrado(gen.nombre)
+        gen_individual = tuple(
+            MedidorGeneracionIndividual(
+                nombre=m.nombre,
+                csv=rutas_mod.nombre_archivo_medidor(m.nombre),
+                filtrado=rutas_mod.nombre_archivo_filtrado(m.nombre),
+            )
+            for m in generacion_individual_meds
+        )
+        if gen_individual:
+            # Compat: primer tipo 5 sigue expuesto en cogeneracion_*.
+            gen0 = gen_individual[0]
+            cogeneracion_nombre = gen0.nombre
+            cogeneracion_csv = gen0.csv
+            cogeneracion_filtrado = gen0.filtrado
 
         serial_bess = bess_meds[0].numero_serie.split()[0] if bess_meds else None
         med_fact = next((m for m in consumo if m.es_facturacion), None)
@@ -242,6 +274,7 @@ def _construir_subestaciones() -> tuple[Subestacion, ...]:
                 cogeneracion_csv=cogeneracion_csv,
                 cogeneracion_filtrado=cogeneracion_filtrado,
                 cogeneracion_nombre=cogeneracion_nombre,
+                medidores_gen_individual=gen_individual,
                 esquema_tarifa_id=normalizar_esquema_tarifa(sub_c.esquema_tarifa),
             )
         )
@@ -406,8 +439,8 @@ def pares_filtrado() -> list[tuple[str, str, str]]:
         pares.append((sub.bess_csv, sub.bess_filtrado, sub.bess_csv))
         if sub.granja_csv and sub.granja_filtrado:
             pares.append((sub.granja_csv, sub.granja_filtrado, sub.granja_csv))
-        if sub.cogeneracion_csv and sub.cogeneracion_filtrado:
-            pares.append((sub.cogeneracion_csv, sub.cogeneracion_filtrado, sub.cogeneracion_csv))
+        for gen in sub.medidores_gen_individual:
+            pares.append((gen.csv, gen.filtrado, gen.csv))
     return pares
 
 
@@ -449,7 +482,7 @@ def soporta_participacion_capacidad(sub_id: str) -> bool:
     sub = subestacion_por_id(sub_id)
     if not sub:
         return False
-    return bool(sub.granja_csv or sub.cogeneracion_csv)
+    return bool(sub.granja_csv or sub.medidores_gen_individual)
 
 
 _ETIQUETA_GENERACION = "Generación"
@@ -457,7 +490,7 @@ _ETIQUETA_GENERACION = "Generación"
 
 @dataclass(frozen=True)
 class RecursoGeneracion:
-    """Recurso de generación por subestación."""
+    """Recurso de generación (granja o medidor individual tipo 5)."""
 
     tipo: str
     prefijo_reporte: str
@@ -467,28 +500,39 @@ class RecursoGeneracion:
     csv_filtrado: str
 
 
-def recurso_generacion_subestacion(sub_id: str) -> RecursoGeneracion | None:
+def recursos_generacion_subestacion(sub_id: str) -> list[RecursoGeneracion]:
+    """Todos los recursos de generación de la subestación (granja y/o N tipo 5)."""
     sub = subestacion_por_id(sub_id)
     if not sub:
-        return None
+        return []
+    out: list[RecursoGeneracion] = []
     if sub.granja_csv and sub.granja_filtrado and sub.granja_bd:
-        return RecursoGeneracion(
-            tipo="granja",
-            prefijo_reporte=sub.granja_bd,
-            columna_kwh="KWH_REC",
-            etiqueta=_ETIQUETA_GENERACION,
-            csv_procesado=sub.granja_csv,
-            csv_filtrado=sub.granja_filtrado,
+        out.append(
+            RecursoGeneracion(
+                tipo="granja",
+                prefijo_reporte=sub.granja_bd,
+                columna_kwh="KWH_REC",
+                etiqueta=_ETIQUETA_GENERACION,
+                csv_procesado=sub.granja_csv,
+                csv_filtrado=sub.granja_filtrado,
+            )
         )
-    if sub.cogeneracion_csv and sub.cogeneracion_filtrado and sub.cogeneracion_nombre:
-        nombre = sub.cogeneracion_nombre
-        return RecursoGeneracion(
-            tipo="cogeneracion",
-            prefijo_reporte=nombre,
-            columna_kwh="KWH_ENT",
-            etiqueta=_ETIQUETA_GENERACION,
-            csv_procesado=sub.cogeneracion_csv,
-            csv_filtrado=sub.cogeneracion_filtrado,
+    for gen in sub.medidores_gen_individual:
+        out.append(
+            RecursoGeneracion(
+                tipo="cogeneracion",
+                prefijo_reporte=gen.nombre,
+                columna_kwh="KWH_ENT",
+                etiqueta=gen.nombre,
+                csv_procesado=gen.csv,
+                csv_filtrado=gen.filtrado,
+            )
         )
-    return None
+    return out
+
+
+def recurso_generacion_subestacion(sub_id: str) -> RecursoGeneracion | None:
+    """Primer recurso de generación (compat); preferir recursos_generacion_subestacion."""
+    recursos = recursos_generacion_subestacion(sub_id)
+    return recursos[0] if recursos else None
 

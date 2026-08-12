@@ -1,12 +1,14 @@
 # Documentación — Sistema BESS
 
-**Versión de la aplicación:** 5.18.7
+**Versión de la aplicación:** 5.18.8
 
 ## Manuales
 
 | Documento | Formato | Audiencia | Descripción |
 |-----------|---------|-----------|-------------|
-| [Guía de usuario](GUIA_USUARIO.md) | Markdown · [PDF](GUIA_USUARIO.pdf) | Visualizador y operador | Reporteador, métricas, PDF, recibo CFE y emisiones |
+| [Manual de la Suite](MANUAL_SUITE.md) · [PDF](MANUAL_SUITE.pdf) | Markdown · PDF | Todos los roles | **Todas las opciones** del portal: BESS, Granja, Descargas, Análisis de Perfil y Consultar Tarifa |
+| [Manual de catálogo](MANUAL_CATALOGO.md) · [PDF](MANUAL_CATALOGO.pdf) | Markdown · PDF | Superadmin | **Alta de medidores y subestaciones**: reglas, campos, ejemplos y pipeline post-alta |
+| [Guía de usuario](GUIA_USUARIO.md) | Markdown · [PDF](GUIA_USUARIO.pdf) | Visualizador y operador | Detalle del reporteador BESS (métricas, PDF, recibo CFE y emisiones) |
 | [Guía del administrador](GUIA_ADMINISTRADOR.md) | Markdown · [PDF](GUIA_ADMINISTRADOR.pdf) | Admin y superadmin | Pipeline, catálogo, importación, cursores, reconciliación, Rebuild CSV, purga y recuperación |
 
 ## Generar los PDF
@@ -16,6 +18,8 @@ Con la app en ejecución (`streamlit run streamlit_app.py`):
 ```bash
 python docs/generar_guia_pdf.py
 python docs/generar_guia_admin_pdf.py
+python docs/generar_manual_suite_pdf.py
+python docs/generar_manual_catalogo_pdf.py
 ```
 
 Sin capturas nuevas (reutiliza imágenes en `docs/capturas/`):
@@ -24,6 +28,13 @@ Sin capturas nuevas (reutiliza imágenes en `docs/capturas/`):
 set BESS_SKIP_CAPTURE=1
 python docs/generar_guia_pdf.py
 python docs/generar_guia_admin_pdf.py
+```
+
+Solo Suite o catálogo (desde Markdown, sin capturas):
+
+```bash
+python docs/generar_manual_suite_pdf.py
+python docs/generar_manual_catalogo_pdf.py
 ```
 
 URL alternativa para capturas:
@@ -55,6 +66,7 @@ python docs/generar_guia_pdf.py
 
 | Versión | Archivo |
 |---------|---------|
+| 5.18.8 | [RELEASE_NOTES_5.18.8.md](../RELEASE_NOTES_5.18.8.md) |
 | 5.18.7 | [RELEASE_NOTES_5.18.7.md](../RELEASE_NOTES_5.18.7.md) |
 | 5.18.6 | [RELEASE_NOTES_5.18.6.md](../RELEASE_NOTES_5.18.6.md) |
 | 5.18.5 | [RELEASE_NOTES_5.18.5.md](../RELEASE_NOTES_5.18.5.md) |

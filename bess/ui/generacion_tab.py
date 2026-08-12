@@ -10,7 +10,7 @@ import streamlit as st
 
 from bess.config import rutas as rutas_mod
 from bess.config.subestaciones import (
-    recurso_generacion_subestacion,
+    recursos_generacion_subestacion,
     subestacion_por_id,
 )
 from bess.cfe.periods import periodo_por_fecha_hora
@@ -34,8 +34,12 @@ _COLS_PERIODO = [
 # Carga de datos
 # ---------------------------------------------------------------------------
 
-def _cargar_generacion_diaria(sub_id: str) -> pd.DataFrame | None:
-    ruta = ruta_energia_generacion_por_dia(sub_id)
+def _cargar_generacion_diaria(sub_id: str, prefijo: str | None = None) -> pd.DataFrame | None:
+    """Diario agregado de la subestación, o diario de un medidor (`ENERGIA_{prefijo}`)."""
+    if prefijo:
+        ruta = rutas_mod.ruta_energia_por_dia(prefijo, sub_id)
+    else:
+        ruta = ruta_energia_generacion_por_dia(sub_id)
     if not ruta.exists():
         return None
     df = pd.read_csv(ruta, encoding="utf-8-sig")
@@ -66,6 +70,35 @@ def _cargar_combinado_minuto(sub_id: str, prefijo_reporte: str) -> pd.DataFrame 
     df["KWH_REC"] = pd.to_numeric(df["KWH_REC"], errors="coerce").fillna(0)
     df["KW"] = df["KWH_REC"] * 12
     return df.sort_values("DATETIME").reset_index(drop=True)
+
+
+def _sumar_combinados_minuto(sub_id: str, prefijos: list[str]) -> pd.DataFrame | None:
+    """Suma KWH_REC/KW de varios COMBINADO_POR_MINUTO por FECHA_HORA."""
+    acumulado: pd.DataFrame | None = None
+    for prefijo in prefijos:
+        df = _cargar_combinado_minuto(sub_id, prefijo)
+        if df is None or df.empty:
+            continue
+        parte = df[["FECHA_HORA", "DATETIME", "KWH_REC", "KW"]].copy()
+        if acumulado is None:
+            acumulado = parte
+            continue
+        merged = acumulado.merge(
+            parte[["FECHA_HORA", "KWH_REC", "KW"]],
+            on="FECHA_HORA",
+            how="outer",
+            suffixes=("_a", "_b"),
+        )
+        out = pd.DataFrame({
+            "FECHA_HORA": merged["FECHA_HORA"],
+            "KWH_REC": merged["KWH_REC_a"].fillna(0) + merged["KWH_REC_b"].fillna(0),
+            "KW": merged["KW_a"].fillna(0) + merged["KW_b"].fillna(0),
+        })
+        out["DATETIME"] = pd.to_datetime(
+            out["FECHA_HORA"], format="%d/%m/%Y %H:%M", errors="coerce"
+        )
+        acumulado = out.dropna(subset=["DATETIME"]).sort_values("DATETIME").reset_index(drop=True)
+    return acumulado
 
 
 def _filtrar_rango(df: pd.DataFrame, inicio, fin) -> pd.DataFrame:
@@ -221,12 +254,38 @@ def tab_generacion(sub_id: str | None = None):
         st.warning("Subestación no encontrada.")
         return
 
-    rec = recurso_generacion_subestacion(sub.id)
-    if rec is None:
+    recursos = recursos_generacion_subestacion(sub.id)
+    if not recursos:
         st.info(f"{sub.nombre} no tiene recurso de generación configurado.")
         return
 
-    df = _cargar_generacion_diaria(sub.id)
+    opciones = ["Total"] + [r.prefijo_reporte for r in recursos]
+    etiquetas = {
+        "Total": "Total",
+        **{r.prefijo_reporte: r.etiqueta for r in recursos},
+    }
+    if len(recursos) == 1:
+        seleccion = recursos[0].prefijo_reporte
+        etiqueta_vista = recursos[0].etiqueta
+    else:
+        seleccion = st.selectbox(
+            "Medidor",
+            opciones,
+            format_func=lambda x: etiquetas.get(x, x),
+            key=f"gen_medidor_{sub.id}",
+        )
+        etiqueta_vista = etiquetas.get(seleccion, seleccion)
+
+    if seleccion == "Total":
+        df = _cargar_generacion_diaria(sub.id)
+        prefijos_perfil = [r.prefijo_reporte for r in recursos]
+    else:
+        df = _cargar_generacion_diaria(sub.id, seleccion)
+        if df is None:
+            # Fallback al agregado si aún no hay diario por medidor.
+            df = _cargar_generacion_diaria(sub.id)
+        prefijos_perfil = [seleccion]
+
     if df is None or df.empty:
         st.warning("No hay datos de generación. Ejecute Verificar → Filtrar → Reportes.")
         return
@@ -272,22 +331,25 @@ def tab_generacion(sub_id: str | None = None):
     with st.container(border=True):
         fecha_str = fecha_inicio.strftime("%d/%m/%Y") if es_dia_unico else ""
         titulo = (
-            f"{rec.etiqueta} · {sub.nombre} · {fecha_str}"
+            f"{etiqueta_vista} · {sub.nombre} · {fecha_str}"
             if es_dia_unico
-            else f"{rec.etiqueta} · {sub.nombre}"
+            else f"{etiqueta_vista} · {sub.nombre}"
         )
         section_header(titulo)
 
         _render_metricas(df_rango)
 
         if es_dia_unico:
-            df_min = _cargar_combinado_minuto(sub.id, rec.prefijo_reporte)
+            if len(prefijos_perfil) == 1:
+                df_min = _cargar_combinado_minuto(sub.id, prefijos_perfil[0])
+            else:
+                df_min = _sumar_combinados_minuto(sub.id, prefijos_perfil)
             if df_min is not None:
                 df_min_dia = _filtrar_dia_minuto(df_min, fecha_inicio)
                 if not df_min_dia.empty:
                     fig = _grafica_linea_dia(
                         df_min_dia,
-                        f"{rec.etiqueta} — Perfil de generación (kW)",
+                        f"{etiqueta_vista} — Perfil de generación (kW)",
                         sub.esquema_tarifa_id,
                     )
                     render_grafica_plotly(
@@ -304,7 +366,9 @@ def tab_generacion(sub_id: str | None = None):
             df_tabla = _tabla_resumen_dia(df, fecha_inicio)
             st.dataframe(df_tabla, use_container_width=True, hide_index=True)
         else:
-            fig = _grafica_barras_rango(df_rango, f"{rec.etiqueta} — kWh por día y periodo")
+            fig = _grafica_barras_rango(
+                df_rango, f"{etiqueta_vista} — kWh por día y periodo"
+            )
             render_grafica_plotly(
                 fig,
                 f"generacion_barras_{sub.id}.png",

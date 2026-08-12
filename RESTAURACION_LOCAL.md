@@ -1,4 +1,4 @@
-# Suite IUSASOL v5.18.7 — Restauración en otra computadora
+# Suite IUSASOL v5.18.8 — Restauración en otra computadora
 
 Respaldo portable para operar la **Suite** (BESS, Granja, Descargas, Análisis de
 Perfil, Consultar Tarifa) **sin depender de GitHub**.
@@ -91,12 +91,12 @@ python scripts\sincronizar_granja_megas.py
 
 ## 7. Actualizar desde GitHub (opcional)
 
-Tag de este respaldo: **`v5.18.7`**.
+Tag de este respaldo: **`v5.18.8`**.
 
 ```powershell
 git clone https://github.com/asustin72-a11y/ReportesBESS.git
 cd ReportesBESS
-git checkout v5.18.7
+git checkout v5.18.8
 ```
 
 Conserva `data/` y `secrets.toml` al actualizar código.
@@ -113,5 +113,5 @@ Desde la raíz del repo (con datos y secretos locales):
 
 ## Versión
 
-- **Suite / BESS:** 5.18.7
+- **Suite / BESS:** 5.18.8
 - **Entry Suite:** `streamlit_app.py` → `suite/ui/app.py`
