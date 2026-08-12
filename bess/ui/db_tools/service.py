@@ -302,6 +302,20 @@ def ejecutar_rebuild_csv(
     return _ejecutar(medidor_id, desde, procesar=procesar)
 
 
+def plan_rebuild_csv_todos(desde: date) -> dict:
+    """Vista previa del rebuild total desde BD."""
+    from bess.data.csv_rebuild import plan_rebuild_csv_todos as _plan
+
+    return _plan(desde)
+
+
+def ejecutar_rebuild_csv_todos(desde: date, *, procesar: bool = True) -> dict:
+    """Rebuild total: todos los medidores + limpia CSV derivados + pipeline."""
+    from bess.data.csv_rebuild import ejecutar_rebuild_csv_todos as _ejecutar
+
+    return _ejecutar(desde, procesar=procesar)
+
+
 def reconciliar_sqlite_vs_fuente(
     *,
     desde: date | None = None,

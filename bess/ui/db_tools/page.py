@@ -528,6 +528,8 @@ def _ejecutar_rebuild_csv_ui(medidor_id: str, desde: date, *, procesar: bool = T
 def _tab_rebuild_csv():
     from bess.data.ingest.medidor_ids import destinos_export_bd
 
+    hoy = date.today()
+
     with st.container(border=True):
         section_header(
             "Rebuild forzado de CSV",
@@ -547,7 +549,6 @@ def _tab_rebuild_csv():
             st.session_state["rb_medidor"] = medidores[0]
         medidor = st.selectbox("Medidor", medidores, key="rb_medidor")
 
-        hoy = date.today()
         if "rb_desde" not in st.session_state:
             st.session_state["rb_desde"] = (
                 date(hoy.year, 5, 1) if hoy.month >= 5 else date(hoy.year - 1, 5, 1)
@@ -605,6 +606,76 @@ def _tab_rebuild_csv():
                     f"Export rc={resultado.get('export_rc')} · "
                     f"CSV borrados={len(resultado.get('borrados') or [])}"
                 )
+                with st.expander("Ver log completo", expanded=not resultado.get("ok")):
+                    st.code(resultado.get("log") or "(sin log)")
+
+    with st.container(border=True):
+        section_header(
+            "Rebuild TOTAL desde la base de datos",
+            "Reexporta TODOS los medidores desde SQLite, borra Procesados/Reportes "
+            "y regenera Verificar → Filtrar → Reportes. Ideal tras integrar "
+            "nuevos medidores de generación (históricos + Shapley).",
+        )
+        st.warning(
+            "Operación pesada: reescribe ArchivosFuente desde la fecha elegida y "
+            "elimina todos los CSV de ArchivosProcesados, ArchivosReporte y "
+            "ReportesDiarios. SQLite no se modifica."
+        )
+        if "rb_todos_desde" not in st.session_state:
+            st.session_state["rb_todos_desde"] = st.session_state.get(
+                "rb_desde", date(hoy.year, 5, 1)
+            )
+        desde_todos = st.date_input(
+            "Reexportar todos desde",
+            max_value=hoy,
+            key="rb_todos_desde",
+        )
+        procesar_todos = st.checkbox(
+            "Después: Verificar → Filtrar → Reportes",
+            value=True,
+            key="rb_todos_procesar",
+        )
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button(
+                "👁️ Vista previa (todos)",
+                type="secondary",
+                key="rb_todos_preview",
+                use_container_width=True,
+            ):
+                plan = service.plan_rebuild_csv_todos(desde_todos)
+                st.json(plan)
+                for aviso in plan.get("avisos", []):
+                    st.caption(f"• {aviso}")
+        with c2:
+            confirmar_todos = st.checkbox(
+                "Confirmo rebuild TOTAL (no toca SQLite)",
+                key="rb_todos_confirmar",
+            )
+            if st.button(
+                "♻️ Rehacer todos los reportes desde BD",
+                type="primary",
+                disabled=not confirmar_todos,
+                key="rb_todos_ejecutar",
+                use_container_width=True,
+            ):
+                with st.spinner(
+                    "Rebuild total en curso… puede tardar varios minutos."
+                ):
+                    resultado = service.ejecutar_rebuild_csv_todos(
+                        desde_todos, procesar=procesar_todos
+                    )
+                if resultado.get("ok"):
+                    st.success(
+                        f"✅ Rebuild total OK desde {resultado.get('desde')}. "
+                        f"Exportados: {len(resultado.get('exportados_ok') or [])} · "
+                        f"CSV borrados: {len(resultado.get('borrados') or [])}."
+                    )
+                else:
+                    st.error("❌ Rebuild total incompleto o con errores.")
+                sin_datos = resultado.get("exportados_sin_datos") or []
+                if sin_datos:
+                    st.caption("Sin datos en BD (omitidos): " + ", ".join(sin_datos))
                 with st.expander("Ver log completo", expanded=not resultado.get("ok")):
                     st.code(resultado.get("log") or "(sin log)")
 

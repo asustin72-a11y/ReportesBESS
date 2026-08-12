@@ -27,10 +27,18 @@ from bess.config.catalog import (
     TIPO_TESTIGO,
     obtener_catalogo,
 )
-from bess.config.paths import RUTA_BD_PERFILES
+from bess.config.paths import (
+    DIRECTORIO_PROCESADOS,
+    DIRECTORIO_REPORTES,
+    DIRECTORIO_REPORTES_DIARIOS,
+    RUTA_BD_PERFILES,
+)
 from bess.config.subestaciones import subestacion_por_id
 from bess.data.ingest.ion.export_csv import exportar
-from bess.data.ingest.medidor_ids import destinos_export_bd
+from bess.data.ingest.medidor_ids import (
+    MEDIDOR_GENERACION_IUSA2,
+    destinos_export_bd,
+)
 
 
 @dataclass
@@ -54,8 +62,28 @@ def _destino_fuente(medidor_id: str) -> Path | None:
     return None
 
 
+def _archivos_cadena_granja(sub_id: str = "IUSA_2") -> list[Path]:
+    """CSV derivados del agregado Generacion_{sub} (granja / MEGAs)."""
+    sub = subestacion_por_id(sub_id)
+    if not sub or not sub.granja_bd:
+        return []
+    prefijo = sub.granja_bd
+    return [
+        sub.ruta_generacion(filtrado=False),
+        sub.ruta_generacion(filtrado=True),
+        rutas_mod.ruta_procesado_medidor(prefijo, sub_id, filtrado=False),
+        rutas_mod.ruta_procesado_medidor(prefijo, sub_id, filtrado=True),
+        rutas_mod.ruta_reporte(sub_id, f"COMBINADO_POR_MINUTO_{prefijo}.csv"),
+        rutas_mod.ruta_energia_por_dia(prefijo, sub_id),
+        rutas_mod.ruta_reporte(sub_id, f"ENERGIA_Generacion_{sub_id}_POR_DIA.csv"),
+    ]
+
+
 def _archivos_cadena_medidor(medidor_id: str, sub_id: str, tipo: int | None) -> list[Path]:
     """CSV derivados a borrar para forzar reproceso completo del tramo."""
+    if medidor_id == MEDIDOR_GENERACION_IUSA2:
+        return _archivos_cadena_granja("IUSA_2")
+
     rutas: list[Path] = [
         rutas_mod.ruta_procesado_medidor(medidor_id, sub_id, filtrado=False),
         rutas_mod.ruta_procesado_medidor(medidor_id, sub_id, filtrado=True),
@@ -123,6 +151,16 @@ def _archivos_cadena_medidor(medidor_id: str, sub_id: str, tipo: int | None) -> 
     return unicos
 
 
+def _listar_csv_derivados_globales() -> list[Path]:
+    """Todos los CSV bajo Procesados / Reporte / ReportesDiarios."""
+    encontrados: list[Path] = []
+    for raiz in (DIRECTORIO_PROCESADOS, DIRECTORIO_REPORTES, DIRECTORIO_REPORTES_DIARIOS):
+        if not raiz.is_dir():
+            continue
+        encontrados.extend(sorted(raiz.rglob("*.csv")))
+    return encontrados
+
+
 def plan_rebuild_csv(medidor_id: str, desde: date | str) -> PlanRebuildCsv:
     """Arma el plan de rebuild (no escribe ni borra)."""
     desde_txt = desde.isoformat() if isinstance(desde, date) else str(desde).strip()
@@ -130,8 +168,12 @@ def plan_rebuild_csv(medidor_id: str, desde: date | str) -> PlanRebuildCsv:
 
     cat = obtener_catalogo()
     med = cat.medidor_por_nombre(medidor_id)
-    sub_id = med.subestacion_nombre if med else ""
-    tipo = med.tipo_medidor if med else None
+    if medidor_id == MEDIDOR_GENERACION_IUSA2:
+        sub_id = "IUSA_2"
+        tipo = None
+    else:
+        sub_id = med.subestacion_nombre if med else ""
+        tipo = med.tipo_medidor if med else None
 
     ruta_fuente = _destino_fuente(medidor_id)
     avisos: list[str] = []
@@ -163,6 +205,76 @@ def plan_rebuild_csv(medidor_id: str, desde: date | str) -> PlanRebuildCsv:
         archivos_a_borrar=archivos,
         avisos=avisos,
     )
+
+
+def plan_rebuild_csv_todos(desde: date | str) -> dict:
+    """Vista previa del rebuild total (todos los medidores exportables)."""
+    desde_txt = desde.isoformat() if isinstance(desde, date) else str(desde).strip()
+    desde_txt = desde_txt[:10]
+    medidores = [mid for mid, _ in destinos_export_bd(RUTA_BD_PERFILES)]
+    planes = [plan_rebuild_csv(mid, desde_txt) for mid in medidores]
+    csv_globales = _listar_csv_derivados_globales()
+    return {
+        "desde": desde_txt,
+        "medidores": medidores,
+        "n_medidores": len(medidores),
+        "n_csv_derivados_a_borrar": len(csv_globales),
+        "csv_derivados_muestra": [str(p) for p in csv_globales[:40]],
+        "avisos": [
+            "SQLite solo lectura.",
+            f"Reexporta {len(medidores)} medidor(es) a ArchivosFuente desde {desde_txt}.",
+            "Borra TODOS los CSV de ArchivosProcesados, ArchivosReporte y ReportesDiarios.",
+            "Luego ejecuta Verificar → Filtrar → Generar reportes (completo).",
+            "Puede tardar varios minutos según el histórico en BD.",
+        ],
+        "planes": [
+            {
+                "medidor": p.medidor_id,
+                "subestacion": p.subestacion_id,
+                "ruta_fuente": str(p.ruta_fuente),
+            }
+            for p in planes
+        ],
+    }
+
+
+def _correr_pipeline() -> dict:
+    from bess_core import filtrar_datos, reporte_bess, verificar_datos_fuente
+
+    print("\n=== Verificar ===")
+    ok_v, msg_v = verificar_datos_fuente()
+    print(f"Verificar: {'OK' if ok_v else 'ERROR'} — {msg_v}")
+    if not ok_v:
+        return {
+            "verificar_ok": False,
+            "verificar_msg": msg_v,
+            "filtrar_ok": False,
+            "reportes_ok": False,
+        }
+
+    print("\n=== Filtrar ===")
+    ok_f, msg_f = filtrar_datos()
+    print(f"Filtrar: {'OK' if ok_f else 'ERROR'} — {msg_f}")
+    if not ok_f:
+        return {
+            "verificar_ok": True,
+            "verificar_msg": msg_v,
+            "filtrar_ok": False,
+            "filtrar_msg": msg_f,
+            "reportes_ok": False,
+        }
+
+    print("\n=== Reportes ===")
+    ok_r, msgs_r = reporte_bess()
+    print(f"Reportes: {'OK' if ok_r else 'PARCIAL/ERROR'}")
+    return {
+        "verificar_ok": True,
+        "verificar_msg": msg_v,
+        "filtrar_ok": True,
+        "filtrar_msg": msg_f,
+        "reportes_ok": ok_r,
+        "reportes_msgs": msgs_r,
+    }
 
 
 def ejecutar_rebuild_csv(
@@ -218,35 +330,85 @@ def ejecutar_rebuild_csv(
         resultado["borrados"] = borrados
 
         if procesar:
-            print("\n=== Verificar ===")
-            from bess_core import filtrar_datos, reporte_bess, verificar_datos_fuente
-
-            ok_v, msg_v = verificar_datos_fuente()
-            print(f"Verificar: {'OK' if ok_v else 'ERROR'} — {msg_v}")
-            resultado["verificar_ok"] = ok_v
-            resultado["verificar_msg"] = msg_v
-            if not ok_v:
-                resultado["log"] = log.getvalue()
-                return resultado
-
-            print("\n=== Filtrar ===")
-            ok_f, msg_f = filtrar_datos()
-            print(f"Filtrar: {'OK' if ok_f else 'ERROR'} — {msg_f}")
-            resultado["filtrar_ok"] = ok_f
-            resultado["filtrar_msg"] = msg_f
-            if not ok_f:
-                resultado["log"] = log.getvalue()
-                return resultado
-
-            print("\n=== Reportes ===")
-            ok_r, msgs_r = reporte_bess()
-            print(f"Reportes: {'OK' if ok_r else 'PARCIAL/ERROR'}")
-            resultado["reportes_ok"] = ok_r
-            resultado["reportes_msgs"] = msgs_r
-            if not ok_r:
+            pipeline = _correr_pipeline()
+            resultado.update(pipeline)
+            if not pipeline.get("reportes_ok"):
                 resultado["log"] = log.getvalue()
                 return resultado
 
     resultado["ok"] = True
+    resultado["log"] = log.getvalue()
+    return resultado
+
+
+def ejecutar_rebuild_csv_todos(
+    desde: date | str,
+    *,
+    procesar: bool = True,
+) -> dict:
+    """
+    Rebuild total: reexporta TODOS los medidores exportables desde `desde`,
+    borra CSV derivados globales y regenera Verificar → Filtrar → Reportes.
+    SQLite no se modifica.
+    """
+    desde_txt = desde.isoformat() if isinstance(desde, date) else str(desde).strip()
+    desde_txt = desde_txt[:10]
+    destinos = destinos_export_bd(RUTA_BD_PERFILES)
+    log = io.StringIO()
+    resultado: dict = {
+        "ok": False,
+        "desde": desde_txt,
+        "medidores": [mid for mid, _ in destinos],
+        "exportados_ok": [],
+        "exportados_sin_datos": [],
+        "borrados": [],
+        "log": "",
+    }
+
+    with redirect_stdout(log):
+        print(f"=== Rebuild TOTAL desde BD · desde {desde_txt} ===")
+        print(f"Medidores: {len(destinos)}")
+        print("(SQLite: solo lectura)")
+
+        for medidor_id, ruta_fuente in destinos:
+            print(f"\n--- Export {medidor_id} → {ruta_fuente.name} ---")
+            rc = exportar(
+                RUTA_BD_PERFILES,
+                medidor_id,
+                ruta_fuente,
+                desde=desde_txt,
+                quiet=False,
+            )
+            if rc == 0:
+                resultado["exportados_ok"].append(medidor_id)
+            else:
+                print(f"  (omitido / sin datos: rc={rc})")
+                resultado["exportados_sin_datos"].append(medidor_id)
+
+        print("\n=== Borrando CSV derivados (Procesados / Reporte / ReportesDiarios) ===")
+        borrados: list[str] = []
+        for ruta in _listar_csv_derivados_globales():
+            try:
+                ruta.unlink()
+                borrados.append(str(ruta))
+                print(f"  borrado: {ruta}")
+            except OSError as exc:
+                print(f"  no se pudo borrar {ruta}: {exc}")
+        resultado["borrados"] = borrados
+        print(f"Total borrados: {len(borrados)}")
+
+        if not resultado["exportados_ok"]:
+            print("ERROR: ningún medidor se exportó; abortado sin pipeline.")
+            resultado["log"] = log.getvalue()
+            return resultado
+
+        if procesar:
+            pipeline = _correr_pipeline()
+            resultado.update(pipeline)
+            resultado["ok"] = bool(pipeline.get("reportes_ok"))
+        else:
+            resultado["ok"] = True
+            print("Pipeline omitido (procesar=False).")
+
     resultado["log"] = log.getvalue()
     return resultado
