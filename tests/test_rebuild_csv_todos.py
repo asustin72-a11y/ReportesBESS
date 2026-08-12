@@ -28,3 +28,31 @@ def test_plan_rebuild_csv_todos_estructura(tmp_path, monkeypatch):
     assert any("todos" in a.lower() or "TODOS" in a for a in plan["avisos"]) or len(
         plan["avisos"]
     ) >= 3
+
+
+def test_rebuild_todos_emite_progreso(tmp_path, monkeypatch):
+    from bess.data import csv_rebuild
+
+    monkeypatch.setattr(
+        csv_rebuild,
+        "destinos_export_bd",
+        lambda _bd=None: [("MedA", tmp_path / "MedA.csv")],
+    )
+    monkeypatch.setattr(csv_rebuild, "exportar", lambda *a, **k: 0)
+    monkeypatch.setattr(csv_rebuild, "_listar_csv_derivados_globales", lambda: [])
+
+    eventos: list[tuple[int, int, str]] = []
+
+    def _on(step, total, label):
+        eventos.append((step, total, label))
+
+    resultado = csv_rebuild.ejecutar_rebuild_csv_todos(
+        date(2026, 5, 1),
+        procesar=False,
+        on_progress=_on,
+    )
+    assert resultado["ok"] is True
+    assert eventos[0][0] == 0
+    assert any("Exportando MedA" in e[2] for e in eventos)
+    assert any("Borrando" in e[2] for e in eventos)
+    assert eventos[-1][0] == eventos[-1][1]

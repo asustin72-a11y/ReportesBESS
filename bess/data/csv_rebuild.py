@@ -14,6 +14,7 @@ No escribe en `perfil_carga` ni en `sync_state`.
 from __future__ import annotations
 
 import io
+from collections.abc import Callable
 from contextlib import redirect_stdout
 from dataclasses import dataclass, field
 from datetime import date
@@ -345,15 +346,33 @@ def ejecutar_rebuild_csv_todos(
     desde: date | str,
     *,
     procesar: bool = True,
+    on_progress: Callable[[int, int, str], None] | None = None,
 ) -> dict:
     """
     Rebuild total: reexporta TODOS los medidores exportables desde `desde`,
     borra CSV derivados globales y regenera Verificar → Filtrar → Reportes.
     SQLite no se modifica.
+
+    ``on_progress(step, total, label)`` actualiza la barra de la UI (opcional).
     """
     desde_txt = desde.isoformat() if isinstance(desde, date) else str(desde).strip()
     desde_txt = desde_txt[:10]
     destinos = destinos_export_bd(RUTA_BD_PERFILES)
+    n_med = len(destinos)
+    pasos_pipeline = 3 if procesar else 0
+    total_pasos = max(n_med + 1 + pasos_pipeline, 1)
+    paso = 0
+
+    def _avance(label: str) -> None:
+        nonlocal paso
+        paso = min(paso + 1, total_pasos)
+        print(f"PROGRESO: {paso}/{total_pasos} — {label}")
+        if on_progress is not None:
+            try:
+                on_progress(paso, total_pasos, label)
+            except Exception:
+                pass
+
     log = io.StringIO()
     resultado: dict = {
         "ok": False,
@@ -365,12 +384,19 @@ def ejecutar_rebuild_csv_todos(
         "log": "",
     }
 
+    if on_progress is not None:
+        try:
+            on_progress(0, total_pasos, "Iniciando rebuild total…")
+        except Exception:
+            pass
+
     with redirect_stdout(log):
         print(f"=== Rebuild TOTAL desde BD · desde {desde_txt} ===")
-        print(f"Medidores: {len(destinos)}")
+        print(f"Medidores: {n_med}")
         print("(SQLite: solo lectura)")
 
         for medidor_id, ruta_fuente in destinos:
+            _avance(f"Exportando {medidor_id}…")
             print(f"\n--- Export {medidor_id} → {ruta_fuente.name} ---")
             rc = exportar(
                 RUTA_BD_PERFILES,
@@ -385,6 +411,7 @@ def ejecutar_rebuild_csv_todos(
                 print(f"  (omitido / sin datos: rc={rc})")
                 resultado["exportados_sin_datos"].append(medidor_id)
 
+        _avance("Borrando CSV derivados…")
         print("\n=== Borrando CSV derivados (Procesados / Reporte / ReportesDiarios) ===")
         borrados: list[str] = []
         for ruta in _listar_csv_derivados_globales():
@@ -403,12 +430,43 @@ def ejecutar_rebuild_csv_todos(
             return resultado
 
         if procesar:
-            pipeline = _correr_pipeline()
-            resultado.update(pipeline)
-            resultado["ok"] = bool(pipeline.get("reportes_ok"))
+            _avance("Verificando ArchivosFuente…")
+            from bess_core import filtrar_datos, reporte_bess, verificar_datos_fuente
+
+            print("\n=== Verificar ===")
+            ok_v, msg_v = verificar_datos_fuente()
+            print(f"Verificar: {'OK' if ok_v else 'ERROR'} — {msg_v}")
+            resultado["verificar_ok"] = ok_v
+            resultado["verificar_msg"] = msg_v
+            if not ok_v:
+                resultado["log"] = log.getvalue()
+                return resultado
+
+            _avance("Filtrando perfiles…")
+            print("\n=== Filtrar ===")
+            ok_f, msg_f = filtrar_datos()
+            print(f"Filtrar: {'OK' if ok_f else 'ERROR'} — {msg_f}")
+            resultado["filtrar_ok"] = ok_f
+            resultado["filtrar_msg"] = msg_f
+            if not ok_f:
+                resultado["log"] = log.getvalue()
+                return resultado
+
+            _avance("Generando reportes…")
+            print("\n=== Reportes ===")
+            ok_r, msgs_r = reporte_bess()
+            print(f"Reportes: {'OK' if ok_r else 'PARCIAL/ERROR'}")
+            resultado["reportes_ok"] = ok_r
+            resultado["reportes_msgs"] = msgs_r
+            resultado["ok"] = bool(ok_r)
         else:
             resultado["ok"] = True
             print("Pipeline omitido (procesar=False).")
 
     resultado["log"] = log.getvalue()
+    if on_progress is not None and resultado.get("ok"):
+        try:
+            on_progress(total_pasos, total_pasos, "Completado")
+        except Exception:
+            pass
     return resultado

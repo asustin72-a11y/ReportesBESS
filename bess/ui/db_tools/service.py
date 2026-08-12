@@ -309,11 +309,13 @@ def plan_rebuild_csv_todos(desde: date) -> dict:
     return _plan(desde)
 
 
-def ejecutar_rebuild_csv_todos(desde: date, *, procesar: bool = True) -> dict:
+def ejecutar_rebuild_csv_todos(
+    desde: date, *, procesar: bool = True, on_progress=None
+) -> dict:
     """Rebuild total: todos los medidores + limpia CSV derivados + pipeline."""
     from bess.data.csv_rebuild import ejecutar_rebuild_csv_todos as _ejecutar
 
-    return _ejecutar(desde, procesar=procesar)
+    return _ejecutar(desde, procesar=procesar, on_progress=on_progress)
 
 
 def reconciliar_sqlite_vs_fuente(

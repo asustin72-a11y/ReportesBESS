@@ -659,19 +659,27 @@ def _tab_rebuild_csv():
                 key="rb_todos_ejecutar",
                 use_container_width=True,
             ):
-                with st.spinner(
-                    "Rebuild total en curso… puede tardar varios minutos."
-                ):
-                    resultado = service.ejecutar_rebuild_csv_todos(
-                        desde_todos, procesar=procesar_todos
-                    )
+                from bess.ui.pipeline_progress import BarraProgreso
+
+                barra = BarraProgreso("Rebuild total desde BD…")
+
+                def _on_progress(step: int, total: int, label: str) -> None:
+                    barra.paso(step, total, label)
+
+                resultado = service.ejecutar_rebuild_csv_todos(
+                    desde_todos,
+                    procesar=procesar_todos,
+                    on_progress=_on_progress,
+                )
                 if resultado.get("ok"):
+                    barra.completar("Rebuild total completado")
                     st.success(
                         f"✅ Rebuild total OK desde {resultado.get('desde')}. "
                         f"Exportados: {len(resultado.get('exportados_ok') or [])} · "
                         f"CSV borrados: {len(resultado.get('borrados') or [])}."
                     )
                 else:
+                    barra.actualizar(1.0, "Finalizado con errores")
                     st.error("❌ Rebuild total incompleto o con errores.")
                 sin_datos = resultado.get("exportados_sin_datos") or []
                 if sin_datos:
