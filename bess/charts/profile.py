@@ -13,6 +13,7 @@ from bess.charts.layout import _titulo_y_leyenda_externos
 from bess.config import rutas as rutas_mod
 from bess.config.subestaciones import (
     etiqueta_medidor_consumo,
+    recurso_generacion_subestacion,
     recursos_generacion_subestacion,
     subestacion_por_prefijo,
 )
