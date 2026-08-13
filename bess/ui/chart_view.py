@@ -7,6 +7,7 @@ import re
 import streamlit as st
 
 from bess.charts.export import DEFAULT_PNG_SCALE
+from bess.charts.layout import sanear_figura_plotly
 
 _MODEBAR_OCULTAR = (
     'zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d',
@@ -41,6 +42,7 @@ def render_grafica_plotly(
     download_key: str | None = None,
 ):
     """Muestra la gráfica; la descarga PNG usa el botón de la barra superior derecha."""
+    sanear_figura_plotly(fig)
     kwargs = {
         'use_container_width': True,
         'config': _plotly_config(nombre_png),

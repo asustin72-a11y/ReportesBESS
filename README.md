@@ -1,9 +1,9 @@
-# BESS — Reportes ION / BANCO · Suite IUSASOL
+﻿# BESS — Reportes ION / BANCO · Suite IUSASOL
 
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS
 (ION y BANCO), con portal de suite hacia **Granja Solar** (21 MEGAs).
 
-**Versión actual:** 5.18.12 — Generacion=1 admite tipo 5 junto al grupo.
+**Versión actual:** 5.18.13 — Catálogo usable y gráficas sin cuelgue.
 
 ## Ejecución local (Suite)
 

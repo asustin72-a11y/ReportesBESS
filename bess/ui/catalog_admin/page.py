@@ -98,6 +98,9 @@ def _barra_acciones() -> None:
     with col_r:
         if st.button("Descartar cambios", use_container_width=True, key="cat_btn_descartar"):
             _recargar_desde_disco()
+            for clave in list(st.session_state.keys()):
+                if str(clave).startswith("cat_editor_"):
+                    st.session_state.pop(clave, None)
             st.session_state.catalog_ultimos_errores = []
             st.toast("Cambios descartados; se recargó desde la base de datos.")
             st.rerun()
@@ -172,13 +175,25 @@ def _tab_tipos() -> None:
     ).astype(str)
 
 
+def _celdas_texto_medidores(df: pd.DataFrame) -> pd.DataFrame:
+    """Evita 'nan'/'None' que el data_editor rechaza al editar celdas nuevas."""
+    out = df.copy()
+    for col in out.columns:
+        out[col] = (
+            out[col]
+            .map(lambda v: "" if pd.isna(v) else str(v).strip())
+            .replace({"nan": "", "None": "", "<NA>": "", "NaT": ""})
+        )
+    return out
+
+
 def _tab_medidores() -> None:
     st.markdown("##### Medidores")
     subs_nums = sorted(
         {
             str(x).strip()
             for x in st.session_state.catalog_df_subs["Numero"].tolist()
-            if str(x).strip()
+            if str(x).strip() and str(x).strip().lower() not in {"nan", "none"}
         },
         key=lambda x: int(x) if x.isdigit() else 0,
     )
@@ -187,13 +202,22 @@ def _tab_medidores() -> None:
         options=["Todas"] + subs_nums,
         key="cat_filtro_sub_med",
     )
-    df = st.session_state.catalog_df_meds.copy()
+    completo = _celdas_texto_medidores(st.session_state.catalog_df_meds)
     if filtro != "Todas":
-        df = df[df["Subestacion"].astype(str) == filtro]
+        # Filas nuevas sin Subestacion aún: mantenerlas en la vista filtrada
+        # para que no desaparezcan en el rerun del data_editor.
+        sub = completo["Subestacion"].astype(str)
+        df = completo[(sub == filtro) | (sub == "")].copy()
+        opciones_sub = [filtro]
+    else:
+        df = completo
+        opciones_sub = subs_nums if subs_nums else [""]
 
     st.caption(
         "ION: IP del medidor testigo · API: número de serie ISOL · "
-        "Tipo 4: `Grupo_Generacion` obligatorio en subestaciones con Generacion=1."
+        "Tipo 4: `Grupo_Generacion` obligatorio en subestaciones con Generacion=1. · "
+        "Tras agregar una fila, elija Subestación/Tipo/Descarga (con filtro activo "
+        "la subestación se rellena sola)."
     )
     editado = st.data_editor(
         df,
@@ -205,29 +229,38 @@ def _tab_medidores() -> None:
             "Nombre": st.column_config.TextColumn("Nombre", required=True),
             "Numero_Serie": st.column_config.TextColumn("Número serie"),
             "Subestacion": st.column_config.SelectboxColumn(
-                "Subestación", options=subs_nums if subs_nums else [""]
+                "Subestación",
+                options=opciones_sub,
+                required=True,
             ),
-            "Tipo_Medidor": st.column_config.NumberColumn("Tipo", min_value=1, max_value=9, step=1),
+            "Tipo_Medidor": st.column_config.SelectboxColumn(
+                "Tipo",
+                options=["1", "2", "3", "4", "5"],
+                required=True,
+            ),
             "Descarga": st.column_config.SelectboxColumn(
-                "Descarga", options=sorted(DESCARGAS_VALIDAS)
+                "Descarga", options=sorted(DESCARGAS_VALIDAS), required=True
             ),
             "IP": st.column_config.TextColumn("IP"),
-            "Puerto": st.column_config.NumberColumn("Puerto", min_value=0, step=1),
+            "Puerto": st.column_config.TextColumn(
+                "Puerto", help="502 para ION · 0 si no aplica"
+            ),
             "Grupo_Generacion": st.column_config.TextColumn("Grupo generación"),
             "Validado": st.column_config.TextColumn(
                 "Validado", help="dd/mm/aaaa HH:MM o vacío"
             ),
         },
     )
-
-    if filtro == "Todas":
-        st.session_state.catalog_df_meds = editado.astype(str)
-    else:
-        completo = st.session_state.catalog_df_meds.copy()
+    editado = _celdas_texto_medidores(editado)
+    if filtro != "Todas":
+        # Toda fila visible bajo el filtro pertenece a esa subestación.
+        editado["Subestacion"] = filtro
         otros = completo[completo["Subestacion"].astype(str) != filtro]
-        st.session_state.catalog_df_meds = pd.concat(
-            [otros, editado.astype(str)], ignore_index=True
+        st.session_state.catalog_df_meds = _celdas_texto_medidores(
+            pd.concat([otros, editado], ignore_index=True)
         )
+    else:
+        st.session_state.catalog_df_meds = editado
 
 
 def _tab_validacion() -> None:

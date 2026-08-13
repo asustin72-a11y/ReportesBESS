@@ -20,6 +20,7 @@ from analisis_perfil.theme import (
     TARIFAS,
 )
 from analisis_perfil.ui.styles import aplicar_estilos, render_header, render_section_title
+from bess.charts.layout import sanear_figura_plotly
 
 # Scripts del pipeline (imports estilo script + subprocess cwd).
 ROOT = DIR_PAQUETE
@@ -36,6 +37,13 @@ _MARCAS_GENERADO = (
     "_bidireccional.csv",
     "_bidi_",
 )
+
+
+def _plotly_chart(fig, **kwargs):
+    """st.plotly_chart con leyenda/hover seguros (evita cuelgues del navegador)."""
+    sanear_figura_plotly(fig)
+    kwargs.setdefault("use_container_width", True)
+    return st.plotly_chart(fig, **kwargs)
 
 
 def _job_dir() -> Path:
@@ -899,8 +907,6 @@ def _figura_perfil_cincominutal(
                 y=valores,
                 mode="lines",
                 line=dict(color=color, width=2),
-                fill="tozeroy",
-                fillcolor="rgba(26,82,118,0.12)",
                 hovertemplate=(
                     f"<b>%{{x}}</b><br>{columna}: <b>%{{y:,.4f}} kWh</b>"
                     "<extra></extra>"
@@ -959,11 +965,10 @@ def _dialog_perfil_dia(
         f"Día operativo {etiqueta} · {len(valores)} intervalos cincominutales · "
         f"columna **{columna}**"
     )
-    st.plotly_chart(
+    _plotly_chart(
         _figura_perfil_cincominutal(
             horas, valores, dia=dia, color=color, columna=columna
         ),
-        use_container_width=True,
         config={"displayModeBar": True},
     )
     if st.button("Cerrar", type="primary", use_container_width=True, key="cerrar_perfil_dia"):
@@ -1041,9 +1046,8 @@ def _chart_energia_drilldown(
         dragmode=False,
     )
     rev = int(st.session_state.get("energia_drill_rev") or 0)
-    event = st.plotly_chart(
+    event = _plotly_chart(
         fig,
-        use_container_width=True,
         on_select="rerun",
         selection_mode="points",
         key=f"energia_drill_{chart_key}_{rev}",
@@ -1114,12 +1118,15 @@ def _mostrar_graficas_energia_diaria(
                 y=-0.42,
                 xanchor="center",
                 x=0.5,
+                itemclick=False,
+                itemdoubleclick=False,
             ),
             plot_bgcolor="#ffffff",
             paper_bgcolor="#ffffff",
             xaxis=dict(tickangle=-45, showgrid=False),
             yaxis=dict(showgrid=True, gridcolor="#e2e8f0", zeroline=False),
             hoverlabel=dict(bgcolor="white", font_size=13),
+            hovermode="closest",
             barmode="overlay",
         )
 
@@ -1165,7 +1172,7 @@ def _mostrar_graficas_energia_diaria(
                 ]
             )
             fig.update_layout(**_layout(titulo))
-            st.plotly_chart(fig, use_container_width=True)
+            _plotly_chart(fig)
 
         # Cuarta gráfica (bidireccional): Consumo Real = Neteo + resto (apiladas)
         if servicio == "bidireccional" and all(
@@ -1214,7 +1221,7 @@ def _mostrar_graficas_energia_diaria(
             layout["bargap"] = 0.15
             fig.update_layout(**layout)
             fig.update_xaxes(type="category")
-            st.plotly_chart(fig, use_container_width=True)
+            _plotly_chart(fig)
 
 
 def _abrir_dialog_dia_si_pendiente(perfil_path: Path | None) -> None:
@@ -1376,6 +1383,8 @@ def _mostrar_graficas_perfil_tipico(perfil: Path, servicio: str) -> None:
             y=-0.22,
             xanchor="center",
             x=0.5,
+            itemclick=False,
+            itemdoubleclick=False,
         ),
         plot_bgcolor="#ffffff",
         paper_bgcolor="#ffffff",
@@ -1387,7 +1396,7 @@ def _mostrar_graficas_perfil_tipico(perfil: Path, servicio: str) -> None:
         ),
         yaxis=dict(showgrid=True, gridcolor="#e2e8f0", zeroline=False),
         hoverlabel=dict(bgcolor="white", font_size=13),
-        hovermode="x unified",
+        hovermode="closest",
     )
     with st.container(border=True):
         st.markdown(
@@ -1395,7 +1404,7 @@ def _mostrar_graficas_perfil_tipico(perfil: Path, servicio: str) -> None:
             f"{etiqueta} por hora</p>",
             unsafe_allow_html=True,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        _plotly_chart(fig)
 
 
 def _mostrar_resumen(resumen: dict, desglose: bool = True) -> None:

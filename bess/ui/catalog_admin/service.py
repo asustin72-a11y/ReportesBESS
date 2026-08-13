@@ -59,6 +59,8 @@ def _df_a_filas(df: pd.DataFrame, columnas: tuple[str, ...]) -> list[dict[str, s
             if pd.isna(valor):
                 valor = ""
             texto = str(valor).strip()
+            if texto.lower() in ("nan", "none", "<na>", "nat"):
+                texto = ""
             if col in ("Neteo", "Invertir") and texto.lower() in ("true", "false"):
                 texto = "1" if texto.lower() == "true" else "0"
             fila[col] = texto

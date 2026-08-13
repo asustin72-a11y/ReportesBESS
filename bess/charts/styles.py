@@ -60,7 +60,7 @@ def _aplicar_estilo_grafica_tendencia(
         title=title_cfg,
         height=height,
         margin=dict(l=52, r=28, t=margin_t, b=48),
-        hovermode='x unified',
+        hovermode='closest',
         font=dict(family='Segoe UI, Arial, sans-serif', color='#2d3748', size=12),
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',

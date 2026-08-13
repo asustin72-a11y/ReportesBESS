@@ -114,6 +114,7 @@ from bess.charts import (
     graficar_tendencia_con_sin_bess,
     graficar_tendencia_consumo_periodo,
 )
+from bess.charts.profile import nombres_series_perfil
 
 from bess.core.numbers import (
     a_num as _a_num,
@@ -681,7 +682,20 @@ def tab_dashboard(df, prefijo, medidor):
 
     with st.container(border=True):
         section_header("Perfil de carga")
-        fig_perfil = graficar_perfil(df_filtrado, prefijo, "")
+        opciones_series = nombres_series_perfil(df_filtrado, prefijo)
+        series_sel = st.multiselect(
+            "Series visibles",
+            options=opciones_series,
+            default=opciones_series,
+            key=f"perfil_series_{prefijo}",
+            help="Use este selector (no la leyenda del gráfico) para mostrar u ocultar series.",
+        )
+        fig_perfil = graficar_perfil(
+            df_filtrado,
+            prefijo,
+            "",
+            series_visibles=series_sel if series_sel else [],
+        )
         render_grafica_plotly(
             fig_perfil,
             f'perfil_{prefijo}_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.png',

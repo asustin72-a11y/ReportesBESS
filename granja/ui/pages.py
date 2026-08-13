@@ -10,6 +10,7 @@ import plotly.express as px
 import streamlit as st
 
 from bess.config.users import ETIQUETA_ROL, rol_es_superadmin, verificar_password
+from bess.charts.layout import sanear_figura_plotly
 from bess.core.numbers import fmt_kwh, redondear_kwh
 from bess.ui.auth import (
     get_usuarios,
@@ -68,6 +69,13 @@ def _fmt_mxn(valor: float) -> str:
 
 def _fmt_kwh_tabla(valor) -> str:
     return f"{redondear_kwh(valor):,}"
+
+
+def _plotly_chart(fig, **kwargs) -> None:
+    """st.plotly_chart con leyenda/hover seguros (evita cuelgues del navegador)."""
+    sanear_figura_plotly(fig)
+    kwargs.setdefault("use_container_width", True)
+    st.plotly_chart(fig, **kwargs)
 
 
 def _vista_energia_ingreso(df: pd.DataFrame) -> pd.DataFrame:
@@ -506,7 +514,7 @@ def _tab_dashboard() -> None:
         for v in vista_graf["Total"]
     ]
     fig.update_traces(marker_color=colores)
-    st.plotly_chart(fig, use_container_width=True)
+    _plotly_chart(fig)
 
     fig_ing = px.bar(
         vista_graf,
@@ -515,7 +523,7 @@ def _tab_dashboard() -> None:
         title=f"Ingreso por MEGA — {etiqueta_periodo}",
         labels={"etiqueta": "MEGA", "Ingreso_Total": "MXN"},
     )
-    st.plotly_chart(fig_ing, use_container_width=True)
+    _plotly_chart(fig_ing)
 
     if not un_dia and not por_dia.empty:
         st.subheader("Resumen por día")
@@ -535,7 +543,7 @@ def _tab_dashboard() -> None:
             labels={"value": "kWh", "fecha": "Día", "variable": "Periodo"},
             barmode="stack",
         )
-        st.plotly_chart(fig_dia, use_container_width=True)
+        _plotly_chart(fig_dia)
 
         fig_ing_dia = px.line(
             vista_dia,
@@ -545,7 +553,7 @@ def _tab_dashboard() -> None:
             labels={"fecha": "Día", "Ingreso_Total": "MXN"},
             markers=True,
         )
-        st.plotly_chart(fig_ing_dia, use_container_width=True)
+        _plotly_chart(fig_ing_dia)
 
     if un_dia:
         pot = perfil_potencia_dia(desde)
@@ -561,7 +569,7 @@ def _tab_dashboard() -> None:
                 title="Por MEGA",
                 labels={"fecha": "Hora", "mw": "MW", "etiqueta": "MEGA"},
             )
-            st.plotly_chart(fig_p, use_container_width=True)
+            _plotly_chart(fig_p)
 
             pot_total = (
                 pot.groupby("fecha", as_index=False)["kw"]
@@ -578,7 +586,7 @@ def _tab_dashboard() -> None:
             )
             fig_t.update_traces(line_color="#1a5276", line_width=2)
             fig_t.update_yaxes(range=[0, CAPACIDAD_MW * 1.05])
-            st.plotly_chart(fig_t, use_container_width=True)
+            _plotly_chart(fig_t)
 
     st.subheader("Energía e ingreso por MEGA")
     st.dataframe(

@@ -2,7 +2,7 @@
 
 from bess.charts.capacity import graficar_comparacion_capacidad, graficar_criterio_cfe
 from bess.charts.energy import graficar_arbitraje, graficar_costo_energia_periodo
-from bess.charts.layout import color_periodo
+from bess.charts.layout import color_periodo, sanear_figura_plotly
 from bess.charts.profile import graficar_demanda_dia, graficar_perfil
 from bess.charts.trends import (
     graficar_energia_diaria_por_periodo,
@@ -14,6 +14,7 @@ from bess.charts.trends import (
 
 __all__ = [
     'color_periodo',
+    'sanear_figura_plotly',
     'graficar_arbitraje',
     'graficar_comparacion_capacidad',
     'graficar_costo_energia_periodo',

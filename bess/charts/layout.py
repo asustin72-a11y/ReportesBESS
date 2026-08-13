@@ -8,6 +8,28 @@ MARGEN_SUPERIOR_CON_LEYENDA = 132
 MARGEN_SUPERIOR_SIN_LEYENDA = 70
 LEYENDA_Y_EXTERNA = 0.90
 
+# Hover unificado + ocultar la última serie en leyenda cuelga el iframe de Streamlit.
+_HOVER_INSEGUROS = frozenset({"x unified", "y unified"})
+
+
+def sanear_figura_plotly(fig):
+    """Deja la figura segura para Streamlit: leyenda no clicable y hover estable.
+
+    Mutates and returns ``fig``. Usar antes de todo ``st.plotly_chart``.
+    """
+    if fig is None:
+        return fig
+    hover = getattr(fig.layout, "hovermode", None)
+    hover_txt = str(hover) if hover is not None else ""
+    updates: dict = {
+        "legend_itemclick": False,
+        "legend_itemdoubleclick": False,
+    }
+    if hover in _HOVER_INSEGUROS or "unified" in hover_txt:
+        updates["hovermode"] = "closest"
+    fig.update_layout(**updates)
+    return fig
+
 
 def _titulo_y_leyenda_externos(titulo, font_size=16, show_legend=True):
     """Título fuera del área de trazado y leyenda en el margen superior."""
@@ -37,8 +59,9 @@ def _titulo_y_leyenda_externos(titulo, font_size=16, show_legend=True):
             bgcolor='rgba(255,255,255,0.85)',
             bordercolor='#e2e8f0',
             borderwidth=1,
-            itemclick='toggle',
-            itemdoubleclick='toggleothers',
+            # Informativa: clics en leyenda Plotly cuelgan Streamlit.
+            itemclick=False,
+            itemdoubleclick=False,
         )
         margin_t = MARGEN_SUPERIOR_CON_LEYENDA
     return title_cfg, legend_cfg, margin_t

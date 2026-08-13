@@ -1,6 +1,6 @@
-# Guía de usuario — Sistema BESS
+﻿# Guía de usuario — Sistema BESS
 
-**Versión:** 5.18.12  
+**Versión:** 5.18.13  
 **Aplicación:** Monitoreo, análisis y reportes de sistemas BESS para subestaciones **IUSA 1**, **IUSA 2** e **IUSA ARAGON**.
 
 > **Suite completa (todos los módulos):** [MANUAL_SUITE.md](MANUAL_SUITE.md)  
