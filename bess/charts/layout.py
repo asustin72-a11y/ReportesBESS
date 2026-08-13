@@ -8,26 +8,18 @@ MARGEN_SUPERIOR_CON_LEYENDA = 132
 MARGEN_SUPERIOR_SIN_LEYENDA = 70
 LEYENDA_Y_EXTERNA = 0.90
 
-# Hover unificado + ocultar la última serie en leyenda cuelga el iframe de Streamlit.
-_HOVER_INSEGUROS = frozenset({"x unified", "y unified"})
-
 
 def sanear_figura_plotly(fig):
-    """Deja la figura segura para Streamlit: leyenda no clicable y hover estable.
+    """Leyenda no clicable (clics en Plotly cuelgan Streamlit). Conserva el aspecto visual.
 
     Mutates and returns ``fig``. Usar antes de todo ``st.plotly_chart``.
     """
     if fig is None:
         return fig
-    hover = getattr(fig.layout, "hovermode", None)
-    hover_txt = str(hover) if hover is not None else ""
-    updates: dict = {
-        "legend_itemclick": False,
-        "legend_itemdoubleclick": False,
-    }
-    if hover in _HOVER_INSEGUROS or "unified" in hover_txt:
-        updates["hovermode"] = "closest"
-    fig.update_layout(**updates)
+    fig.update_layout(
+        legend_itemclick=False,
+        legend_itemdoubleclick=False,
+    )
     return fig
 
 

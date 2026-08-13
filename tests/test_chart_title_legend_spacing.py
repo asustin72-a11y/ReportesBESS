@@ -23,13 +23,13 @@ def test_layout_compartido_separa_titulo_y_leyenda():
     assert leyenda["itemdoubleclick"] is False
 
 
-def test_sanear_figura_plotly_desactiva_leyenda_y_hover_unificado():
+def test_sanear_figura_plotly_desactiva_leyenda_sin_cambiar_hover():
     fig = go.Figure(data=[go.Scatter(x=[1, 2], y=[1, 2], name="a")])
     fig.update_layout(hovermode="x unified", legend=dict(itemclick="toggle"))
     sanear_figura_plotly(fig)
     assert fig.layout.legend.itemclick is False
     assert fig.layout.legend.itemdoubleclick is False
-    assert fig.layout.hovermode == "closest"
+    assert fig.layout.hovermode == "x unified"
 
 
 def test_emisiones_usa_layout_compartido():

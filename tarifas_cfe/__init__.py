@@ -1,4 +1,4 @@
-﻿"""Módulo suite IUSASOL — Consultar Tarifa (app hermana de BESS)."""
+"""Módulo suite IUSASOL — Consultar Tarifa (app hermana de BESS)."""
 
 NOMBRE_APP = "Consultar Tarifa"
-VERSION = "5.18.13"
+VERSION = "5.18.14"

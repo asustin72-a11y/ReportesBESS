@@ -138,6 +138,8 @@ def _grafica_linea_dia(df_min: pd.DataFrame, etiqueta: str, esquema_tarifa_id: s
             mode="lines",
             name=periodo,
             line=dict(color=color, width=2),
+            fill="tozeroy",
+            fillcolor=PERIODO_BG.get(periodo, "rgba(149,165,166,0.14)"),
             hovertemplate=f"<b>{periodo}</b><br>%{{x|%H:%M}}<br>%{{y:,.0f}} kW<extra></extra>",
         ))
 
@@ -147,7 +149,7 @@ def _grafica_linea_dia(df_min: pd.DataFrame, etiqueta: str, esquema_tarifa_id: s
         xaxis_title="Hora",
         yaxis_title="Potencia (kW)",
         height=420,
-        hovermode="closest",
+        hovermode="x unified",
         legend=legend_cfg,
         margin=dict(l=52, r=52, t=margin_t, b=40),
         plot_bgcolor="rgba(0,0,0,0)",

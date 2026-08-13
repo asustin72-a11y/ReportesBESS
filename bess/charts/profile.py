@@ -179,12 +179,7 @@ def _rango_y_perfil(
             return [y_min - pad_inf, y_max + pad_sup]
 
     if ent_max <= 0:
-        # Rango fijo aunque no haya descarga: si el usuario oculta todas
-        # las series en la leyenda, autorange vacío rompe el gráfico.
-        if y_max <= 0:
-            return [0.0, 1.0]
-        pad = y_max * 0.06
-        return [0.0, y_max + pad]
+        return None
 
     y_min = -ent_max * 1.12
     referencia = y_max if y_max > 0 else ent_max
@@ -195,24 +190,8 @@ def _rango_y_perfil(
     return [y_min - pad_inf, y_max + pad_sup]
 
 
-def graficar_perfil(
-    df,
-    prefijo,
-    titulo,
-    *,
-    incluir_generacion: bool = True,
-    series_visibles: set[str] | frozenset[str] | list[str] | None = None,
-):
-    """Grafica el perfil de carga. Un día: eje X por hora. Varios días: eje X por día (máx. diario).
-
-    series_visibles: nombres de trazas a dibujar (None = todas). Usar controles
-    Streamlit en lugar de clics en la leyenda Plotly (evitan colgar el navegador).
-    """
-    visibles = None if series_visibles is None else {str(s) for s in series_visibles}
-
-    def _mostrar(nombre: str) -> bool:
-        return visibles is None or nombre in visibles
-
+def graficar_perfil(df, prefijo, titulo, *, incluir_generacion: bool = True):
+    """Grafica el perfil de carga. Un día: eje X por hora. Varios días: eje X por día (máx. diario)."""
     df = df.copy()
     if 'DATETIME' not in df.columns:
         df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
@@ -227,8 +206,6 @@ def graficar_perfil(
     recurso_gen = recurso_generacion_subestacion(sub.id) if sub else None
     etiqueta_generacion = "kW Generación" if recurso_gen else "kW generación"
     etiqueta_ion = etiqueta_medidor_consumo(prefijo)
-    nombre_ion = f'kW recibidos ({etiqueta_ion})'
-    nombre_con_bess = f'IUSA Con BESS ({prefijo})'
 
     col_con = f'IUSA_CON_BESS_{prefijo}_kW'
     if col_con not in df.columns:
@@ -269,9 +246,8 @@ def graficar_perfil(
 
     fig = go.Figure()
     trace_mode = 'lines+markers' if multidia else 'lines'
-    n_trazas = 0
 
-    if tiene_demanda_real and 'KW_DEMANDA_REAL' in df_plot.columns and _mostrar('Demanda real'):
+    if tiene_demanda_real and 'KW_DEMANDA_REAL' in df_plot.columns:
         fig.add_trace(go.Scatter(
             x=x_vals,
             y=df_plot['KW_DEMANDA_REAL'],
@@ -279,39 +255,34 @@ def graficar_perfil(
             mode=trace_mode,
             line=dict(color=COLORES['secondary'], width=2.8),
             marker=dict(size=marker_size, color=COLORES['secondary']),
+            fill='tozeroy',
+            fillcolor='rgba(46,134,193,0.18)',
         ))
-        n_trazas += 1
 
-    if perfil_rec_ent and _mostrar(nombre_ion):
+    if perfil_rec_ent:
         fig.add_trace(go.Scatter(
             x=x_vals,
             y=df_plot['KW_REC_ION'],
-            name=nombre_ion,
+            name=f'kW recibidos ({etiqueta_ion})',
             mode=trace_mode,
             line=dict(color=COLORES['primary'], width=2.5),
             marker=dict(size=marker_size, color=COLORES['primary']),
+            fill='tozeroy',
+            fillcolor='rgba(26,82,118,0.12)',
         ))
-        n_trazas += 1
-    elif (
-        not perfil_rec_ent
-        and col_con in df_plot.columns
-        and _mostrar(nombre_con_bess)
-    ):
+    elif col_con in df_plot.columns:
         fig.add_trace(go.Scatter(
             x=x_vals,
             y=df_plot[col_con],
-            name=nombre_con_bess,
+            name=f'IUSA Con BESS ({prefijo})',
             mode=trace_mode,
             line=dict(color=COLORES['primary'], width=2.5),
             marker=dict(size=marker_size, color=COLORES['primary']),
+            fill='tozeroy',
+            fillcolor='rgba(26,82,118,0.12)'
         ))
-        n_trazas += 1
 
-    if (
-        tiene_generacion
-        and 'KW_GENERACION' in df_plot.columns
-        and _mostrar(etiqueta_generacion)
-    ):
+    if tiene_generacion and 'KW_GENERACION' in df_plot.columns:
         fig.add_trace(go.Scatter(
             x=x_vals,
             y=df_plot['KW_GENERACION'],
@@ -319,10 +290,11 @@ def graficar_perfil(
             mode=trace_mode,
             line=dict(color=COLORES['warning'], width=2),
             marker=dict(size=marker_size, color=COLORES['warning']),
+            fill='tozeroy',
+            fillcolor='rgba(243,156,18,0.12)',
         ))
-        n_trazas += 1
 
-    if 'BESS_REC_kW' in df_plot.columns and _mostrar('Carga BESS'):
+    if 'BESS_REC_kW' in df_plot.columns:
         fig.add_trace(go.Scatter(
             x=x_vals,
             y=df_plot['BESS_REC_kW'],
@@ -330,10 +302,11 @@ def graficar_perfil(
             mode=trace_mode,
             line=dict(color=COLORES['carga'], width=2),
             marker=dict(size=marker_size, color=COLORES['carga']),
+            fill='tozeroy',
+            fillcolor='rgba(46,204,113,0.12)'
         ))
-        n_trazas += 1
 
-    if 'BESS_ENT_kW' in df_plot.columns and _mostrar('Descarga BESS'):
+    if 'BESS_ENT_kW' in df_plot.columns:
         bess_ent = pd.to_numeric(df_plot['BESS_ENT_kW'], errors='coerce').fillna(0)
         descarga_kw = -bess_ent
         fig.add_trace(go.Scatter(
@@ -343,6 +316,8 @@ def graficar_perfil(
             mode=trace_mode,
             line=dict(color=COLORES['descarga'], width=2.5),
             marker=dict(size=marker_size, color=COLORES['descarga']),
+            fill='tozeroy',
+            fillcolor='rgba(231,76,60,0.22)',
             hovertemplate=(
                 '<b>Descarga BESS</b><br>'
                 '%{x}<br>'
@@ -350,23 +325,9 @@ def graficar_perfil(
             ),
             customdata=bess_ent,
         ))
-        n_trazas += 1
-
-    if n_trazas == 0:
-        fig.add_annotation(
-            text='Seleccione al menos una serie para graficar',
-            x=0.5,
-            y=0.5,
-            xref='paper',
-            yref='paper',
-            showarrow=False,
-            font=dict(size=14, color='#718096'),
-        )
 
     titulo_grafica = f"{titulo}{titulo_suffix}".strip()
-    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(
-        titulo_grafica, show_legend=n_trazas > 0
-    )
+    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(titulo_grafica)
     y_range = _rango_y_perfil(
         df_plot, col_con, perfil_rec_ent, tiene_demanda_real=tiene_demanda_real
     )
@@ -384,51 +345,13 @@ def graficar_perfil(
         xaxis_title=x_title,
         yaxis=yaxis_cfg,
         height=420,
-        hovermode='closest',
+        hovermode='x unified',
         legend=legend_cfg,
         margin=dict(l=52, r=52, t=margin_t, b=40),
     )
     fig.update_xaxes(tickformat=x_tickformat, dtick=x_dtick)
 
     return fig
-
-
-def nombres_series_perfil(
-    df,
-    prefijo,
-    *,
-    incluir_generacion: bool = True,
-) -> list[str]:
-    """Nombres de series disponibles para el selector de perfil (mismo orden que la gráfica)."""
-    df = df.copy()
-    if 'DATETIME' not in df.columns and 'FECHA_HORA' in df.columns:
-        df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
-    df, perfil_rec_ent = _preparar_df_perfil(df, prefijo)
-    if incluir_generacion:
-        df = _unir_generacion_perfil(df, prefijo)
-    df = _enriquecer_demanda_real_perfil(df, prefijo)
-    etiqueta_ion = etiqueta_medidor_consumo(prefijo)
-    sub = subestacion_por_prefijo(prefijo)
-    recurso_gen = recurso_generacion_subestacion(sub.id) if sub else None
-    etiqueta_generacion = "kW Generación" if recurso_gen else "kW generación"
-    nombres: list[str] = []
-    if 'KW_DEMANDA_REAL' in df.columns:
-        nombres.append('Demanda real')
-    if perfil_rec_ent:
-        nombres.append(f'kW recibidos ({etiqueta_ion})')
-    else:
-        col_con = f'IUSA_CON_BESS_{prefijo}_kW'
-        if col_con in df.columns or any(
-            'IUSA_CON_BESS' in c and prefijo in c for c in df.columns
-        ):
-            nombres.append(f'IUSA Con BESS ({prefijo})')
-    if incluir_generacion and 'KW_GENERACION' in df.columns:
-        nombres.append(etiqueta_generacion)
-    if 'BESS_REC_kW' in df.columns:
-        nombres.append('Carga BESS')
-    if 'BESS_ENT_kW' in df.columns:
-        nombres.append('Descarga BESS')
-    return nombres
 
 
 def graficar_demanda_dia(df, prefijo, titulo=''):
@@ -491,7 +414,7 @@ def graficar_demanda_dia(df, prefijo, titulo=''):
         xaxis_title='Hora',
         yaxis_title='Demanda (kW) · ventana 15 min',
         height=460,
-        hovermode='closest',
+        hovermode='x unified',
         legend=legend_cfg,
         margin=dict(l=55, r=25, t=margin_t, b=50),
     )

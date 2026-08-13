@@ -907,6 +907,8 @@ def _figura_perfil_cincominutal(
                 y=valores,
                 mode="lines",
                 line=dict(color=color, width=2),
+                fill="tozeroy",
+                fillcolor="rgba(26,82,118,0.12)",
                 hovertemplate=(
                     f"<b>%{{x}}</b><br>{columna}: <b>%{{y:,.4f}} kWh</b>"
                     "<extra></extra>"
@@ -1126,7 +1128,6 @@ def _mostrar_graficas_energia_diaria(
             xaxis=dict(tickangle=-45, showgrid=False),
             yaxis=dict(showgrid=True, gridcolor="#e2e8f0", zeroline=False),
             hoverlabel=dict(bgcolor="white", font_size=13),
-            hovermode="closest",
             barmode="overlay",
         )
 
@@ -1396,7 +1397,7 @@ def _mostrar_graficas_perfil_tipico(perfil: Path, servicio: str) -> None:
         ),
         yaxis=dict(showgrid=True, gridcolor="#e2e8f0", zeroline=False),
         hoverlabel=dict(bgcolor="white", font_size=13),
-        hovermode="closest",
+        hovermode="x unified",
     )
     with st.container(border=True):
         st.markdown(
