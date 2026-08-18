@@ -796,22 +796,59 @@ def aplicar_estilos():
         .periodo-dias {
             display: flex;
             flex-direction: column;
-            justify-content: flex-end;
-            min-height: 4.6rem;
-            padding-bottom: 0.35rem;
+            justify-content: flex-start;
+            gap: 0.35rem;
+            /* Misma estructura visual que st.date_input (label + caja) */
+            min-height: 0;
+            padding-bottom: 0;
+            margin-top: 0;
         }
         .periodo-dias-lbl {
             font-size: 0.875rem;
-            color: #31333f;
-            margin: 0 0 0.35rem 0;
-            line-height: 1.25;
+            color: rgba(49, 51, 63, 0.8);
+            margin: 0;
+            line-height: 1.6;
+            font-weight: 400;
         }
         .periodo-dias-val {
-            font-size: 1.55rem;
+            display: flex;
+            align-items: center;
+            min-height: 2.5rem;
+            font-size: 1.35rem;
             font-weight: 700;
             color: #1a5276;
             line-height: 1.2;
             margin: 0;
+            padding: 0 0.15rem;
+        }
+
+        /* Atajos de periodo: misma altura primary/secondary y sin huecos raros */
+        [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker)
+            > [data-testid="column"] {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+        }
+        [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker)
+            [data-testid="stButton"] {
+            width: 100%;
+        }
+        [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker)
+            [data-testid="stButton"] button {
+            min-height: 2.5rem !important;
+            height: 2.5rem !important;
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+            line-height: 1.2 !important;
+            white-space: nowrap;
+        }
+        /* El marcador no debe ocupar espacio en el flujo */
+        .suite-controls-row-marker {
+            display: none !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
         }
 
         /* Visualizador (user): barra lateral oculta */

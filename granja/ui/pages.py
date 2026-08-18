@@ -323,6 +323,8 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
 
     from bess.ui.components import marcar_fila_controles
 
+    # Marcador dentro de la 1.ª columna (display:none vía CSS) para anclar
+    # estilos a la fila sin alterar alturas ni gaps.
     atajos_cols = st.columns(6, gap="small")
     with atajos_cols[0]:
         marcar_fila_controles()
@@ -340,13 +342,14 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
                 st.session_state[k_aplicado] = (d0_a, d1_a)
                 st.rerun()
 
-    # Misma rejilla visual: fechas | días | consultar, alineados al borde inferior.
+    # Misma rejilla de 6 unidades que los atajos: 2+2+1+1.
     c1, c2, c3, c4 = st.columns(
-        [2.2, 2.2, 1.0, 1.6],
+        [2, 2, 1, 1],
         gap="small",
         vertical_alignment="bottom",
     )
     with c1:
+        marcar_fila_controles()
         desde = st.date_input(
             "Desde",
             min_value=min_d,

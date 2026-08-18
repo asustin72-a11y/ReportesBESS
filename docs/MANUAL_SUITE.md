@@ -1,6 +1,6 @@
 # Manual de usuario — Suite IUSASOL
 
-**Versión:** 5.18.14  
+**Versión:** 5.18.15  
 **Aplicación:** Suite IUSASOL (portal de módulos de energía)
 
 Este manual describe **todas las opciones** disponibles en la Suite para el usuario final: acceso, cada módulo y qué hace cada pantalla.  
@@ -371,4 +371,4 @@ En la barra lateral hay un expander de **Tarifas disponibles**.
 
 ---
 
-*Suite IUSASOL v5.18.14 — Manual de usuario*
+*Suite IUSASOL v5.18.15 — Manual de usuario*

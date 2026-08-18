@@ -1,6 +1,6 @@
 # Documentación — Sistema BESS
 
-**Versión de la aplicación:** 5.18.14
+**Versión de la aplicación:** 5.18.15
 
 ## Manuales
 
@@ -66,6 +66,7 @@ python docs/generar_guia_pdf.py
 
 | Versión | Archivo |
 |---------|---------|
+| 5.18.15 | [RELEASE_NOTES_5.18.15.md](../RELEASE_NOTES_5.18.15.md) |
 | 5.18.14 | [RELEASE_NOTES_5.18.14.md](../RELEASE_NOTES_5.18.14.md) |
 | 5.18.13 | [RELEASE_NOTES_5.18.13.md](../RELEASE_NOTES_5.18.13.md) |
 | 5.18.12 | [RELEASE_NOTES_5.18.12.md](../RELEASE_NOTES_5.18.12.md) |

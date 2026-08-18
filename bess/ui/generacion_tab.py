@@ -120,27 +120,40 @@ def _grafica_barras_rango(df: pd.DataFrame, etiqueta: str) -> go.Figure:
 
 
 def _grafica_linea_dia(df_min: pd.DataFrame, etiqueta: str, esquema_tarifa_id: str) -> go.Figure:
-    """Perfil intradiario de generación (kW) con go.Scatter por periodo."""
-    periodos = df_min["FECHA_HORA"].apply(
+    """Perfil intradiario de generación (kW) con go.Scatter por periodo.
+
+    Cada serie usa toda la línea temporal: kW del periodo activo y 0 fuera.
+    Así no se dibuja una diagonal que “salte” el hueco Intermedio→Punta→Intermedio.
+    """
+    plot = df_min.copy()
+    if "DATETIME" not in plot.columns:
+        plot["DATETIME"] = pd.to_datetime(
+            plot["FECHA_HORA"], format="%d/%m/%Y %H:%M", errors="coerce"
+        )
+    plot = plot.dropna(subset=["DATETIME"]).sort_values("DATETIME")
+    plot["KW"] = pd.to_numeric(plot["KW"], errors="coerce").fillna(0.0)
+    plot["PERIODO"] = plot["FECHA_HORA"].map(
         lambda fh: periodo_por_fecha_hora(fh, esquema_tarifa_id)
     )
 
     fig = go.Figure()
     for periodo in ("Base", "Intermedio", "Punta"):
-        mask = periodos == periodo
-        if not mask.any():
+        y = plot["KW"].where(plot["PERIODO"] == periodo, 0.0)
+        if float(y.max()) <= 0:
             continue
-        seg = df_min[mask]
         color = color_periodo(periodo)
         fig.add_trace(go.Scatter(
-            x=seg["DATETIME"],
-            y=seg["KW"],
+            x=plot["DATETIME"],
+            y=y,
             mode="lines",
             name=periodo,
-            line=dict(color=color, width=2),
+            line=dict(color=color, width=2, shape="linear"),
             fill="tozeroy",
             fillcolor=PERIODO_BG.get(periodo, "rgba(149,165,166,0.14)"),
-            hovertemplate=f"<b>{periodo}</b><br>%{{x|%H:%M}}<br>%{{y:,.0f}} kW<extra></extra>",
+            connectgaps=False,
+            hovertemplate=(
+                f"<b>{periodo}</b><br>%{{x|%H:%M}}<br>%{{y:,.0f}} kW<extra></extra>"
+            ),
         ))
 
     title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(etiqueta)
