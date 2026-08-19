@@ -330,6 +330,7 @@ def _limpiar_todo() -> None:
         "api_perfiles_generacion",
         "_rango_fuentes_cache",
         "analisis_paso",
+        "_analisis_paso_goto",
         "_ap_cfg",
     ):
         st.session_state.pop(clave, None)
@@ -1666,6 +1667,7 @@ def run_pages(*, desde_suite: bool = False) -> None:
     st.session_state.pop("sidebar_inicial_aplicada", None)
     aplicar_estilos()
     _render_sidebar_analisis()
+    _limpiar_residuos_sidebar_bess()
     _render_barra_sesion()
     render_header(
         NOMBRE_APP,
@@ -1813,15 +1815,55 @@ def _login_analisis() -> None:
 
 
 
+def _ir_paso_analisis(paso: str) -> None:
+    """Navegación del wizard: aplicar en el próximo run (antes del radio)."""
+    st.session_state["_analisis_paso_goto"] = paso
+
+
+def _limpiar_residuos_sidebar_bess() -> None:
+    """Quita HTML/JS residual de la guía BESS (sobre todo al contraer la barra)."""
+    markup = """
+    <script>
+    (function () {
+      const d = window.parent && window.parent.document ? window.parent.document : document;
+      function limpiar() {
+        d.querySelectorAll(
+          '.sidebar-guia, .sidebar-modulo, .sidebar-flujo, .sidebar-paso,'
+          + '.sidebar-guia-titulo, .sidebar-flujo-titulo, .sidebar-flujo-nota,'
+          + '.bess-floating-tip, #bess-nav-tooltip-root'
+        ).forEach(function (el) { el.remove(); });
+        d.body.classList.remove('bess-rol-user-mode');
+      }
+      limpiar();
+      [50, 200, 600, 1200].forEach(function (ms) { setTimeout(limpiar, ms); });
+    })();
+    </script>
+    """
+    if hasattr(st, "html"):
+        try:
+            st.html(markup, height=0)
+        except TypeError:
+            st.html(markup)
+    else:
+        import streamlit.components.v1 as components
+
+        components.html(markup, height=0)
+
+
 def _run_analisis(reset: int) -> None:
     """Flujo en 3 pasos: Preparar → Perfiles → Resultados."""
     tiene_resultados = bool(st.session_state.get("ultimo_job"))
     opciones_paso = ["Preparar", "Perfiles", "Resultados"]
-    if "analisis_paso" not in st.session_state:
+
+    # Debe ejecutarse ANTES de instanciar el radio (misma key).
+    goto = st.session_state.pop("_analisis_paso_goto", None)
+    if goto in opciones_paso:
+        st.session_state["analisis_paso"] = goto
+    elif "analisis_paso" not in st.session_state:
         st.session_state["analisis_paso"] = (
             "Resultados" if tiene_resultados else "Preparar"
         )
-    if st.session_state["analisis_paso"] not in opciones_paso:
+    if st.session_state.get("analisis_paso") not in opciones_paso:
         st.session_state["analisis_paso"] = "Preparar"
 
     st.markdown('<div class="analisis-wizard">', unsafe_allow_html=True)
@@ -1853,7 +1895,7 @@ def _run_analisis(reset: int) -> None:
                 use_container_width=True,
                 key=f"btn_ir_perfiles_{reset}",
             ):
-                st.session_state["analisis_paso"] = "Perfiles"
+                _ir_paso_analisis("Perfiles")
                 st.rerun()
         with c2:
             if st.button(
@@ -1876,9 +1918,9 @@ def _run_analisis(reset: int) -> None:
     # Perfiles
     cfg = st.session_state.get("_ap_cfg") or {}
     if cfg.get("reset") != reset or "tarifa" not in cfg:
-        st.session_state["analisis_paso"] = "Preparar"
         st.info("Configure tarifa y servicio en **Preparar**.")
         if st.button("Ir a Preparar", key=f"btn_force_prep_{reset}"):
+            _ir_paso_analisis("Preparar")
             st.rerun()
         return
 
@@ -2200,7 +2242,7 @@ def _ui_paso_perfiles(
                 use_container_width=True,
                 key=f"btn_ver_res_{reset}",
             ):
-                st.session_state["analisis_paso"] = "Resultados"
+                _ir_paso_analisis("Resultados")
                 st.rerun()
 
     if not (lanzar and listo_archivos):
@@ -2253,7 +2295,7 @@ def _ui_paso_perfiles(
             st.session_state["ultimo_servicio"] = servicio_sel
             st.session_state["ultimo_resumen"] = resumen
             st.session_state["ultimo_perfil"] = str(perfil_usado)
-            st.session_state["analisis_paso"] = "Resultados"
+            _ir_paso_analisis("Resultados")
             st.rerun()
         except Exception as exc:
             status.update(label="Error en el proceso", state="error")
@@ -2266,7 +2308,7 @@ def _ui_paso_resultados(reset: int, *, desglose_sel: bool) -> None:
         render_section_title("Resultados", first=True)
         st.info("Aún no hay reportes. Genere en el paso **Perfiles**.")
         if st.button("← Ir a Perfiles", key=f"btn_back_perf_{reset}"):
-            st.session_state["analisis_paso"] = "Perfiles"
+            _ir_paso_analisis("Perfiles")
             st.rerun()
         return
 

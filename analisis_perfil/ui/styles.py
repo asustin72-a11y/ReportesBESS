@@ -22,6 +22,24 @@ def aplicar_estilos() -> None:
             background: #f8fafc;
             border-right: 1px solid #e2e8f0;
         }}
+        /* Residuos de la guía BESS al cambiar de módulo / contraer sidebar */
+        section[data-testid="stSidebar"] .sidebar-guia,
+        section[data-testid="stSidebar"] .sidebar-modulo,
+        section[data-testid="stSidebar"] .sidebar-flujo,
+        section[data-testid="stSidebar"] .sidebar-paso,
+        section[data-testid="stSidebar"] .sidebar-guia-titulo,
+        section[data-testid="stSidebar"] .sidebar-flujo-titulo,
+        section[data-testid="stSidebar"] .sidebar-flujo-nota,
+        .bess-floating-tip,
+        #bess-nav-tooltip-root {{
+            display: none !important;
+            visibility: hidden !important;
+            height: 0 !important;
+            max-height: 0 !important;
+            overflow: hidden !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }}
         /* Controles del módulo viven en el área principal (usuarios sin sidebar). */
         [data-testid="stSidebar"] [data-testid="stSidebarContent"]:empty,
         section[data-testid="stSidebar"]:has([data-testid="stSidebarNavItems"]:only-child) {{
