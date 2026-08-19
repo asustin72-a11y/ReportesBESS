@@ -781,7 +781,22 @@ def aplicar_estilos():
             margin-bottom: 8px;
         }
 
-        /* Marcadores de layout: no ocupan espacio en la columna */
+        /* Marcadores de layout: colapsar el WRAPPER de Streamlit, no solo el div.
+           display:none en .suite-*-marker no basta: st.markdown deja un
+           element-container que sigue ocupando alto en la columna. */
+        [data-testid="stElementContainer"]:has(.suite-controls-row-marker),
+        [data-testid="stElementContainer"]:has(.suite-session-bar-marker),
+        div[data-testid="element-container"]:has(.suite-controls-row-marker),
+        div[data-testid="element-container"]:has(.suite-session-bar-marker) {
+            display: none !important;
+            height: 0 !important;
+            min-height: 0 !important;
+            max-height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            border: none !important;
+            overflow: hidden !important;
+        }
         .suite-controls-row-marker,
         .suite-session-bar-marker {
             display: none !important;
@@ -822,17 +837,38 @@ def aplicar_estilos():
             padding: 0 0.15rem;
         }
 
-        /* Atajos de periodo: misma altura primary/secondary y sin huecos raros */
+        /* Atajos: marcador ANTES de la fila → estilar el HorizontalBlock siguiente */
+        [data-testid="stElementContainer"]:has(.suite-controls-row-marker)
+            + [data-testid="stElementContainer"]
+            [data-testid="stHorizontalBlock"]
+            > [data-testid="column"],
+        div[data-testid="element-container"]:has(.suite-controls-row-marker)
+            + div[data-testid="element-container"]
+            [data-testid="stHorizontalBlock"]
+            > [data-testid="column"],
+        /* Compat: marcador aún dentro de la fila (p. ej. tarifas_cfe) */
         [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker)
             > [data-testid="column"] {
             display: flex;
             flex-direction: column;
             justify-content: flex-end;
         }
+        [data-testid="stElementContainer"]:has(.suite-controls-row-marker)
+            + [data-testid="stElementContainer"]
+            [data-testid="stButton"],
+        div[data-testid="element-container"]:has(.suite-controls-row-marker)
+            + div[data-testid="element-container"]
+            [data-testid="stButton"],
         [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker)
             [data-testid="stButton"] {
             width: 100%;
         }
+        [data-testid="stElementContainer"]:has(.suite-controls-row-marker)
+            + [data-testid="stElementContainer"]
+            [data-testid="stButton"] button,
+        div[data-testid="element-container"]:has(.suite-controls-row-marker)
+            + div[data-testid="element-container"]
+            [data-testid="stButton"] button,
         [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker)
             [data-testid="stButton"] button {
             min-height: 2.5rem !important;
@@ -841,14 +877,6 @@ def aplicar_estilos():
             padding-bottom: 0 !important;
             line-height: 1.2 !important;
             white-space: nowrap;
-        }
-        /* El marcador no debe ocupar espacio en el flujo */
-        .suite-controls-row-marker {
-            display: none !important;
-            height: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
         }
 
         /* Visualizador (user): barra lateral oculta */
@@ -910,11 +938,25 @@ def aplicar_estilos():
             }
 
             /* Filas densas de controles / atajos */
+            [data-testid="stElementContainer"]:has(.suite-controls-row-marker)
+                + [data-testid="stElementContainer"]
+                [data-testid="stHorizontalBlock"],
+            div[data-testid="element-container"]:has(.suite-controls-row-marker)
+                + div[data-testid="element-container"]
+                [data-testid="stHorizontalBlock"],
             [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker) {
                 flex-wrap: wrap !important;
                 overflow-x: auto !important;
                 gap: 0.35rem !important;
             }
+            [data-testid="stElementContainer"]:has(.suite-controls-row-marker)
+                + [data-testid="stElementContainer"]
+                [data-testid="stHorizontalBlock"]
+                > [data-testid="column"],
+            div[data-testid="element-container"]:has(.suite-controls-row-marker)
+                + div[data-testid="element-container"]
+                [data-testid="stHorizontalBlock"]
+                > [data-testid="column"],
             [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker)
                 > [data-testid="column"] {
                 flex: 1 1 42% !important;
@@ -1037,6 +1079,14 @@ def aplicar_estilos():
                 min-width: 100% !important;
                 max-width: 100% !important;
             }
+            [data-testid="stElementContainer"]:has(.suite-controls-row-marker)
+                + [data-testid="stElementContainer"]
+                [data-testid="stHorizontalBlock"]
+                > [data-testid="column"],
+            div[data-testid="element-container"]:has(.suite-controls-row-marker)
+                + div[data-testid="element-container"]
+                [data-testid="stHorizontalBlock"]
+                > [data-testid="column"],
             [data-testid="stHorizontalBlock"]:has(.suite-controls-row-marker)
                 > [data-testid="column"] {
                 flex: 0 0 100% !important;

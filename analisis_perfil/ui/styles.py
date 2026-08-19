@@ -14,9 +14,9 @@ def aplicar_estilos() -> None:
         f"""
     <style>
         [data-testid="stAppViewContainer"] > .main .block-container {{
-            max-width: 1200px !important;
-            padding-top: 1.2rem !important;
-            padding-bottom: 2rem !important;
+            max-width: 1360px !important;
+            padding-top: 1rem !important;
+            padding-bottom: 2.5rem !important;
         }}
         [data-testid="stSidebar"] {{
             background: #f8fafc;
@@ -27,69 +27,86 @@ def aplicar_estilos() -> None:
         section[data-testid="stSidebar"]:has([data-testid="stSidebarNavItems"]:only-child) {{
             min-width: 0;
         }}
+        .analisis-wizard {{
+            margin: 0 0 1.25rem 0;
+            padding: 0.65rem 0.85rem;
+            background: #f1f5f9;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+        }}
+        .analisis-wizard [data-testid="stRadio"] > label {{
+            font-weight: 600;
+        }}
+        .analisis-wizard [data-testid="stRadio"] {{
+            gap: 0.35rem;
+        }}
+        .btn-align-label {{
+            height: 1.6rem;
+        }}
         .ius-header {{
             display: flex;
             align-items: center;
-            gap: 18px;
+            gap: 14px;
             background: linear-gradient(135deg, {p}, {s});
-            padding: 18px 22px;
-            border-radius: 12px;
-            margin-bottom: 18px;
+            padding: 12px 18px;
+            border-radius: 10px;
+            margin-bottom: 12px;
             color: #fff;
         }}
         .ius-header-brand {{
             background: #fff;
             color: {p};
             font-weight: 800;
-            font-size: 0.95rem;
+            font-size: 0.85rem;
             letter-spacing: 0.04em;
-            padding: 10px 14px;
-            border-radius: 10px;
+            padding: 8px 12px;
+            border-radius: 8px;
             line-height: 1.1;
         }}
         .ius-header-title {{
             margin: 0;
-            font-size: 1.45rem;
+            font-size: 1.25rem;
             font-weight: 700;
         }}
         .ius-header-sub {{
-            margin: 4px 0 0;
-            font-size: 0.88rem;
+            margin: 2px 0 0;
+            font-size: 0.8rem;
             opacity: 0.92;
         }}
         .section-header {{
-            margin: 1.65rem 0 0.85rem 0;
-            padding: 14px 18px;
+            margin: 1.35rem 0 0.65rem 0;
+            padding: 10px 14px;
             background: linear-gradient(90deg, #e8f2f9 0%, #f8fafc 70%);
             border: 1px solid #c5d0da;
-            border-left: 6px solid {p};
-            border-radius: 10px;
-            box-shadow: 0 1px 2px rgba(26, 82, 118, 0.05);
+            border-left: 5px solid {p};
+            border-radius: 8px;
+            box-shadow: none;
         }}
         .section-header:first-of-type,
         .section-header.first {{
-            margin-top: 0.35rem;
+            margin-top: 0.2rem;
         }}
         .section-header .section-title {{
             margin: 0;
             padding: 0;
             border-bottom: none;
+            font-size: 1.15rem;
         }}
         .section-title {{
-            font-size: 1.4rem;
+            font-size: 1.2rem;
             font-weight: 700;
             letter-spacing: -0.015em;
             color: {p};
-            margin: 1.4rem 0 10px 0;
-            padding: 0 0 10px 0;
-            border-bottom: 3px solid {s};
+            margin: 1.1rem 0 8px 0;
+            padding: 0 0 8px 0;
+            border-bottom: 2px solid {s};
             line-height: 1.3;
         }}
         .section-desc {{
-            font-size: 0.92rem;
+            font-size: 0.9rem;
             color: #4a5568;
-            margin: 0 0 14px 0;
-            line-height: 1.5;
+            margin: 0 0 1rem 0;
+            line-height: 1.45;
         }}
         .metric-chip {{
             background: #eef6fc;
@@ -169,17 +186,20 @@ def aplicar_estilos() -> None:
             margin-bottom: 14px;
         }}
         hr {{
-            margin: 1.5rem 0 !important;
+            margin: 1.25rem 0 !important;
             border: none !important;
-            border-top: 2px solid #cbd5e1 !important;
+            border-top: 1px solid #cbd5e1 !important;
         }}
         div[data-testid="stVerticalBlockBorderWrapper"] {{
-            border-color: #c5d0da !important;
-            border-width: 1.5px !important;
-            border-radius: 12px !important;
+            border-color: #dbe3ea !important;
+            border-width: 1px !important;
+            border-radius: 10px !important;
             background: #ffffff;
-            margin-bottom: 1.15rem !important;
-            padding-top: 0.35rem;
+            margin-bottom: 0.85rem !important;
+            padding-top: 0.25rem;
+        }}
+        [data-testid="stExpander"] {{
+            margin-bottom: 0.75rem;
         }}
         div.stButton > button[kind="primary"] {{
             background: {p};

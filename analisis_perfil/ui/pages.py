@@ -173,11 +173,6 @@ def _ui_opciones_perfil(
     if not archivos:
         return [], []
     st.markdown(f"**{titulo}**")
-    st.caption(
-        "Factor por archivo (1.0 = sin cambio). "
-        "«Canales invertidos» intercambia KWH_REC ↔ KWH_ENT. "
-        "En un ZIP las opciones se aplican a todos sus CSV."
-    )
     factores: list[float] = []
     invertir: list[bool] = []
     for i, uf in enumerate(archivos):
@@ -334,9 +329,12 @@ def _limpiar_todo() -> None:
         "api_perfiles_consumo",
         "api_perfiles_generacion",
         "_rango_fuentes_cache",
+        "analisis_paso",
+        "_ap_cfg",
     ):
         st.session_state.pop(clave, None)
     st.session_state["ui_reset"] = int(st.session_state.get("ui_reset") or 0) + 1
+    st.session_state["analisis_paso"] = "Preparar"
     st.session_state["limpiar_flash"] = (
         f"Sesión reiniciada. Se eliminaron {n} CSV generado(s) sin descargar."
     )
@@ -1664,7 +1662,10 @@ def run_pages(*, desde_suite: bool = False) -> None:
         return
 
     restaurar_ui_app(restaurar_sidebar=False)
+    # Evita que el script de expansión de BESS deje la guía BESS colgada.
+    st.session_state.pop("sidebar_inicial_aplicada", None)
     aplicar_estilos()
+    _render_sidebar_analisis()
     _render_barra_sesion()
     render_header(
         NOMBRE_APP,
@@ -1675,6 +1676,51 @@ def run_pages(*, desde_suite: bool = False) -> None:
     if msg:
         st.success(msg)
     _run_analisis(reset)
+
+
+def _render_sidebar_analisis() -> None:
+    """Barra propia del módulo (sustituye restos de BESS al cambiar en la Suite)."""
+    from bess.config.users import ETIQUETA_ROL
+    from bess.ui.components import html_creditos_plataforma, obtener_logo_html
+
+    with st.sidebar:
+        logo_html = obtener_logo_html(220)
+        logo_block = (
+            f'<div style="background:white;border-radius:8px;padding:6px 10px;'
+            f'display:inline-block;margin-bottom:8px;">{logo_html}</div>'
+            if logo_html
+            else f'<h2 style="color:white;margin:0;font-size:18px;">{NOMBRE_APP}</h2>'
+        )
+        st.markdown(
+            f"""
+            <div style="background:linear-gradient(135deg,#1a5276,#2e86c1);
+                        padding:16px;border-radius:12px;text-align:center;margin-bottom:8px;">
+                {logo_block}
+                <p style="color:rgba(255,255,255,0.9);margin:4px 0 0;font-size:12px;font-weight:500;">
+                    Análisis de Perfil · Panel local
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        usuario = st.session_state.get("usuario") or "—"
+        rol = st.session_state.get("rol") or ""
+        st.markdown(f"**{usuario}**")
+        st.caption(f"Rol: {ETIQUETA_ROL.get(rol, rol)}")
+        st.divider()
+        st.markdown("### Este módulo")
+        st.caption(
+            "Procesa perfiles CSV (consumo / generación / bidireccional / neteo) "
+            "con tarifas T01, GDMTH o DIST. Controles en el área principal."
+        )
+        with st.expander("Flujo rápido", expanded=False):
+            st.markdown(
+                "1. Elija **tarifa** y **servicio**\n"
+                "2. Cargue CSV/ZIP o descargue de la **API**\n"
+                "3. (Opcional) filtre el intervalo de fechas\n"
+                "4. Genere reportes y revise resumen / gráficas"
+            )
+        st.markdown(html_creditos_plataforma(variante="sidebar"), unsafe_allow_html=True)
 
 
 def _render_barra_sesion() -> None:
@@ -1766,133 +1812,175 @@ def _login_analisis() -> None:
                     st.rerun()
 
 
+
 def _run_analisis(reset: int) -> None:
-    render_section_title("Configuración", first=True)
-    st.markdown(
-        '<p class="section-desc">Elija tarifa, servicio y opciones de vista '
-        "antes de cargar perfiles.</p>",
-        unsafe_allow_html=True,
+    """Flujo en 3 pasos: Preparar → Perfiles → Resultados."""
+    tiene_resultados = bool(st.session_state.get("ultimo_job"))
+    opciones_paso = ["Preparar", "Perfiles", "Resultados"]
+    if "analisis_paso" not in st.session_state:
+        st.session_state["analisis_paso"] = (
+            "Resultados" if tiene_resultados else "Preparar"
+        )
+    if st.session_state["analisis_paso"] not in opciones_paso:
+        st.session_state["analisis_paso"] = "Preparar"
+
+    st.markdown('<div class="analisis-wizard">', unsafe_allow_html=True)
+    paso = st.radio(
+        "Paso",
+        opciones_paso,
+        horizontal=True,
+        key="analisis_paso",
+        label_visibility="collapsed",
     )
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    with st.container(border=True):
-        c_tarifa, c_servicio = st.columns(2)
-        with c_tarifa:
-            st.markdown("**Tarifa**")
-            tarifa_sel = st.radio(
-                "Esquema tarifario",
-                options=list(TARIFAS.keys()),
-                format_func=lambda k: f"{k} — {TARIFAS[k]['etiqueta']}",
-                index=0,
-                key=f"tarifa_{reset}",
-                horizontal=True,
-                label_visibility="collapsed",
-            )
-            st.caption(
-                "0 = Tarifa 01 (bloques 150/130/excedente) · "
-                "1 = GDMTH · 2 = DIST"
-            )
-        with c_servicio:
-            st.markdown("**Servicio**")
-            servicio_sel = st.radio(
-                "Tipo de servicio",
-                options=list(SERVICIOS.keys()),
-                format_func=lambda k: SERVICIOS[k]["etiqueta"],
-                index=0,
-                key=f"servicio_{reset}",
-                horizontal=True,
-                label_visibility="collapsed",
-            )
-            st.caption(SERVICIOS[servicio_sel]["desc"])
-
-        region_sel = None
-        clave_tarifa = TARIFAS[tarifa_sel]["clave"]
-        if clave_tarifa in ("DIST", "GDMTH"):
-            st.markdown("**División / región de distribución**")
-            default_reg = REGION_POR_TARIFA.get(clave_tarifa, DIVISIONES[0])
-            idx = (
-                DIVISIONES.index(default_reg)
-                if default_reg in DIVISIONES
-                else 0
-            )
-            c_reg, c_sync = st.columns([3, 1])
-            with c_reg:
-                region_sel = st.selectbox(
-                    "Región",
-                    options=list(DIVISIONES),
-                    index=idx,
-                    key=f"region_{clave_tarifa}_{reset}",
-                    label_visibility="collapsed",
-                )
-            with c_sync:
-                if st.button(
-                    "Sincronizar tarifas CFE",
-                    use_container_width=True,
-                    key=f"sync_cfe_{reset}",
-                    help=(
-                        "Copia CSV DIST/GDMTH desde "
-                        "ReporteadorIUSASOL/data/ReportesTarifasCFE"
-                    ),
-                ):
-                    try:
-                        from tarifas_cfe_catalog import (
-                            sincronizar_desde_reporteador,
-                        )
-
-                        copiados = sincronizar_desde_reporteador()
-                        st.success(
-                            f"Sincronizados {len(copiados)} archivo(s) "
-                            "al caché local (analisis_perfil/tarifas_cfe/)."
-                        )
-                    except Exception as exc:
-                        st.error(f"No se pudo sincronizar: {exc}")
-            st.caption(
-                "Precios del mes final del perfil: primero reporte CFE "
-                "(17 divisiones); si no hay, catálogo local histórico."
-            )
-
-        c_desg, c_limp = st.columns([3, 1])
-        with c_desg:
-            st.markdown("**Desglose de energía y precios**")
-            desglose_sel = st.checkbox(
-                "Mostrar desglose completo",
-                value=True,
-                key=f"desglose_{reset}",
-                help=(
-                    "Activo: resumen completo (periodos, Neteo/Real y precios). "
-                    "Inactivo: solo totales de energía."
-                ),
-            )
-            st.caption(
-                "Activo = Neteo/Real + precios · "
-                "Inactivo = solo energía (con periodos si la tarifa es horaria)"
-            )
-        with c_limp:
-            st.markdown("**Sesión**")
+    if paso == "Preparar":
+        tarifa_sel, servicio_sel, region_sel, desglose_sel = _ui_paso_preparar(
+            reset
+        )
+        st.session_state["_ap_cfg"] = {
+            "tarifa": tarifa_sel,
+            "servicio": servicio_sel,
+            "region": region_sel,
+            "desglose": desglose_sel,
+            "reset": reset,
+        }
+        c1, c2, _ = st.columns([1, 1, 2])
+        with c1:
             if st.button(
-                "Limpiar",
+                "Continuar a Perfiles →",
+                type="primary",
                 use_container_width=True,
-                help=(
-                    "Quita tarifa/servicio/archivos seleccionados y elimina "
-                    "los CSV generados que no hayas descargado."
-                ),
-                key=f"btn_limpiar_side_{reset}",
+                key=f"btn_ir_perfiles_{reset}",
+            ):
+                st.session_state["analisis_paso"] = "Perfiles"
+                st.rerun()
+        with c2:
+            if st.button(
+                "Limpiar sesión",
+                use_container_width=True,
+                key=f"btn_limpiar_prep_{reset}",
             ):
                 _limpiar_todo()
                 st.rerun()
+        return
 
-        with st.expander("Ayuda rápida", expanded=False):
+    if paso == "Resultados":
+        cfg = st.session_state.get("_ap_cfg") or {}
+        desglose_sel = bool(cfg.get("desglose", True))
+        if f"desglose_{reset}" in st.session_state:
+            desglose_sel = bool(st.session_state[f"desglose_{reset}"])
+        _ui_paso_resultados(reset, desglose_sel=desglose_sel)
+        return
+
+    # Perfiles
+    cfg = st.session_state.get("_ap_cfg") or {}
+    if cfg.get("reset") != reset or "tarifa" not in cfg:
+        st.session_state["analisis_paso"] = "Preparar"
+        st.info("Configure tarifa y servicio en **Preparar**.")
+        if st.button("Ir a Preparar", key=f"btn_force_prep_{reset}"):
+            st.rerun()
+        return
+
+    _ui_paso_perfiles(
+        reset,
+        tarifa_sel=cfg["tarifa"],
+        servicio_sel=cfg["servicio"],
+        region_sel=cfg.get("region"),
+    )
+
+
+def _ui_paso_preparar(reset: int) -> tuple:
+    render_section_title("Preparar análisis", first=True)
+    st.markdown(
+        '<p class="section-desc">Tarifa, servicio y opciones de vista.</p>',
+        unsafe_allow_html=True,
+    )
+
+    c_tarifa, c_servicio = st.columns(2)
+    with c_tarifa:
+        tarifa_sel = st.selectbox(
+            "Tarifa",
+            options=list(TARIFAS.keys()),
+            format_func=lambda k: f"{k} — {TARIFAS[k]['etiqueta']}",
+            index=0,
+            key=f"tarifa_{reset}",
+        )
+    with c_servicio:
+        servicio_sel = st.selectbox(
+            "Servicio",
+            options=list(SERVICIOS.keys()),
+            format_func=lambda k: SERVICIOS[k]["etiqueta"],
+            index=0,
+            key=f"servicio_{reset}",
+        )
+
+    region_sel = None
+    clave_tarifa = TARIFAS[tarifa_sel]["clave"]
+    if clave_tarifa in ("DIST", "GDMTH"):
+        default_reg = REGION_POR_TARIFA.get(clave_tarifa, DIVISIONES[0])
+        idx = DIVISIONES.index(default_reg) if default_reg in DIVISIONES else 0
+        c_reg, c_sync = st.columns([3, 1])
+        with c_reg:
+            region_sel = st.selectbox(
+                "División / región",
+                options=list(DIVISIONES),
+                index=idx,
+                key=f"region_{clave_tarifa}_{reset}",
+            )
+        with c_sync:
+            st.markdown('<div class="btn-align-label"> </div>', unsafe_allow_html=True)
+            if st.button(
+                "Sincronizar CFE",
+                use_container_width=True,
+                key=f"sync_cfe_{reset}",
+                help="Copia CSV DIST/GDMTH desde data/ReportesTarifasCFE",
+            ):
+                try:
+                    from tarifas_cfe_catalog import sincronizar_desde_reporteador
+
+                    copiados = sincronizar_desde_reporteador()
+                    st.success(f"Sincronizados {len(copiados)} archivo(s).")
+                except Exception as exc:
+                    st.error(f"No se pudo sincronizar: {exc}")
+
+    c_desg, c_help = st.columns([2, 2])
+    with c_desg:
+        desglose_sel = st.checkbox(
+            "Mostrar desglose completo (periodos / precios)",
+            value=True,
+            key=f"desglose_{reset}",
+        )
+    with c_help:
+        with st.expander("Ayuda", expanded=False):
             st.markdown(
-                "- **Origen**: subir CSV/ZIP **o** descargar perfiles de la API "
-                "(mismo flujo de análisis).\n"
-                "- **Bidireccional**: origen independiente para consumo y generación.\n"
-                "- **Neteo**: un medidor con REC + ENT (sin generación).\n"
-                "- **Multiplicadores**: factor por archivo (todas las columnas numéricas).\n"
-                "- **Canales invertidos**: intercambia KWH_REC ↔ KWH_ENT por archivo.\n"
-                "- **Rango de fechas**: analiza solo un subintervalo del perfil.\n"
-                "- **Limpiar**: reinicia opciones y borra CSV generados no descargados."
+                f"**Servicio:** {SERVICIOS[servicio_sel]['desc']}\n\n"
+                "- **Origen**: CSV/ZIP o API.\n"
+                "- **Bidireccional**: consumo y generación por separado.\n"
+                "- **Neteo**: un medidor REC + ENT.\n"
+                "- **Multiplicadores / canales**: en Perfiles → avanzadas.\n"
+                "- **Limpiar**: reinicia opciones y borra CSV no descargados."
             )
 
-    render_section_title("1. Perfiles")
+    return tarifa_sel, servicio_sel, region_sel, desglose_sel
+
+
+def _ui_paso_perfiles(
+    reset: int,
+    *,
+    tarifa_sel: int,
+    servicio_sel: str,
+    region_sel: str | None,
+) -> None:
+    render_section_title("Perfiles", first=True)
+    st.markdown(
+        f'<p class="section-desc">'
+        f"<strong>{TARIFAS[tarifa_sel]['etiqueta']}</strong> · "
+        f"<strong>{SERVICIOS[servicio_sel]['etiqueta']}</strong>"
+        + (f" · {region_sel}" if region_sel else "")
+        + "</p>",
+        unsafe_allow_html=True,
+    )
 
     uploaded = None
     uploaded_consumo = None
@@ -1903,12 +1991,8 @@ def _run_analisis(reset: int) -> None:
     listo_archivos = False
 
     if servicio_sel == "bidireccional":
-        st.markdown(
-            '<p class="section-desc">Bidireccional: para cada lado elija '
-            "<strong>subir archivo</strong> o <strong>descargar de la API</strong>. "
-            "Si usa API, hay <strong>un solo rango de fechas y un botón</strong> "
-            "para ambos lados. Varios medidores se suman por FECHA y luego se combinan.</p>",
-            unsafe_allow_html=True,
+        st.caption(
+            "Cada lado: archivo o API. Con API, un solo rango y un botón para ambos."
         )
         from analisis_perfil.ui.descargas_bridge import render_descarga_bidireccional
 
@@ -1924,11 +2008,13 @@ def _run_analisis(reset: int) -> None:
             )
             if origen_c == "Subir archivo":
                 uploaded_consumo = st.file_uploader(
-                    "Perfiles de consumo (CSV o ZIP)",
+                    "CSV/ZIP consumo",
                     type=["csv", "zip"],
                     accept_multiple_files=True,
-                    key=f"up_bidi_consumo_multi_{reset}",
+                    key=f"up_c_{reset}",
                 )
+            else:
+                st.caption("API compartida abajo.")
         with c2:
             st.markdown("##### Generación")
             origen_g = st.radio(
@@ -1940,11 +2026,13 @@ def _run_analisis(reset: int) -> None:
             )
             if origen_g == "Subir archivo":
                 uploaded_generacion = st.file_uploader(
-                    "Perfiles de generación (CSV o ZIP)",
+                    "CSV/ZIP generación",
                     type=["csv", "zip"],
                     accept_multiple_files=True,
-                    key=f"up_bidi_generacion_multi_{reset}",
+                    key=f"up_g_{reset}",
                 )
+            else:
+                st.caption("API compartida abajo.")
 
         usa_api_c = origen_c == "Descargar de API"
         usa_api_g = origen_g == "Descargar de API"
@@ -1966,61 +2054,40 @@ def _run_analisis(reset: int) -> None:
             n_c = len(uploaded_consumo or api_consumo or [])
             n_g = len(uploaded_generacion or api_generacion or [])
             st.markdown(
-                f'<div class="metric-chip">'
-                f"Consumo: <strong>{n_c}</strong> · "
-                f"Generación: <strong>{n_g}</strong>"
-                f"</div>",
+                f'<div class="metric-chip">Consumo: <strong>{n_c}</strong> · '
+                f"Generación: <strong>{n_g}</strong></div>",
                 unsafe_allow_html=True,
             )
     else:
         if servicio_sel == "neteo":
-            st.markdown(
-                '<p class="section-desc">Servicio <strong>Neteo</strong>: '
-                "un medidor con <strong>KWH_REC</strong> (entregada) y "
-                "<strong>KWH_ENT</strong> (recibida). "
-                "Calcula neteo = REC − ENT, costo neteo y costo real "
-                "(sobre la entregada). Sin medidor de generación.</p>",
-                unsafe_allow_html=True,
-            )
+            st.caption("Neteo: KWH_REC y KWH_ENT en el mismo medidor (REC − ENT).")
         else:
             col_txt = "KWH_REC" if servicio_sel == "consumo" else "KWH_ENT"
-            st.markdown(
-                f'<p class="section-desc">Servicio <strong>{SERVICIOS[servicio_sel]["etiqueta"]}</strong>: '
-                f"columna <strong>{col_txt}</strong>. "
-                "Suba CSV/ZIP o descargue perfiles de la API; "
-                "varios medidores se suman por FECHA.</p>",
-                unsafe_allow_html=True,
+            st.caption(
+                f"{SERVICIOS[servicio_sel]['etiqueta']}: columna {col_txt}. "
+                "Varios medidores se suman por FECHA."
             )
         origen = st.radio(
-            "Origen de perfiles",
+            "Origen",
             ["Subir archivo", "Descargar de API"],
             horizontal=True,
             key=f"origen_{servicio_sel}_{reset}",
         )
         if origen == "Subir archivo":
             uploaded = st.file_uploader(
-                "Seleccionar CSV o ZIP",
+                "CSV o ZIP",
                 type=["csv", "zip"],
                 accept_multiple_files=True,
                 key=f"up_multi_{servicio_sel}_{reset}",
-                help=(
-                    "CSV individuales o perfiles_descarga.zip de la suite. "
-                    "Varios medidores se suman por FECHA."
-                ),
             )
             listo_archivos = bool(uploaded)
             if uploaded:
                 nombres = ", ".join(u.name for u in uploaded)
                 st.markdown(
-                    f'<div class="metric-chip"><strong>{len(uploaded)}</strong> archivo(s): '
-                    f"{nombres}</div>",
+                    f'<div class="metric-chip"><strong>{len(uploaded)}</strong> '
+                    f"archivo(s): {nombres}</div>",
                     unsafe_allow_html=True,
                 )
-                if len(uploaded) >= 2:
-                    st.caption(
-                        f"Al generar, se sumarán {len(uploaded)} perfiles por FECHA "
-                        "antes de calcular los reportes."
-                    )
         else:
             from analisis_perfil.ui.descargas_bridge import render_descarga_en_flujo
 
@@ -2037,17 +2104,11 @@ def _run_analisis(reset: int) -> None:
     invertir: list[bool] = []
     invertir_c: list[bool] = []
     invertir_g: list[bool] = []
-    if listo_archivos:
-        render_section_title("1a. Multiplicadores y canales")
-        st.markdown(
-            '<p class="section-desc">Factor por archivo (1.0 = sin cambio) '
-            "aplicado a <strong>todas</strong> las columnas numéricas. "
-            "Marque <strong>Canales invertidos</strong> para intercambiar "
-            "KWH_REC ↔ KWH_ENT. En un ZIP, las opciones valen para todos "
-            "sus CSV.</p>",
-            unsafe_allow_html=True,
-        )
-        if servicio_sel == "bidireccional":
+
+    with st.expander("Opciones avanzadas (multiplicadores y canales)", expanded=False):
+        if not listo_archivos:
+            st.caption("Cargue perfiles para configurar factores por archivo.")
+        elif servicio_sel == "bidireccional":
             fuentes_c_ui = uploaded_consumo or api_consumo or []
             fuentes_g_ui = uploaded_generacion or api_generacion or []
             c_m1, c_m2 = st.columns(2)
@@ -2074,81 +2135,45 @@ def _run_analisis(reset: int) -> None:
                 titulo="Perfiles",
             )
 
-    render_section_title("1b. Intervalo de fechas (opcional)")
-    fuentes_rango = _fuentes_para_rango(
-        servicio_sel,
-        uploaded=uploaded,
-        uploaded_consumo=uploaded_consumo,
-        uploaded_generacion=uploaded_generacion,
-        api_files=api_files,
-        api_consumo=api_consumo,
-        api_generacion=api_generacion,
-    )
-    rango_perfil = (
-        _rango_detectado_fuentes(fuentes_rango) if listo_archivos else None
-    )
-    if rango_perfil:
-        st.markdown(
-            f'<p class="section-desc">Rango detectado en perfiles: '
-            f"<strong>{rango_perfil[0]}</strong> → "
-            f"<strong>{rango_perfil[1]}</strong>. "
-            "Si activa el filtro, esos valores se usan como predeterminado "
-            "(día operativo 00:05→00:00).</p>",
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<p class="section-desc">Si activa el filtro, el análisis usa solo '
-            "el subintervalo indicado (día operativo 00:05→00:00).</p>",
-            unsafe_allow_html=True,
-        )
-    usar_rango = st.checkbox(
-        "Analizar solo un subintervalo",
-        value=False,
-        key=f"usar_rango_{reset}",
-    )
     fecha_desde = fecha_hasta = None
-    if usar_rango:
-        d0 = rango_perfil[0] if rango_perfil else None
-        d1 = rango_perfil[1] if rango_perfil else None
-        # Clave con rango para que al cambiar archivos se reinicien los defaults
-        suf_r = (
-            f"{d0}_{d1}" if rango_perfil else "sin_rango"
+    usar_rango = False
+    with st.expander("Filtrar intervalo de fechas (opcional)", expanded=False):
+        fuentes_rango = _fuentes_para_rango(
+            servicio_sel,
+            uploaded=uploaded,
+            uploaded_consumo=uploaded_consumo,
+            uploaded_generacion=uploaded_generacion,
+            api_files=api_files,
+            api_consumo=api_consumo,
+            api_generacion=api_generacion,
         )
-        c_d, c_h = st.columns(2)
-        with c_d:
-            kwargs_d: dict = {"key": f"fecha_desde_{reset}_{suf_r}"}
-            if d0 is not None:
+        rango_perfil = (
+            _rango_detectado_fuentes(fuentes_rango) if listo_archivos else None
+        )
+        if rango_perfil:
+            st.caption(f"Detectado: {rango_perfil[0]} → {rango_perfil[1]}")
+        usar_rango = st.checkbox(
+            "Analizar solo un subintervalo",
+            value=False,
+            key=f"usar_rango_{reset}",
+        )
+        if usar_rango:
+            c_d, c_h = st.columns(2)
+            kwargs_d: dict = {"format": "DD/MM/YYYY", "key": f"fecha_desde_{reset}"}
+            kwargs_h: dict = {"format": "DD/MM/YYYY", "key": f"fecha_hasta_{reset}"}
+            if rango_perfil:
+                d0, d1 = rango_perfil
                 kwargs_d["value"] = d0
-            fecha_desde = st.date_input("Desde", **kwargs_d)
-        with c_h:
-            kwargs_h: dict = {"key": f"fecha_hasta_{reset}_{suf_r}"}
-            if d1 is not None:
                 kwargs_h["value"] = d1
-            fecha_hasta = st.date_input("Hasta", **kwargs_h)
-        if fecha_hasta < fecha_desde:
-            st.error("La fecha fin debe ser ≥ fecha inicio.")
-            return
+            with c_d:
+                fecha_desde = st.date_input("Desde", **kwargs_d)
+            with c_h:
+                fecha_hasta = st.date_input("Hasta", **kwargs_h)
+            if fecha_hasta < fecha_desde:
+                st.error("La fecha fin debe ser ≥ fecha inicio.")
+                return
 
-    render_section_title("2. Generar reportes")
-    st.markdown(
-        f'<p class="section-desc">Tarifa: <strong>{tarifa_sel} — '
-        f"{TARIFAS[tarifa_sel]['etiqueta']}</strong> · "
-        f"Servicio: <strong>{SERVICIOS[servicio_sel]['etiqueta']}</strong>"
-        + (
-            f" · Región: <strong>{region_sel}</strong>"
-            if region_sel
-            else ""
-        )
-        + (
-            f" · Rango: <strong>{fecha_desde}</strong> → <strong>{fecha_hasta}</strong>"
-            if usar_rango
-            else ""
-        )
-        + "</p>",
-        unsafe_allow_html=True,
-    )
-
+    st.divider()
     col_a, col_b, col_c = st.columns([1, 1, 2])
     with col_a:
         lanzar = st.button(
@@ -2163,118 +2188,91 @@ def _run_analisis(reset: int) -> None:
             "Limpiar",
             use_container_width=True,
             key=f"btn_limpiar_{reset}",
-            help=(
-                "Quita las opciones seleccionadas y elimina "
-                "CSV generados que no descargaste."
-            ),
         ):
             _limpiar_todo()
             st.rerun()
     with col_c:
         if not listo_archivos:
+            st.info("Indique origen y perfiles para continuar.")
+        elif st.session_state.get("ultimo_job"):
+            if st.button(
+                "Ver resultados →",
+                use_container_width=True,
+                key=f"btn_ver_res_{reset}",
+            ):
+                st.session_state["analisis_paso"] = "Resultados"
+                st.rerun()
+
+    if not (lanzar and listo_archivos):
+        return
+
+    job = _job_dir()
+    with st.status("Procesando perfil…", expanded=True) as status:
+        st.write(f"Carpeta de trabajo: `{job.name}`")
+        try:
             if servicio_sel == "bidireccional":
-                st.info(
-                    "Indica origen (archivo o API) y deja listo al menos "
-                    "un perfil de consumo y uno de generación."
+                fuentes_c = uploaded_consumo or api_consumo or []
+                fuentes_g = uploaded_generacion or api_generacion or []
+                consumos, facs_c, invs_c = _guardar_uploads_con_opciones(
+                    fuentes_c, job, factores_c, invertir_c
+                )
+                generaciones, facs_g, invs_g = _guardar_uploads_con_opciones(
+                    fuentes_g, job, factores_g, invertir_g
+                )
+                st.write(
+                    f"Consumo: {len(consumos)} · Generación: {len(generaciones)}"
+                )
+                codigo = TARIFAS[tarifa_sel]["codigo"]
+                _job, resumen, perfil_usado = _ejecutar_pipeline(
+                    consumos,
+                    codigo,
+                    servicio_sel,
+                    archivos_generacion=generaciones,
+                    region=region_sel,
+                    fecha_desde=fecha_desde if usar_rango else None,
+                    fecha_hasta=fecha_hasta if usar_rango else None,
                 )
             else:
-                st.info(
-                    "Sube un CSV/ZIP o descarga perfiles de la API "
-                    "para continuar."
+                fuentes = uploaded or api_files or []
+                perfiles, facs, invs = _guardar_uploads_con_opciones(
+                    fuentes, job, factores, invertir
                 )
+                st.write(f"Perfiles listos: {len(perfiles)}")
+                codigo = TARIFAS[tarifa_sel]["codigo"]
+                _job, resumen, perfil_usado = _ejecutar_pipeline(
+                    perfiles,
+                    codigo,
+                    servicio_sel,
+                    region=region_sel,
+                    fecha_desde=fecha_desde if usar_rango else None,
+                    fecha_hasta=fecha_hasta if usar_rango else None,
+                )
+            status.update(label="Proceso completado", state="complete")
+            st.session_state["ultimo_job"] = str(job)
+            st.session_state["ultimo_esquema"] = TARIFAS[tarifa_sel]["clave"]
+            st.session_state["ultimo_servicio"] = servicio_sel
+            st.session_state["ultimo_resumen"] = resumen
+            st.session_state["ultimo_perfil"] = str(perfil_usado)
+            st.session_state["analisis_paso"] = "Resultados"
+            st.rerun()
+        except Exception as exc:
+            status.update(label="Error en el proceso", state="error")
+            st.exception(exc)
 
-    if lanzar and listo_archivos:
-        job = _job_dir()
-        with st.status("Procesando perfil…", expanded=True) as status:
-            st.write(f"Carpeta de trabajo: `{job.name}`")
-            try:
-                if servicio_sel == "bidireccional":
-                    fuentes_c = uploaded_consumo or api_consumo or []
-                    fuentes_g = uploaded_generacion or api_generacion or []
-                    consumos, facs_c, invs_c = _guardar_uploads_con_opciones(
-                        fuentes_c, job, factores_c, invertir_c
-                    )
-                    generaciones, facs_g, invs_g = _guardar_uploads_con_opciones(
-                        fuentes_g, job, factores_g, invertir_g
-                    )
-                    st.write(
-                        f"Consumo: {len(consumos)} perfil(es) · "
-                        f"Generación: {len(generaciones)} perfil(es) "
-                        "(tras extraer ZIP si aplica)"
-                    )
-                    for p, fac, inv in zip(consumos, facs_c, invs_c):
-                        extra = " · canales invertidos" if inv else ""
-                        st.write(f"  · [consumo] {p.name} × {fac:g}{extra}")
-                    for p, fac, inv in zip(generaciones, facs_g, invs_g):
-                        extra = " · canales invertidos" if inv else ""
-                        st.write(f"  · [generación] {p.name} × {fac:g}{extra}")
-                    if len(consumos) >= 2:
-                        st.write(f"Sumando {len(consumos)} consumos por FECHA…")
-                    if len(generaciones) >= 2:
-                        st.write(
-                            f"Sumando {len(generaciones)} generaciones por FECHA…"
-                        )
-                    st.write("Combinando perfiles bidireccionales…")
-                    codigo = TARIFAS[tarifa_sel]["codigo"]
-                    st.write(
-                        f"Ejecutando pipeline ({TARIFAS[tarifa_sel]['clave']}, "
-                        f"{servicio_sel})…"
-                    )
-                    _job, resumen, perfil_usado = _ejecutar_pipeline(
-                        consumos,
-                        codigo,
-                        servicio_sel,
-                        archivos_generacion=generaciones,
-                        region=region_sel,
-                        fecha_desde=fecha_desde if usar_rango else None,
-                        fecha_hasta=fecha_hasta if usar_rango else None,
-                    )
-                else:
-                    fuentes = uploaded or api_files or []
-                    perfiles, facs, invs = _guardar_uploads_con_opciones(
-                        fuentes, job, factores, invertir
-                    )
-                    st.write(
-                        f"Perfiles listos: {len(perfiles)} "
-                        "(tras extraer ZIP si aplica)."
-                    )
-                    for p, fac, inv in zip(perfiles, facs, invs):
-                        extra = " · canales invertidos" if inv else ""
-                        st.write(f"  · {p.name} × {fac:g}{extra}")
-                    if len(perfiles) >= 2:
-                        st.write(
-                            f"Sumando {len(perfiles)} archivos por FECHA…"
-                        )
-                    codigo = TARIFAS[tarifa_sel]["codigo"]
-                    st.write(
-                        f"Ejecutando pipeline ({TARIFAS[tarifa_sel]['clave']}, "
-                        f"{servicio_sel})…"
-                    )
-                    _job, resumen, perfil_usado = _ejecutar_pipeline(
-                        perfiles,
-                        codigo,
-                        servicio_sel,
-                        region=region_sel,
-                        fecha_desde=fecha_desde if usar_rango else None,
-                        fecha_hasta=fecha_hasta if usar_rango else None,
-                    )
-                status.update(label="Proceso completado", state="complete")
-                st.session_state["ultimo_job"] = str(job)
-                st.session_state["ultimo_esquema"] = TARIFAS[tarifa_sel]["clave"]
-                st.session_state["ultimo_servicio"] = servicio_sel
-                st.session_state["ultimo_resumen"] = resumen
-                st.session_state["ultimo_perfil"] = str(perfil_usado)
-            except Exception as exc:
-                status.update(label="Error en el proceso", state="error")
-                st.exception(exc)
-                return
 
+def _ui_paso_resultados(reset: int, *, desglose_sel: bool) -> None:
     job_path = st.session_state.get("ultimo_job")
     if not job_path:
+        render_section_title("Resultados", first=True)
+        st.info("Aún no hay reportes. Genere en el paso **Perfiles**.")
+        if st.button("← Ir a Perfiles", key=f"btn_back_perf_{reset}"):
+            st.session_state["analisis_paso"] = "Perfiles"
+            st.rerun()
         return
 
     job = Path(job_path)
     if not job.exists():
+        st.warning("La carpeta de trabajo ya no existe. Vuelva a generar.")
         return
 
     esquema = st.session_state.get("ultimo_esquema", "DIST")
@@ -2283,129 +2281,130 @@ def _run_analisis(reset: int) -> None:
     grupos = _listar_salidas(job, esquema)
     todos = [p for lista in grupos.values() for p in lista]
 
-    if resumen:
-        _mostrar_resumen(resumen, desglose=desglose_sel)
-
-    perfil_ref = st.session_state.get("ultimo_perfil")
-    perfil_path = Path(perfil_ref) if perfil_ref else None
-    if perfil_path and perfil_path.is_file():
-        _mostrar_calidad(perfil_path, servicio)
-        _mostrar_demanda_pico(perfil_path, servicio)
-
-    if grupos.get("diario"):
-        _mostrar_graficas_energia_diaria(
-            grupos["diario"][0],
-            servicio,
-            perfil=perfil_path,
-        )
-
-    if grupos.get("perfil_hora"):
-        _mostrar_graficas_perfil_tipico(grupos["perfil_hora"][0], servicio)
-
-    if perfil_path and perfil_path.is_file():
-        _abrir_dialog_dia_si_pendiente(perfil_path)
-
-    render_section_title("3. Resultados")
+    render_section_title("Resultados", first=True)
     st.markdown(
-        f'<p class="section-desc">Trabajo: <code>{job.name}</code> · '
-        f"Esquema: <strong>{esquema}</strong> · "
-        f"Servicio: <strong>{servicio}</strong> · "
-        f"{len(todos)} archivo(s) generados</p>",
+        f'<p class="section-desc"><code>{job.name}</code> · '
+        f"<strong>{esquema}</strong> · <strong>{servicio}</strong> · "
+        f"{len(todos)} archivo(s)</p>",
         unsafe_allow_html=True,
     )
 
-    if todos:
-        rutas_zip = [str(p.resolve()) for p in todos if p.suffix.lower() == ".csv"]
-        st.download_button(
-            "Descargar todo (ZIP)",
-            data=_zip_bytes(todos, job),
-            file_name=f"reportes_{job.name}.zip",
-            mime="application/zip",
-            type="primary",
-            key=f"dl_zip_{job.name}_{reset}",
-            on_click=_marcar_descargados,
-            args=(rutas_zip,),
-        )
-
-    if resumen:
-        try:
-            from export_recibo_csv import generar_csv_recibo
-
-            csv_recibo = generar_csv_recibo(resumen)
-            st.download_button(
-                "Descargar CSV recibo-ready",
-                data=csv_recibo,
-                file_name=f"recibo_{job.name}.csv",
-                mime="text/csv",
-                key=f"dl_recibo_{job.name}_{reset}",
-                help="Energía, precios e importes del resumen (Excel).",
-            )
-        except Exception as exc:
-            st.caption(f"CSV recibo no disponible: {exc}")
-
-    if resumen and grupos.get("diario"):
-        try:
-            from reporte_pdf_analisis import generar_pdf_analisis
-
-            pdf_key = f"{job.name}|{servicio}|{esquema}|{int(bool(desglose_sel))}"
-            if st.session_state.get("_pdf_cache_key") != pdf_key:
-                st.session_state["_pdf_cache_bytes"] = generar_pdf_analisis(
-                    resumen=resumen,
-                    diario=grupos["diario"][0],
-                    servicio=servicio,
-                    esquema=esquema,
-                    graficas_tipico=grupos.get("graficas") or [],
-                    desglose=desglose_sel,
-                )
-                st.session_state["_pdf_cache_key"] = pdf_key
-            st.download_button(
-                "Descargar reporte PDF",
-                data=st.session_state["_pdf_cache_bytes"],
-                file_name=f"reporte_analisis_{job.name}.pdf",
-                mime="application/pdf",
-                key=f"dl_pdf_{job.name}_{reset}",
-            )
-        except Exception as exc:
-            st.warning(f"No se pudo armar el PDF: {exc}")
-
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["Diario / Mensual", "Típicos", "Por hora", "Gráficas"]
+    tab_res, tab_graf, tab_arch, tab_dl = st.tabs(
+        ["Resumen", "Gráficas", "Archivos", "Descargas"]
     )
 
-    with tab1:
-        st.markdown("**Energía por día**")
-        _botones_descarga(grupos["diario"])
-        st.markdown("**Energía por mes**")
-        _botones_descarga(grupos["mensual"])
-        if grupos["suma"]:
-            st.markdown("**Perfil sumado**")
-            _botones_descarga(grupos["suma"])
+    perfil_ref = st.session_state.get("ultimo_perfil")
+    perfil_path = Path(perfil_ref) if perfil_ref else None
 
-    with tab2:
-        st.markdown("**Consumo típico por día de la semana**")
-        _botones_descarga(grupos["tipico_semana"])
-        st.markdown("**Perfil típico día × hora**")
-        _botones_descarga(grupos["perfil_hora"])
-
-    with tab3:
-        st.markdown("**Energía por hora**")
-        _botones_descarga(grupos["por_hora"])
-
-    with tab4:
-        graficas = grupos["graficas"]
-        if not graficas:
-            st.caption("No se generaron gráficas PNG (vuelva a Generar reportes).")
+    with tab_res:
+        if resumen:
+            _mostrar_resumen(resumen, desglose=desglose_sel)
         else:
+            st.caption("Sin resumen en sesión.")
+        if perfil_path and perfil_path.is_file():
+            _mostrar_calidad(perfil_path, servicio)
+            _mostrar_demanda_pico(perfil_path, servicio)
+
+    with tab_graf:
+        if grupos.get("diario"):
+            _mostrar_graficas_energia_diaria(
+                grupos["diario"][0],
+                servicio,
+                perfil=perfil_path,
+            )
+        if grupos.get("perfil_hora"):
+            _mostrar_graficas_perfil_tipico(grupos["perfil_hora"][0], servicio)
+        graficas = grupos.get("graficas") or []
+        if graficas:
+            st.markdown("##### PNG generados")
             comparativa = [p for p in graficas if "comparativa" in p.name.lower()]
             dias = [p for p in graficas if p not in comparativa]
             if comparativa:
-                st.markdown("**Comparativa**")
                 for p in comparativa:
                     st.image(str(p), use_container_width=True)
             if dias:
-                st.markdown("**Por día**")
                 cols = st.columns(2)
                 for i, p in enumerate(dias):
                     with cols[i % 2]:
                         st.caption(p.stem.replace("perfil_", "").title())
                         st.image(str(p), use_container_width=True)
+        elif not grupos.get("diario") and not grupos.get("perfil_hora"):
+            st.caption("No hay gráficas en este trabajo.")
+
+    with tab_arch:
+        t1, t2, t3 = st.tabs(["Diario / Mensual", "Típicos", "Por hora"])
+        with t1:
+            st.markdown("**Energía por día**")
+            _botones_descarga(grupos["diario"])
+            st.markdown("**Energía por mes**")
+            _botones_descarga(grupos["mensual"])
+            if grupos["suma"]:
+                st.markdown("**Perfil sumado**")
+                _botones_descarga(grupos["suma"])
+        with t2:
+            st.markdown("**Consumo típico por día de la semana**")
+            _botones_descarga(grupos["tipico_semana"])
+            st.markdown("**Perfil típico día × hora**")
+            _botones_descarga(grupos["perfil_hora"])
+        with t3:
+            st.markdown("**Energía por hora**")
+            _botones_descarga(grupos["por_hora"])
+
+    with tab_dl:
+        if todos:
+            rutas_zip = [
+                str(p.resolve()) for p in todos if p.suffix.lower() == ".csv"
+            ]
+            st.download_button(
+                "Descargar todo (ZIP)",
+                data=_zip_bytes(todos, job),
+                file_name=f"reportes_{job.name}.zip",
+                mime="application/zip",
+                type="primary",
+                key=f"dl_zip_{job.name}_{reset}",
+                on_click=_marcar_descargados,
+                args=(rutas_zip,),
+            )
+        if resumen:
+            try:
+                from export_recibo_csv import generar_csv_recibo
+
+                csv_recibo = generar_csv_recibo(resumen)
+                st.download_button(
+                    "CSV recibo-ready",
+                    data=csv_recibo,
+                    file_name=f"recibo_{job.name}.csv",
+                    mime="text/csv",
+                    key=f"dl_recibo_{job.name}_{reset}",
+                )
+            except Exception as exc:
+                st.caption(f"CSV recibo no disponible: {exc}")
+        if resumen and grupos.get("diario"):
+            try:
+                from reporte_pdf_analisis import generar_pdf_analisis
+
+                pdf_key = (
+                    f"{job.name}|{servicio}|{esquema}|{int(bool(desglose_sel))}"
+                )
+                if st.session_state.get("_pdf_cache_key") != pdf_key:
+                    st.session_state["_pdf_cache_bytes"] = generar_pdf_analisis(
+                        resumen=resumen,
+                        diario=grupos["diario"][0],
+                        servicio=servicio,
+                        esquema=esquema,
+                        graficas_tipico=grupos.get("graficas") or [],
+                        desglose=desglose_sel,
+                    )
+                    st.session_state["_pdf_cache_key"] = pdf_key
+                st.download_button(
+                    "Reporte PDF",
+                    data=st.session_state["_pdf_cache_bytes"],
+                    file_name=f"reporte_analisis_{job.name}.pdf",
+                    mime="application/pdf",
+                    key=f"dl_pdf_{job.name}_{reset}",
+                )
+            except Exception as exc:
+                st.warning(f"No se pudo armar el PDF: {exc}")
+
+    if perfil_path and perfil_path.is_file():
+        _abrir_dialog_dia_si_pendiente(perfil_path)

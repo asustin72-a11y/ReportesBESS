@@ -1,7 +1,7 @@
 # Manual de catálogo — Alta de medidores y subestaciones
 
 **Suite IUSASOL · BESS**  
-**Versión:** 5.18.15  
+**Versión:** 5.18.16  
 **Audiencia:** superadministrador  
 **Alcance:** reglas de negocio del catálogo y pasos para dar de alta un medidor o una subestación nueva
 

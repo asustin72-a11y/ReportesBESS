@@ -18,7 +18,7 @@ from bess.ui.auth import (
     preparar_ui_login,
     restaurar_ui_app,
 )
-from bess.ui.components import obtener_logo_html
+from bess.ui.components import marcar_fila_controles, obtener_logo_html
 from bess.ui.sidebar import _ajustar_sidebar_por_rol
 from bess.ui.styles import aplicar_estilos, aplicar_estilos_login
 
@@ -321,13 +321,10 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
         "Formato: día/mes/año."
     )
 
-    from bess.ui.components import marcar_fila_controles
-
-    # Marcador dentro de la 1.ª columna (display:none vía CSS) para anclar
-    # estilos a la fila sin alterar alturas ni gaps.
+    # Marcador FUERA de las columnas: si va dentro de la 1.ª, Streamlit
+    # crea un element-container extra y solo «Actual» queda desalineado.
+    marcar_fila_controles()
     atajos_cols = st.columns(6, gap="small")
-    with atajos_cols[0]:
-        marcar_fila_controles()
     for col, (label, atajo) in zip(atajos_cols, etiquetas):
         with col:
             tipo = "primary" if atajo == activo else "secondary"
@@ -342,14 +339,13 @@ def _selector_rango(*, key: str) -> tuple[date, date] | None:
                 st.session_state[k_aplicado] = (d0_a, d1_a)
                 st.rerun()
 
-    # Misma rejilla de 6 unidades que los atajos: 2+2+1+1.
+    # Misma rejilla de 6 unidades: 2+2+1+1 alineada a los atajos.
     c1, c2, c3, c4 = st.columns(
         [2, 2, 1, 1],
         gap="small",
         vertical_alignment="bottom",
     )
     with c1:
-        marcar_fila_controles()
         desde = st.date_input(
             "Desde",
             min_value=min_d,

@@ -119,11 +119,53 @@ def _grafica_barras_rango(df: pd.DataFrame, etiqueta: str) -> go.Figure:
     return graficar_energia_diaria_por_periodo(df, etiqueta)
 
 
+def _serie_kw_periodo_con_ceros(
+    datetimes: pd.Series,
+    kw: pd.Series,
+    activo: pd.Series,
+) -> tuple[list, list]:
+    """kW del periodo activo y 0 fuera, con bordes verticales (sin cruce en X).
+
+    En el cambio de horario TOU se inserta un punto extra en el mismo instante
+    (valor→0 o 0→valor) para que la bajada/subida sea vertical y no diagonal
+    contra la serie del periodo siguiente.
+    """
+    xs: list = []
+    ys: list = []
+    prev_on = False
+    dt_arr = datetimes.to_numpy()
+    kw_arr = kw.to_numpy(dtype=float)
+    on_arr = activo.to_numpy(dtype=bool)
+
+    for i in range(len(on_arr)):
+        t = dt_arr[i]
+        v = float(kw_arr[i])
+        on = bool(on_arr[i])
+        if on:
+            if not prev_on:
+                # Subida vertical en el primer instante del periodo.
+                xs.append(t)
+                ys.append(0.0)
+            xs.append(t)
+            ys.append(v)
+            prev_on = True
+        else:
+            if prev_on:
+                # Bajada vertical en el último instante activo (no diagonal).
+                xs.append(dt_arr[i - 1])
+                ys.append(0.0)
+            xs.append(t)
+            ys.append(0.0)
+            prev_on = False
+    return xs, ys
+
+
 def _grafica_linea_dia(df_min: pd.DataFrame, etiqueta: str, esquema_tarifa_id: str) -> go.Figure:
     """Perfil intradiario de generación (kW) con go.Scatter por periodo.
 
-    Cada serie usa toda la línea temporal: kW del periodo activo y 0 fuera.
-    Así no se dibuja una diagonal que “salte” el hueco Intermedio→Punta→Intermedio.
+    Cada serie usa toda la línea temporal: kW activo y 0 fuera. En los bordes
+    TOU la transición es vertical (mismo instante) para no cruzarse en X con
+    el periodo siguiente, y sin diagonal que salte el hueco de punta.
     """
     plot = df_min.copy()
     if "DATETIME" not in plot.columns:
@@ -138,13 +180,16 @@ def _grafica_linea_dia(df_min: pd.DataFrame, etiqueta: str, esquema_tarifa_id: s
 
     fig = go.Figure()
     for periodo in ("Base", "Intermedio", "Punta"):
-        y = plot["KW"].where(plot["PERIODO"] == periodo, 0.0)
-        if float(y.max()) <= 0:
+        mask = plot["PERIODO"] == periodo
+        if not bool(mask.any()):
             continue
+        if float(plot.loc[mask, "KW"].max()) <= 0:
+            continue
+        xs, ys = _serie_kw_periodo_con_ceros(plot["DATETIME"], plot["KW"], mask)
         color = color_periodo(periodo)
         fig.add_trace(go.Scatter(
-            x=plot["DATETIME"],
-            y=y,
+            x=xs,
+            y=ys,
             mode="lines",
             name=periodo,
             line=dict(color=color, width=2, shape="linear"),
