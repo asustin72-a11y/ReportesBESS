@@ -70,13 +70,13 @@ def _estilizar_resumen_acumulado(df: pd.DataFrame):
     return styler
 
 
-def _tarjeta_ahorro_demanda(kw: int, mxn: float) -> str:
+def _tarjeta_ahorro_demanda(kw: float, mxn: float) -> str:
     return f"""
     <div class="metric-card metric-card-total" style="border-top:4px solid {COLORES['primary']};">
         <div class="total-grid">
             <div class="total-item total-item-kw">
                 <div class="item-label">Reducción de demanda BESS</div>
-                <div class="value">{kw:,}</div>
+                <div class="value">{kw:,.3f}</div>
                 <div class="unit">kW (Shapley)</div>
             </div>
             <div class="total-item total-item-mxn">

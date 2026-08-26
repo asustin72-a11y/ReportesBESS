@@ -19,6 +19,7 @@ from bess.ui.catalog_check import medidores_pendientes_validacion, puede_generar
 from bess.ui.pipeline_status import (
     establecer_banner_pipeline,
     html_flujo_trabajo_sidebar,
+    invalidar_cache_desfase_reportes,
     render_banner_pipeline,
 )
 from bess.ui.navigation import html_guia_usuario_sidebar
@@ -309,6 +310,7 @@ def _mostrar_resultado_sync(
             st.session_state["verificado"] = True
             st.session_state["filtrado"] = True
             st.session_state["reportes_generados"] = True
+            invalidar_cache_desfase_reportes()
             st.success("Proceso completo — sync, verificación, filtrado y reportes.")
             establecer_banner_pipeline(
                 "Reportes listos. Consulte el **reporteador** en el área principal."
@@ -490,6 +492,7 @@ def sidebar_admin(*, mostrar_superadmin: bool = False):
                             if exito:
                                 st.success(f"✅ {mensaje}")
                                 st.session_state["filtrado"] = True
+                                invalidar_cache_desfase_reportes()
                                 establecer_banner_pipeline(
                                     "Filtrado OK. Siguiente: **Generar reportes** o **Procesar todo**.",
                                     tipo="info",
@@ -559,6 +562,7 @@ def sidebar_admin(*, mostrar_superadmin: bool = False):
                                                 f"   {sub.nombre} · {med.etiqueta}: {msg}"
                                             )
                                 st.session_state["reportes_generados"] = True
+                                invalidar_cache_desfase_reportes()
                                 establecer_banner_pipeline(
                                     "Reportes listos. Consulte el **reporteador**."
                                 )

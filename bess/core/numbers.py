@@ -34,6 +34,11 @@ def redondear_kwh(val) -> int:
     return int(_redondear_half_up(val, 0))
 
 
+def redondear_kw(val, decimales: int = 3) -> float:
+    """kW con decimales (p. ej. aportación Shapley por participante)."""
+    return float(_redondear_half_up(val, decimales))
+
+
 def fmt_kwh(val) -> str:
     return f"{redondear_kwh(val):,}"
 

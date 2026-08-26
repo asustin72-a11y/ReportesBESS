@@ -57,9 +57,13 @@ class _ResumenMedidorFalso:
 class _MedidorFalso:
     nombre: str
     ruta: str
+    ruta_filtrado: str = "filtrado_consumo"
 
     def ruta_combinado(self) -> str:
         return self.ruta
+
+    def ruta_consumo_lectura(self, *, filtrado: bool = False) -> str:
+        return self.ruta_filtrado if filtrado else self.ruta
 
 
 @dataclass(frozen=True)
@@ -76,9 +80,17 @@ class _RecursoGeneracionFalso:
     prefijo_reporte: str
     etiqueta: str = "Generación"
     tipo: str = "cogeneracion"
+    csv_filtrado: str = "Generacion_Filtrado.csv"
 
 
-def _preparar(monkeypatch, subs, resumen_por_id, reporte_por_ruta, generacion_por_sub=None):
+def _preparar(
+    monkeypatch,
+    subs,
+    resumen_por_id,
+    reporte_por_ruta,
+    generacion_por_sub=None,
+    filtrado_por_ruta=None,
+):
     """subs: lista de _SubestacionFalsa.
     resumen_por_id: {medidor_id: _ResumenMedidorFalso} (puede omitir medidores).
     reporte_por_ruta: {ruta: pd.Timestamp | None}.
@@ -86,6 +98,9 @@ def _preparar(monkeypatch, subs, resumen_por_id, reporte_por_ruta, generacion_po
     omitidas se tratan como sin recurso de generacion (comportamiento por
     defecto: solo se evalua el reporte de consumo, igual que antes de esta
     extension).
+    filtrado_por_ruta: {ruta_filtrado: pd.Timestamp | None}. Si se omite,
+    el cursor de filtrado devuelve None (tope = solo sync_state), igual que
+    antes de acotar por Filtrado.
 
     evaluar_desfase_reportes() hace "from bess.ui.db_tools.service import
     sync_state_por_medidor" y "from bess.data.aggregates.combined import
@@ -116,6 +131,16 @@ def _preparar(monkeypatch, subs, resumen_por_id, reporte_por_ruta, generacion_po
     fake_combined = types.ModuleType("bess.data.aggregates.combined")
     fake_combined.ultima_fecha_hora_escrita = lambda ruta: reporte_por_ruta.get(ruta)
     monkeypatch.setitem(sys.modules, "bess.data.aggregates.combined", fake_combined)
+
+    filtrado_por_ruta = filtrado_por_ruta or {}
+
+    def _cursor_filtrado(ruta):
+        return filtrado_por_ruta.get(ruta)
+
+    # Import real module (cheap) then patch cursor used by evaluar_desfase.
+    import bess.data.pipeline.clean as clean_mod
+
+    monkeypatch.setattr(clean_mod, "cursor_archivo_limpio", _cursor_filtrado)
 
     generacion_por_sub = generacion_por_sub or {}
 
@@ -349,4 +374,67 @@ def test_generacion_atrasada_dispara_alerta_aunque_consumo_al_dia(monkeypatch):
     assert len(warnings) == 1
     assert "IUSA Aragon · Generación" in warnings[0]
     # El de consumo esta al dia -- no debe aparecer mencionado como atrasado.
-    assert "reporte hasta 16/07/2026 10:00, sincronizado hasta 16/07/2026 10:00" not in warnings[0]
+    assert "16/07/2026 06:00" in warnings[0]
+    assert warnings[0].count("IUSA Aragon") >= 1
+
+
+def test_sync_adelante_de_filtrado_no_alerta_si_reporte_al_dia(monkeypatch):
+    """Caso falso positivo: sync_state en medianoche del día siguiente,
+    filtrado y COMBINADO cortan a las 13:30. Regenerar reportes no puede
+    avanzar más; el aviso no debe culpar al reporte."""
+    med = _MedidorFalso("ION_Testigo_IUSA1", "ruta_1", ruta_filtrado="filtrado_iusa1")
+    sub = _SubestacionFalsa("IUSA_1", "IUSA 1", med)
+    recurso = _RecursoGeneracionFalso(
+        prefijo_reporte="IUSASOL_Planta",
+        tipo="granja",
+        csv_filtrado="IUSASOL_Planta_Filtrado.csv",
+    )
+    ruta_gen = rutas_mod.ruta_reporte(
+        "IUSA_1", "COMBINADO_POR_MINUTO_IUSASOL_Planta.csv"
+    )
+    ruta_filtrado_gen = rutas_mod.resolver_ruta_procesado(
+        pipeline_status.DIRECTORIO_PROCESADOS / "IUSA_1" / recurso.csv_filtrado
+    )
+    corte = pd.Timestamp("2026-08-26 13:30:00")
+    _preparar(
+        monkeypatch,
+        [sub],
+        {
+            med.nombre: _resumen(med.nombre, "2026-08-27 00:00:00"),
+            "IUSASOL_Planta": _resumen("IUSASOL_Planta", "2026-08-27 00:00:00"),
+        },
+        {
+            med.ruta: corte,
+            ruta_gen: corte,
+        },
+        generacion_por_sub={"IUSA_1": recurso},
+        filtrado_por_ruta={
+            med.ruta_filtrado: corte,
+            ruta_filtrado_gen: corte,
+        },
+    )
+    warnings = []
+    monkeypatch.setattr(pipeline_status.st, "warning", lambda texto: warnings.append(texto))
+    pipeline_status.render_aviso_reporte_desactualizado()
+    assert warnings == []
+
+
+def test_filtrado_adelante_de_reporte_sigue_alertando(monkeypatch):
+    """Filtrado avanzó y el combinado no: sigue siendo un desfase real."""
+    med = _MedidorFalso("ION_Testigo_IUSA1", "ruta_1", ruta_filtrado="filtrado_iusa1")
+    sub = _SubestacionFalsa("IUSA_1", "IUSA 1", med)
+    corte_rep = pd.Timestamp("2026-08-26 06:00:00")
+    corte_fil = pd.Timestamp("2026-08-26 13:30:00")
+    _preparar(
+        monkeypatch,
+        [sub],
+        {med.nombre: _resumen(med.nombre, "2026-08-27 00:00:00")},
+        {med.ruta: corte_rep},
+        filtrado_por_ruta={med.ruta_filtrado: corte_fil},
+    )
+    warnings = []
+    monkeypatch.setattr(pipeline_status.st, "warning", lambda texto: warnings.append(texto))
+    pipeline_status.render_aviso_reporte_desactualizado()
+    assert len(warnings) == 1
+    assert "datos listos hasta 26/08/2026 13:30" in warnings[0]
+    assert "reporte hasta 26/08/2026 06:00" in warnings[0]

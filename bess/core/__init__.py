@@ -12,6 +12,7 @@ from bess.core.numbers import (
     redondear_arriba_kw,
     redondear_arriba_mxn,
     redondear_kwh,
+    redondear_kw,
     redondear_mxn_energia,
     sumar_energia,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "redondear_arriba_kw",
     "redondear_arriba_mxn",
     "redondear_kwh",
+    "redondear_kw",
     "redondear_mxn_energia",
     "sumar_energia",
 ]

@@ -56,7 +56,7 @@ def _pdf_celda_metrica(etiqueta: str, valor: str, subtitulo: str, color: str):
     return tbl
 
 
-def _pdf_tarjetas_demanda(kw: int, mxn: float, disponible: bool):
+def _pdf_tarjetas_demanda(kw: float, mxn: float, disponible: bool):
     from reportlab.lib import colors
     from reportlab.platypus import Table, TableStyle
     from reportlab.lib.units import inch
@@ -67,7 +67,7 @@ def _pdf_tarjetas_demanda(kw: int, mxn: float, disponible: bool):
     mitad = cw * 0.5
     kw_tbl = _pdf_celda_metrica(
         "Reducción de demanda BESS",
-        f"{kw:,}",
+        f"{float(kw):,.3f}",
         "kW (Shapley)",
         _PDF["primary"],
     )

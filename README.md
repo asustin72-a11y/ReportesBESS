@@ -3,7 +3,7 @@
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS
 (ION y BANCO), con portal de suite hacia **Granja Solar** (21 MEGAs).
 
-**Versión actual:** 5.18.17 — Análisis de Perfil: wizard estable y sidebar limpia.
+**Versión actual:** 5.18.18 — Shapley kW precisos y aviso de reporte sin falso positivo.
 
 ## Ejecución local (Suite)
 

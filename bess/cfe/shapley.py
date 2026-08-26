@@ -25,7 +25,7 @@ from bess.core.demand import (
     aplicar_mascara_demanda_maximo,
     demanda_rodante_15min_por_mes,
 )
-from bess.core.numbers import redondear_arriba_kw, redondear_mxn_energia
+from bess.core.numbers import redondear_arriba_kw, redondear_kw, redondear_mxn_energia
 from bess.data.aggregates.generacion import fuente_energetica_medidor
 from bess.tariffs.loader import cargar_tarifas
 
@@ -353,7 +353,10 @@ def calcular_participacion_capacidad(
     phi_mxn_raw = _shapley_valores(v_mxn, jugadores)
     phi_punta_raw = _shapley_valores(v_punta, jugadores)
 
-    phi_cap = {j: redondear_arriba_kw(phi_cap_raw[j]) for j in jugadores}
+    # Aportación por participante en kW: 3 decimales (no ceil).
+    # El total N−∅ sigue en enteros de capacidad CFE; ceil por jugador
+    # hacía que la suma de tarjetas superara el ahorro total.
+    phi_cap = {j: redondear_kw(phi_cap_raw[j], 3) for j in jugadores}
     phi_mxn = {j: redondear_mxn_energia(phi_mxn_raw[j]) for j in jugadores}
     phi_punta = {j: redondear_arriba_kw(phi_punta_raw[j]) for j in jugadores}
 
@@ -425,7 +428,7 @@ def calcular_participacion_capacidad(
     ]
     for j in jugadores:
         conceptos_kw.append(f"Shapley {etiquetas[j]} (kW)")
-        valores_kw.append(f"{phi_cap[j]:,}")
+        valores_kw.append(f"{phi_cap[j]:,.3f}")
     for j in jugadores:
         conceptos_kw.append(f"Participación {etiquetas[j]} (%)")
         valores_kw.append(f"{pct_kw[j]:.1f} %")
@@ -454,7 +457,7 @@ def calcular_participacion_capacidad(
         filas_part.append(
             {
                 "Participante": etiquetas[j],
-                "Ahorro capacidad (kW)": f"{phi_cap[j]:,}",
+                "Ahorro capacidad (kW)": f"{phi_cap[j]:,.3f}",
                 "Ahorro (MXN)": f"${phi_mxn[j]:,.2f}",
                 "Participación": f"{pct_mxn[j]:.1f} %",
             }

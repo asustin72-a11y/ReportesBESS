@@ -157,6 +157,7 @@ def evaluar_pipeline() -> EstadoPipeline:
 class DesfaseReporte:
     sub_id: str
     etiqueta: str
+    # Tope de datos ya listos para reportes (min de sync_state y filtrado).
     ultima_sync: datetime | None
     ultima_reporte: datetime | None
 
@@ -180,6 +181,42 @@ def _parse_fecha_sync(texto: str | None) -> datetime | None:
     return dt.replace(tzinfo=None)
 
 
+def _ts_a_datetime(ts) -> datetime | None:
+    if ts is None:
+        return None
+    if hasattr(ts, "to_pydatetime"):
+        return ts.to_pydatetime()
+    if isinstance(ts, datetime):
+        return ts.replace(tzinfo=None) if ts.tzinfo else ts
+    return None
+
+
+def _tope_datos_disponibles(
+    ultima_sync: datetime | None,
+    ruta_filtrado,
+    cursor_archivo_limpio,
+) -> datetime | None:
+    """Tope real para regenerar reportes: min(sync_state, última Fecha del filtrado).
+
+    El sync_state puede ir por delante del CSV filtrado (p. ej. intersección
+    con BESS aún no filtrada, o slot 00:00 en BD). Generar reportes solo
+    puede llegar hasta el filtrado; comparar sync crudo vs COMBINADO genera
+    avisos falsos cuando el usuario ya regeneró y el combinado está al día
+    con Filtrar. Si no hay filtrado legible, se usa solo sync_state.
+    """
+    ultima_filtrado: datetime | None = None
+    if ruta_filtrado is not None:
+        try:
+            ultima_filtrado = _ts_a_datetime(cursor_archivo_limpio(ruta_filtrado))
+        except Exception:
+            ultima_filtrado = None
+    if ultima_sync is None:
+        return ultima_filtrado
+    if ultima_filtrado is None:
+        return ultima_sync
+    return min(ultima_sync, ultima_filtrado)
+
+
 def _evaluar_reporte(
     sub_id: str,
     etiqueta: str,
@@ -187,35 +224,37 @@ def _evaluar_reporte(
     ruta_reporte,
     sync_por_medidor: dict,
     ultima_fecha_hora_escrita,
+    cursor_archivo_limpio,
+    ruta_filtrado=None,
 ) -> "DesfaseReporte":
-    ultima_sync = _parse_fecha_sync(sync_por_medidor.get(medidor_id))
+    ultima_sync = _tope_datos_disponibles(
+        _parse_fecha_sync(sync_por_medidor.get(medidor_id)),
+        ruta_filtrado,
+        cursor_archivo_limpio,
+    )
 
     ultima_reporte: datetime | None = None
     try:
         ts = ultima_fecha_hora_escrita(ruta_reporte)
     except Exception:
         ts = None
-    if ts is not None:
-        ultima_reporte = ts.to_pydatetime()
+    ultima_reporte = _ts_a_datetime(ts)
 
     return DesfaseReporte(sub_id, etiqueta, ultima_sync, ultima_reporte)
 
 
 def evaluar_desfase_reportes() -> list[DesfaseReporte]:
-    """Compara, por subestación, la última fecha ya sincronizada (sync_state
-    en SQLite) contra la última fecha escrita en su reporte combinado --
-    tanto el de consumo (medidor de facturación) como el de generación
-    (granja o cogeneración/individual), si la subestación tiene uno.
+    """Compara, por subestación, el tope de datos disponibles (sync_state
+    acotado por el CSV filtrado) contra la última fecha del reporte combinado
+    -- consumo (facturación) y generación (granja / cogeneración), si aplica.
 
-    Detecta el caso "el sync (o Filtrar) sigue avanzando pero Reportes se
-    quedó congelado en un corte viejo" -- p. ej. un reporte regenerado justo
-    después de restaurar un respaldo, antes de que el sync se pusiera al día,
-    y nunca vuelto a regenerar tras los sync/filtrados posteriores. Caso real
-    que motivó cubrir también generación: GENERACION_ARAGON con Filtrado al
-    corriente (11:25) y su combinado congelado varias horas atrás (08:20),
-    sin que el aviso original (solo consumo) lo detectara.
+    Detecta "Filtrar ya avanzó pero Reportes quedó congelado" (p. ej.
+    GENERACION_ARAGON con filtrado al corriente y combinado atrasado). No
+    alerta cuando el combinado ya alcanzó el filtrado aunque sync_state
+    siga más adelante (regenerar reportes no puede inventar filas).
     """
     from bess.data.aggregates.combined import ultima_fecha_hora_escrita
+    from bess.data.pipeline.clean import cursor_archivo_limpio
     from bess.ui.db_tools.service import sync_state_por_medidor
 
     try:
@@ -227,9 +266,15 @@ def evaluar_desfase_reportes() -> list[DesfaseReporte]:
     for sub in SUBESTACIONES:
         med = sub.medidor_facturacion
         if med:
+            ruta_filtrado = None
+            try:
+                ruta_filtrado = med.ruta_consumo_lectura(filtrado=True)
+            except Exception:
+                ruta_filtrado = None
             resultado.append(_evaluar_reporte(
                 sub.id, sub.nombre, med.nombre, med.ruta_combinado(),
                 sync_por_medidor, ultima_fecha_hora_escrita,
+                cursor_archivo_limpio, ruta_filtrado,
             ))
 
         for recurso in subestaciones_mod.recursos_generacion_subestacion(sub.id):
@@ -239,9 +284,13 @@ def evaluar_desfase_reportes() -> list[DesfaseReporte]:
             etiqueta = f"{sub.nombre} · {recurso.etiqueta}"
             if recurso.etiqueta == "Generación" or recurso.tipo == "granja":
                 etiqueta = f"{sub.nombre} · Generación"
+            ruta_filtrado_gen = rutas_mod.resolver_ruta_procesado(
+                DIRECTORIO_PROCESADOS / sub.id / recurso.csv_filtrado
+            )
             resultado.append(_evaluar_reporte(
                 sub.id, etiqueta, recurso.prefijo_reporte,
                 ruta_gen, sync_por_medidor, ultima_fecha_hora_escrita,
+                cursor_archivo_limpio, ruta_filtrado_gen,
             ))
     return resultado
 
@@ -265,20 +314,28 @@ def _desfases_atrasados_cached() -> tuple[tuple[str, str, str, float], ...]:
     return tuple(atrasados)
 
 
+def invalidar_cache_desfase_reportes() -> None:
+    """Limpia el cache del aviso tras Filtrar / Generar reportes."""
+    try:
+        _desfases_atrasados_cached.clear()
+    except Exception:
+        pass
+
+
 def render_aviso_reporte_desactualizado():
-    """Aviso persistente si algún reporte quedó atrás respecto a su sync."""
+    """Aviso persistente si algún reporte quedó atrás respecto a datos listos."""
     atrasados = _desfases_atrasados_cached()
     if not atrasados:
         return
 
     lineas = []
-    for etiqueta, ult_rep, ult_sync, horas in atrasados:
+    for etiqueta, ult_rep, ult_disp, horas in atrasados:
         lineas.append(
-            f"- **{etiqueta}**: reporte hasta {ult_rep}, sincronizado hasta "
-            f"{ult_sync} (≈{horas:.0f} h de diferencia)"
+            f"- **{etiqueta}**: reporte hasta {ult_rep}, datos listos hasta "
+            f"{ult_disp} (≈{horas:.0f} h de diferencia)"
         )
     st.warning(
-        "⚠️ **El reporte mostrado no incluye los datos ya sincronizados "
+        "⚠️ **El reporte mostrado no incluye los datos ya listos "
         "más recientes:**\n\n"
         + "\n".join(lineas)
         + "\n\nPara actualizarlo: en la barra lateral use "

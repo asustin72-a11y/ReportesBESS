@@ -110,7 +110,7 @@ def calcular_reporte_acumulado(prefijo: str, fecha_corte: date, *, tarifas: dict
     if shapley_disponible and sub:
         try:
             part = calcular_participacion_capacidad(sub.id, fecha_corte, tarifas=tarifas)
-            shapley_bess_kw = int(part["shapley_kw"]["bess"])
+            shapley_bess_kw = float(part["shapley_kw"]["bess"])
             shapley_bess_mxn = redondear_mxn_energia(part["shapley_mxn"]["bess"])
         except ParticipacionCapacidadError as exc:
             shapley_error = str(exc)
@@ -142,7 +142,7 @@ def calcular_reporte_acumulado(prefijo: str, fecha_corte: date, *, tarifas: dict
         {"Concepto": "Ahorro por arbitraje", "Valor": f"${arbitraje_mxn:,.2f}"},
         {
             "Concepto": "Reducción de demanda aportada por el BESS (Shapley)",
-            "Valor": f"{shapley_bess_kw:,} kW" if shapley_disponible else "—",
+            "Valor": f"{shapley_bess_kw:,.3f} kW" if shapley_disponible else "—",
         },
         {
             "Concepto": "Ahorro de la reducción de demanda",

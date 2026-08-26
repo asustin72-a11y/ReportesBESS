@@ -137,11 +137,11 @@ def _estilizar_concepto_valor(df: pd.DataFrame, filas_destacadas: tuple[int, ...
     return styler
 
 
-def _tarjeta_participante(label: str, kw: int, mxn: float, pct: float, color: str) -> str:
+def _tarjeta_participante(label: str, kw: float, mxn: float, pct: float, color: str) -> str:
     return f"""
     <div class="metric-card" style="border-top:4px solid {color};">
         <div class="label">{label}</div>
-        <div class="value">{kw:,} kW</div>
+        <div class="value">{kw:,.3f} kW</div>
         <div class="sub" style="font-size:14px; color:#4a5568; margin-top:4px;">
             {_fmt_mxn(mxn)} MXN
         </div>
@@ -253,7 +253,7 @@ def tab_participacion_capacidad(df, subestacion_id: str):
             st.markdown(
                 _tarjeta_participante(
                     part["label"],
-                    int(part["kw"]),
+                    float(part["kw"]),
                     float(part["mxn"]),
                     float(part["pct"]),
                     _COLORES_PARTICIPANTE[i % len(_COLORES_PARTICIPANTE)],
