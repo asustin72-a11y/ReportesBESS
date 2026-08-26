@@ -202,6 +202,7 @@ def _tab_importar():
             max_value=hoy,
             disabled=not rebuild_despues,
             key="imp_rebuild_desde",
+            format="DD/MM/YYYY",
         )
 
         archivo = st.file_uploader("Archivo CSV", type=["csv"], key="imp_archivo")
@@ -558,6 +559,7 @@ def _tab_rebuild_csv():
             max_value=hoy,
             key="rb_desde",
             help="La Fuente del medidor se reescribe completa desde esta fecha.",
+            format="DD/MM/YYYY",
         )
         procesar = st.checkbox(
             "Después del export: Verificar → Filtrar → Reportes",
@@ -629,6 +631,7 @@ def _tab_rebuild_csv():
             "Reexportar todos desde",
             max_value=hoy,
             key="rb_todos_desde",
+            format="DD/MM/YYYY",
         )
         procesar_todos = st.checkbox(
             "Después: Verificar → Filtrar → Reportes",

@@ -116,13 +116,23 @@ def render_selector_fecha_unica(
             col_fecha, col_info = st.columns([3, 1])
             with col_fecha:
                 fecha = st.date_input(
-                    label, value=fecha_def, min_value=fecha_min, max_value=fecha_max, key=key,
+                    label,
+                    value=fecha_def,
+                    min_value=fecha_min,
+                    max_value=fecha_max,
+                    key=key,
+                    format="DD/MM/YYYY",
                 )
             with col_info:
                 metric_compact(metric_label, metric_fn(fecha))
         else:
             fecha = st.date_input(
-                label, value=fecha_def, min_value=fecha_min, max_value=fecha_max, key=key,
+                label,
+                value=fecha_def,
+                min_value=fecha_min,
+                max_value=fecha_max,
+                key=key,
+                format="DD/MM/YYYY",
             )
     return fecha
 

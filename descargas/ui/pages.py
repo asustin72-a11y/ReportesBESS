@@ -193,9 +193,19 @@ def _tab_descarga(seccion: str) -> None:
     col_a, col_b = st.columns(2)
     hoy = _hoy()
     with col_a:
-        desde = st.date_input("Desde", value=hoy - timedelta(days=1), key=f"desde_{seccion}")
+        desde = st.date_input(
+            "Desde",
+            value=hoy - timedelta(days=1),
+            key=f"desde_{seccion}",
+            format="DD/MM/YYYY",
+        )
     with col_b:
-        hasta = st.date_input("Hasta", value=hoy, key=f"hasta_{seccion}")
+        hasta = st.date_input(
+            "Hasta",
+            value=hoy,
+            key=f"hasta_{seccion}",
+            format="DD/MM/YYYY",
+        )
 
     if hasta < desde:
         st.error("La fecha fin debe ser mayor o igual a la fecha inicio.")

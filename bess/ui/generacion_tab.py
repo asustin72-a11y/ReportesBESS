@@ -362,6 +362,7 @@ def tab_generacion(sub_id: str | None = None):
                 min_value=fecha_min_global,
                 max_value=fecha_max_global,
                 key="gen_desde",
+                format="DD/MM/YYYY",
             )
         with col2:
             fecha_fin = st.date_input(
@@ -370,6 +371,7 @@ def tab_generacion(sub_id: str | None = None):
                 min_value=fecha_min_global,
                 max_value=fecha_max_global,
                 key="gen_hasta",
+                format="DD/MM/YYYY",
             )
         with col3:
             dias = (fecha_fin - fecha_inicio).days + 1

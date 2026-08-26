@@ -183,12 +183,14 @@ def render_descarga_en_flujo(
             "Desde (API)",
             value=hoy - timedelta(days=1),
             key=f"api_desde_{session_key}_{reset}",
+            format="DD/MM/YYYY",
         )
     with c2:
         hasta = st.date_input(
             "Hasta (API)",
             value=hoy,
             key=f"api_hasta_{session_key}_{reset}",
+            format="DD/MM/YYYY",
         )
     if hasta < desde:
         st.error("La fecha fin API debe ser ≥ inicio.")
@@ -344,12 +346,14 @@ def render_descarga_bidireccional(
             "Desde (API)",
             value=hoy - timedelta(days=1),
             key=f"api_bidi_desde_{reset}",
+            format="DD/MM/YYYY",
         )
     with c2:
         hasta = st.date_input(
             "Hasta (API)",
             value=hoy,
             key=f"api_bidi_hasta_{reset}",
+            format="DD/MM/YYYY",
         )
     if hasta < desde:
         st.error("La fecha fin API debe ser ≥ inicio.")

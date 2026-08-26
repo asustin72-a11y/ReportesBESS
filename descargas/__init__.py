@@ -3,4 +3,4 @@
 __all__ = ["NOMBRE_APP", "VERSION"]
 
 NOMBRE_APP = "Descarga de Perfiles IUSASOL"
-VERSION = "5.18.18"
+VERSION = "5.18.19"

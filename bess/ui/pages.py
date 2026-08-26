@@ -216,6 +216,7 @@ def render_selector_rango(df, prefijo, key_suffix, medidor=None):
             min_value=fecha_min,
             max_value=fecha_max,
             key=f"finicio_{prefijo}_{key_suffix}",
+            format="DD/MM/YYYY",
         )
     with col2:
         fecha_fin = st.date_input(
@@ -224,6 +225,7 @@ def render_selector_rango(df, prefijo, key_suffix, medidor=None):
             min_value=fecha_min,
             max_value=fecha_max,
             key=f"ffin_{prefijo}_{key_suffix}",
+            format="DD/MM/YYYY",
         )
     with col3:
         dias = (fecha_fin - fecha_inicio).days + 1
