@@ -117,7 +117,10 @@ class ResultadoTarifaCFE:
         self,
         base: dict[str, dict[int, float]] | None = None,
     ) -> dict[str, dict[int, float]]:
-        """Matriz TIPOS_TARIFA × 1..12; escribe solo el mes consultado."""
+        """Matriz TIPOS_TARIFA × 1..12; escribe solo el mes consultado.
+
+        Un cargo en 0 no pisa un valor ya presente en ``base`` (>0).
+        """
         out: dict[str, dict[int, float]] = {
             tipo: {m: 0.0 for m in range(1, 13)} for tipo in TIPOS_TARIFA
         }
@@ -127,22 +130,36 @@ class ResultadoTarifaCFE:
                     out[tipo] = {m: 0.0 for m in range(1, 13)}
                 for m, v in valores.items():
                     out[tipo][int(m)] = float(v or 0)
+
+        def _asignar(tipo: str, valor: float) -> None:
+            if tipo not in out:
+                out[tipo] = {m: 0.0 for m in range(1, 13)}
+            nuevo = float(valor or 0)
+            actual = float(out[tipo].get(self.mes, 0) or 0)
+            if abs(nuevo) <= 1e-9 and abs(actual) > 1e-9:
+                return
+            out[tipo][self.mes] = nuevo
+
         for tipo, valor in self.cargos.items():
             if tipo == "Energia":
                 # PDBT / 9CU: un solo $/kWh → Base, sin pisar Base ya parseado.
                 if "Base" not in self.cargos:
-                    out["Base"][self.mes] = float(valor)
+                    _asignar("Base", float(valor))
                 continue
-            if tipo not in out:
-                out[tipo] = {m: 0.0 for m in range(1, 13)}
-            out[tipo][self.mes] = float(valor)
+            _asignar(tipo, float(valor))
         if "CargoFijo" in self.cargos and "Suministro" not in self.cargos:
-            out["Suministro"][self.mes] = float(self.cargos["CargoFijo"])
+            _asignar("Suministro", float(self.cargos["CargoFijo"]))
         return out
 
     def publicado(self) -> bool:
-        """True si hay al menos un cargo numérico distinto de cero."""
-        if any(abs(float(v or 0)) > 1e-9 for v in self.cargos.values()):
+        """True si hay cargo de energía/capacidad (no basta CargoFijo solo)."""
+        # Solo CargoFijo/Suministro no cuenta: CFE a veces muestra fijo
+        # mientras energía sigue en 0 (publicación parcial / tarde).
+        ignorar = {"CargoFijo", "Suministro"}
+        if any(
+            k not in ignorar and abs(float(v or 0)) > 1e-9
+            for k, v in self.cargos.items()
+        ):
             return True
         for tabla in self.tablas:
             for fila in tabla.filas:

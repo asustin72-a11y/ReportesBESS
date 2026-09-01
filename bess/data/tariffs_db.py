@@ -197,6 +197,33 @@ def ensure_tarifas_listo() -> None:
         conn.commit()
 
 
+def _es_cero_tarifa(valor: float | int | None) -> bool:
+    return abs(float(valor or 0)) <= 1e-9
+
+
+def _matriz_vacia() -> dict[str, dict[int, float]]:
+    return {tipo: {mes: 0.0 for mes in range(1, 13)} for tipo in TIPOS_TARIFA}
+
+
+def fusionar_preferir_positivo(
+    *matrices: dict[str, dict[int, float]] | None,
+) -> dict[str, dict[int, float]]:
+    """Une matrices mes a mes: un cero nunca pisa un valor ya cargado (>0)."""
+    out = _matriz_vacia()
+    for matriz in matrices:
+        if not matriz:
+            continue
+        for tipo, valores in matriz.items():
+            out.setdefault(tipo, {m: 0.0 for m in range(1, 13)})
+            for mes, valor in valores.items():
+                mes_i = int(mes)
+                nuevo = float(valor or 0)
+                if _es_cero_tarifa(nuevo):
+                    continue
+                out[tipo][mes_i] = nuevo
+    return out
+
+
 def _matriz_desde_csv(esquema_id: str, anio: int) -> dict[str, dict[int, float]] | None:
     ruta = DIRECTORIO_TARIFAS / archivo_tarifas_csv(anio, esquema=esquema_id)
     if not ruta.is_file():
@@ -206,9 +233,7 @@ def _matriz_desde_csv(esquema_id: str, anio: int) -> dict[str, dict[int, float]]
         df.columns = [str(c).strip() for c in df.columns]
     except Exception:
         return None
-    tarifas: dict[str, dict[int, float]] = {
-        tipo: {mes: 0.0 for mes in range(1, 13)} for tipo in TIPOS_TARIFA
-    }
+    tarifas = _matriz_vacia()
     for _, row in df.iterrows():
         tipo = _normalizar_tipo(row.get("Tarifa", ""))
         if not tipo:
@@ -219,26 +244,9 @@ def _matriz_desde_csv(esquema_id: str, anio: int) -> dict[str, dict[int, float]]
     return tarifas
 
 
-def leer_tarifas_dict(
-    esquema_id: str = ESQUEMA_DEFAULT,
-    anio: int | None = None,
-) -> dict[str, dict[int, float]]:
-    """Formato usado por cargar_tarifas() y cálculos CFE.
-
-    Si se indica ``anio`` y existe el CSV anual, se prioriza ese archivo
-    (merge de mes en scripts de actualización). Si no, lee ``catalog_tarifas``.
-    """
-    esquema = (esquema_id or ESQUEMA_DEFAULT).strip().upper()
-    if esquema not in ESQUEMAS_CATALOGO:
-        esquema = ESQUEMA_DEFAULT
-    if anio is not None:
-        desde_csv = _matriz_desde_csv(esquema, int(anio))
-        if desde_csv is not None:
-            return desde_csv
+def _leer_tarifas_bd(esquema: str) -> dict[str, dict[int, float]]:
     ensure_tarifas_listo()
-    tarifas: dict[str, dict[int, float]] = {
-        tipo: {mes: 0.0 for mes in range(1, 13)} for tipo in TIPOS_TARIFA
-    }
+    tarifas = _matriz_vacia()
     with _conectar() as conn:
         for row in conn.execute(
             "SELECT tarifa, mes, valor FROM catalog_tarifas WHERE esquema_id = ?",
@@ -251,24 +259,111 @@ def leer_tarifas_dict(
     return tarifas
 
 
+def leer_tarifas_dict(
+    esquema_id: str = ESQUEMA_DEFAULT,
+    anio: int | None = None,
+) -> dict[str, dict[int, float]]:
+    """Formato usado por cargar_tarifas() y cálculos CFE.
+
+    Si se indica ``anio``, fusiona CSV anual ∪ ``catalog_tarifas`` sin que un
+    cero pise un valor ya cargado. Sin ``anio``, lee solo la BD.
+    """
+    esquema = (esquema_id or ESQUEMA_DEFAULT).strip().upper()
+    if esquema not in ESQUEMAS_CATALOGO:
+        esquema = ESQUEMA_DEFAULT
+    bd = _leer_tarifas_bd(esquema)
+    if anio is None:
+        return bd
+    return fusionar_preferir_positivo(_matriz_desde_csv(esquema, int(anio)), bd)
+
+
+def leer_matriz_para_sync(
+    esquema_id: str,
+    anio: int,
+) -> dict[str, dict[int, float]]:
+    """Base para merge CFE: CSV ∪ BD, protegiendo valores > 0."""
+    return leer_tarifas_dict(esquema_id, anio)
+
+
 def guardar_tarifas_dict(
     tarifas: dict[str, dict[int, float]],
     esquema_id: str = ESQUEMA_DEFAULT,
     anio: int | None = None,
+    *,
+    preservar_positivos: bool = False,
 ) -> None:
-    """Persiste la matriz en catalog_tarifas (snapshot actual; ``anio`` se ignora en BD)."""
+    """Persiste la matriz en catalog_tarifas (snapshot actual; ``anio`` se ignora en BD).
+
+    Si ``preservar_positivos`` es True (sync CFE), un cero entrante no pisa
+    un valor ya guardado > 0.
+    """
     del anio  # API compatible con scripts anuales; BD es sin año.
     esquema = (esquema_id or ESQUEMA_DEFAULT).strip().upper()
     if esquema not in ESQUEMAS_CATALOGO:
         esquema = ESQUEMA_DEFAULT
+    matriz = tarifas
+    if preservar_positivos:
+        matriz = fusionar_preferir_positivo(_leer_tarifas_bd(esquema), tarifas)
     filas: list[tuple[str, str, int, float]] = []
     for tipo in TIPOS_TARIFA:
-        valores = tarifas.get(tipo, {})
+        valores = matriz.get(tipo, {})
         for mes in range(1, 13):
             filas.append((esquema, tipo, mes, float(valores.get(mes, 0) or 0)))
     with _conectar() as conn:
         init_tarifas_schema(conn)
         _insertar_valores(conn, filas, esquema_id=esquema)
+        conn.commit()
+
+
+def upsert_tarifas_hist_mes(
+    tarifas: dict[str, dict[int, float]],
+    esquema_id: str,
+    anio: int,
+    mes: int,
+) -> None:
+    """Escribe un mes en catalog_tarifas_hist; un cero no borra un valor previo >0."""
+    esquema = (esquema_id or ESQUEMA_DEFAULT).strip().upper()
+    if esquema not in ESQUEMAS_CATALOGO:
+        esquema = ESQUEMA_DEFAULT
+    anio_i = int(anio)
+    mes_i = int(mes)
+    if not 1 <= mes_i <= 12:
+        raise ValueError(f"Mes inválido: {mes}")
+    with _conectar() as conn:
+        init_tarifas_schema(conn)
+        prev = {
+            str(row["tarifa"]): float(row["valor"] or 0)
+            for row in conn.execute(
+                """
+                SELECT tarifa, valor FROM catalog_tarifas_hist
+                WHERE esquema_id = ? AND anio = ? AND mes = ?
+                """,
+                (esquema, anio_i, mes_i),
+            ).fetchall()
+        }
+        filas: list[tuple[str, str, int, int, float]] = []
+        for tipo in TIPOS_TARIFA:
+            nuevo = float(tarifas.get(tipo, {}).get(mes_i, 0) or 0)
+            actual = float(prev.get(tipo, 0) or 0)
+            if _es_cero_tarifa(nuevo) and not _es_cero_tarifa(actual):
+                valor = actual
+            else:
+                valor = nuevo
+            filas.append((esquema, tipo, anio_i, mes_i, valor))
+        conn.execute(
+            """
+            DELETE FROM catalog_tarifas_hist
+            WHERE esquema_id = ? AND anio = ? AND mes = ?
+            """,
+            (esquema, anio_i, mes_i),
+        )
+        conn.executemany(
+            """
+            INSERT INTO catalog_tarifas_hist (esquema_id, tarifa, anio, mes, valor)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            filas,
+        )
         conn.commit()
 
 

@@ -304,6 +304,9 @@ def _tab_validacion() -> None:
 
 
 def _tab_tarifas() -> None:
+    from datetime import date
+
+    from bess.tariffs.cfe_sync import sincronizar_esquema_cfe
     from bess.tariffs.store import column_config_tarifas, guardar_df_tarifas, leer_df_tarifas
 
     st.markdown("##### Tarifas mensuales")
@@ -312,12 +315,99 @@ def _tab_tarifas() -> None:
         [ESQUEMA_DIST, ESQUEMA_GDMTH, ESQUEMA_PDBT, ESQUEMA_T1],
         key="cat_tarifas_esquema",
         help=(
-            "DIST/GDMTH: cálculo BESS · PDBT/T1: catálogo CFE (actualizables por CLI/cron no automático)."
+            "DIST/GDMTH: cálculo BESS y Granja · PDBT/T1: catálogo CFE."
         ),
     )
     st.caption(
-        f"Valores en MXN por tipo y mes ({esquema}). Se guardan en `catalog_tarifas`."
+        f"Valores en MXN por tipo y mes ({esquema}). Se guardan en `catalog_tarifas`. "
+        "El cron automático DIST/GDMTH corre el día 1; si CFE publica tarde, use el botón de abajo."
     )
+
+    hoy = date.today()
+    with st.container(border=True):
+        st.markdown("**Sincronizar desde CFE**")
+        st.caption(
+            "Consulta app.cfe.mx (Playwright). Puede tardar 1–2 min por tarifa. "
+            "Escribe CSV, `catalog_tarifas` e histórico año-mes (Granja usa este último)."
+        )
+        c_anio, c_mes, c_este, c_todas = st.columns([1, 1, 1.4, 1.6])
+        with c_anio:
+            anio_sync = st.number_input(
+                "Año",
+                min_value=2017,
+                max_value=hoy.year + 1,
+                value=hoy.year,
+                step=1,
+                key="cat_tarifas_sync_anio",
+            )
+        with c_mes:
+            mes_sync = st.number_input(
+                "Mes",
+                min_value=1,
+                max_value=12,
+                value=hoy.month,
+                step=1,
+                key="cat_tarifas_sync_mes",
+            )
+        with c_este:
+            st.markdown('<div style="height:1.7rem"></div>', unsafe_allow_html=True)
+            sync_este = st.button(
+                f"Sincronizar {esquema}",
+                use_container_width=True,
+                type="primary",
+                key="cat_btn_sync_esquema",
+            )
+        with c_todas:
+            st.markdown('<div style="height:1.7rem"></div>', unsafe_allow_html=True)
+            sync_todas = st.button(
+                "Sincronizar las 4",
+                use_container_width=True,
+                key="cat_btn_sync_catalogo",
+                help="DIST, GDMTH, PDBT y T1 del mes indicado.",
+            )
+
+        if sync_este or sync_todas:
+            esquemas = (
+                (ESQUEMA_DIST, ESQUEMA_GDMTH, ESQUEMA_PDBT, ESQUEMA_T1)
+                if sync_todas
+                else (esquema,)
+            )
+            resultados = []
+            with st.status(
+                f"Consultando CFE · {int(anio_sync)}-{int(mes_sync):02d}…",
+                expanded=True,
+            ) as status:
+                for esq in esquemas:
+                    st.write(f"Consultando **{esq}**…")
+                    r = sincronizar_esquema_cfe(
+                        esq, anio=int(anio_sync), mes=int(mes_sync)
+                    )
+                    resultados.append(r)
+                    if r.ok:
+                        st.write(f"✓ {r.mensaje}")
+                    else:
+                        st.write(f"✗ {r.esquema_id}: {r.mensaje}")
+                oks = sum(1 for r in resultados if r.ok)
+                if oks == len(resultados):
+                    status.update(label="Catálogo actualizado", state="complete")
+                elif oks:
+                    status.update(label="Actualización parcial", state="complete")
+                else:
+                    status.update(label="No se pudo actualizar", state="error")
+
+            st.session_state.pop(f"cat_editor_tarifas_{esquema}", None)
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+            for r in resultados:
+                if r.ok:
+                    st.success(r.mensaje)
+                else:
+                    st.warning(r.mensaje)
+            if any(r.ok for r in resultados):
+                st.rerun()
+
     df_base = leer_df_tarifas(esquema)
     df_editado = st.data_editor(
         df_base,
@@ -334,6 +424,10 @@ def _tab_tarifas() -> None:
             if ok:
                 st.success(f"Tarifas guardadas en {msg}.")
                 st.session_state.pop(f"cat_editor_tarifas_{esquema}", None)
+                try:
+                    st.cache_data.clear()
+                except Exception:
+                    pass
                 st.rerun()
             else:
                 st.error(msg)

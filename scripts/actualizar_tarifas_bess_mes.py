@@ -16,7 +16,6 @@ Ejemplos:
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -26,12 +25,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bess.config.constants import TIPOS_TARIFA, archivo_tarifas_csv
 from bess.config.esquema_tarifa import ESQUEMAS_CALCULO
-from bess.config.paths import DIRECTORIO_TARIFAS
 from bess.data.ingest.cfe import PRESETS, PRESETS_BESS_AUTO, CfeTarifasError, consultar_preset
-from bess.data.tariffs_db import guardar_tarifas_dict, leer_tarifas_dict
-from bess.tariffs.loader import invalidar_cache_tarifas
+from bess.data.tariffs_db import leer_tarifas_dict
+from bess.tariffs.cfe_sync import persistir_resultado_cfe
 
 ZONA = ZoneInfo("America/Mexico_City")
 HORA_INICIO = 2  # 02:00 del día 1
@@ -44,18 +41,6 @@ def _mes_publicado_en_bd(esquema_id: str, anio: int, mes: int) -> bool:
         if abs(float(matriz.get(tipo, {}).get(mes, 0) or 0)) > 1e-9:
             return True
     return False
-
-
-def _escribir_csv(esquema_id: str, anio: int, matriz: dict) -> Path:
-    ruta = DIRECTORIO_TARIFAS / archivo_tarifas_csv(anio, esquema=esquema_id)
-    DIRECTORIO_TARIFAS.mkdir(parents=True, exist_ok=True)
-    with ruta.open("w", encoding="utf-8-sig", newline="") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(["Tarifa", *[str(m) for m in range(1, 13)]])
-        for tipo in TIPOS_TARIFA:
-            valores = matriz.get(tipo, {})
-            writer.writerow([tipo, *[valores.get(m, 0.0) for m in range(1, 13)]])
-    return ruta
 
 
 def _debe_intentar(ahora: datetime, *, forzar: bool) -> tuple[bool, str]:
@@ -129,7 +114,10 @@ def main() -> int:
             continue
 
         if not resultado.publicado():
-            print(f"  PENDIENTE {preset_id}: respuesta sin cargos > 0")
+            print(
+                f"  PENDIENTE {preset_id}: sin energía/capacidad > 0 "
+                "(publicación parcial o mes aún no publicado)"
+            )
             fallos_publicacion += 1
             continue
 
@@ -141,12 +129,7 @@ def main() -> int:
             print("  (dry-run: no se escribe)")
             continue
 
-        matriz = resultado.a_matriz_mes(
-            leer_tarifas_dict(resultado.esquema_id, resultado.anio)
-        )
-        ruta = _escribir_csv(resultado.esquema_id, resultado.anio, matriz)
-        guardar_tarifas_dict(matriz, resultado.esquema_id, resultado.anio)
-        invalidar_cache_tarifas()
+        ruta = persistir_resultado_cfe(resultado)
         print(f"  Guardado {resultado.esquema_id}/{resultado.anio} → {ruta.name}")
 
     if errores:

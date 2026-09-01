@@ -17,7 +17,6 @@ Persistencia (DIST / GDMTH / PDBT / T1):
 from __future__ import annotations
 
 import argparse
-import csv
 import sys
 from datetime import date
 from pathlib import Path
@@ -26,9 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from bess.config.constants import TIPOS_TARIFA, archivo_tarifas_csv
-from bess.config.esquema_tarifa import ESQUEMAS_CATALOGO, ESQUEMAS_CALCULO
-from bess.config.paths import DIRECTORIO_TARIFAS
+from bess.config.esquema_tarifa import ESQUEMAS_CATALOGO
 from bess.data.ingest.cfe import (
     PRESETS,
     TARIFAS_CFE,
@@ -37,18 +34,7 @@ from bess.data.ingest.cfe import (
     consultar_preset,
     consultar_tarifa_catalogo,
 )
-from bess.data.tariffs_db import guardar_tarifas_dict, leer_tarifas_dict
-from bess.tariffs.loader import invalidar_cache_tarifas
-
-
-def _archivo_csv(esquema_id: str, anio: int) -> Path:
-    esquema = (esquema_id or "").strip().upper()
-    if esquema not in ESQUEMAS_CATALOGO:
-        raise ValueError(
-            f"El esquema {esquema_id} no tiene CSV "
-            f"(solo {', '.join(sorted(ESQUEMAS_CATALOGO))})."
-        )
-    return DIRECTORIO_TARIFAS / archivo_tarifas_csv(anio, esquema=esquema)
+from bess.tariffs.cfe_sync import persistir_resultado_cfe
 
 
 def _imprimir(resultado: ResultadoTarifaCFE) -> None:
@@ -84,28 +70,6 @@ def _imprimir(resultado: ResultadoTarifaCFE) -> None:
         for tipo, valor in resultado.cargos.items():
             print(f"  {tipo:<{ancho}}  {valor}")
     print(f"Publicado: {'sí' if resultado.publicado() else 'no'}")
-
-def _escribir_csv(resultado: ResultadoTarifaCFE) -> Path:
-    ruta = _archivo_csv(resultado.esquema_id, resultado.anio)
-    matriz = resultado.a_matriz_mes(
-        leer_tarifas_dict(resultado.esquema_id, resultado.anio)
-    )
-    DIRECTORIO_TARIFAS.mkdir(parents=True, exist_ok=True)
-    with ruta.open("w", encoding="utf-8-sig", newline="") as fh:
-        writer = csv.writer(fh)
-        writer.writerow(["Tarifa", *[str(m) for m in range(1, 13)]])
-        for tipo in TIPOS_TARIFA:
-            valores = matriz.get(tipo, {})
-            writer.writerow([tipo, *[valores.get(m, 0.0) for m in range(1, 13)]])
-    return ruta
-
-
-def _actualizar_bd(resultado: ResultadoTarifaCFE) -> None:
-    matriz = resultado.a_matriz_mes(
-        leer_tarifas_dict(resultado.esquema_id, resultado.anio)
-    )
-    guardar_tarifas_dict(matriz, resultado.esquema_id, resultado.anio)
-    invalidar_cache_tarifas()
 
 
 def main() -> int:
@@ -203,15 +167,9 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 0
-        if resultado.esquema_id not in ESQUEMAS_CALCULO and args.actualizar_bd:
-            # PDBT/T1 van a BD de catálogo; no son cálculo BESS.
-            pass
-    if args.escribir_csv:
-        ruta = _escribir_csv(resultado)
-        print(f"\nCSV actualizado: {ruta}")
-    if args.actualizar_bd:
-        _actualizar_bd(resultado)
-        print(f"BD actualizada: esquema {resultado.esquema_id} · año {resultado.anio}")
+        ruta = persistir_resultado_cfe(resultado)
+        print(f"\nCSV y BD actualizados: {ruta}")
+        print(f"Histórico {resultado.esquema_id} {resultado.anio}-{resultado.mes:02d}")
 
     return 0
 

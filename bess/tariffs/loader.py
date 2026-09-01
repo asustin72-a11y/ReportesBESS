@@ -58,7 +58,7 @@ def tarifa_por_fecha(
     fecha_d = fecha.date() if isinstance(fecha, datetime) else fecha
     hist = cargar_tarifas_historicas(esquema_id)
     valor = hist.get(tarifa, {}).get((fecha_d.year, fecha_d.month))
-    if valor is not None:
+    if valor is not None and abs(float(valor)) > 1e-9:
         return float(valor)
     tarifas = cargar_tarifas(esquema_id)
     return float(tarifas.get(tarifa, {}).get(fecha_d.month, 0.0) or 0.0)
