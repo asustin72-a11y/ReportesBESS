@@ -1667,7 +1667,9 @@ def run_pages(*, desde_suite: bool = False) -> None:
     st.session_state.pop("sidebar_inicial_aplicada", None)
     aplicar_estilos()
     _render_sidebar_analisis()
-    _limpiar_residuos_sidebar_bess()
+    from bess.ui.sidebar_cleanup import limpiar_residuos_nav_bess
+
+    limpiar_residuos_nav_bess()
     _render_barra_sesion()
     render_header(
         NOMBRE_APP,
@@ -1818,36 +1820,6 @@ def _login_analisis() -> None:
 def _ir_paso_analisis(paso: str) -> None:
     """Navegación del wizard: aplicar en el próximo run (antes del radio)."""
     st.session_state["_analisis_paso_goto"] = paso
-
-
-def _limpiar_residuos_sidebar_bess() -> None:
-    """Quita HTML/JS residual de la guía BESS (sobre todo al contraer la barra)."""
-    markup = """
-    <script>
-    (function () {
-      const d = window.parent && window.parent.document ? window.parent.document : document;
-      function limpiar() {
-        d.querySelectorAll(
-          '.sidebar-guia, .sidebar-modulo, .sidebar-flujo, .sidebar-paso,'
-          + '.sidebar-guia-titulo, .sidebar-flujo-titulo, .sidebar-flujo-nota,'
-          + '.bess-floating-tip, #bess-nav-tooltip-root'
-        ).forEach(function (el) { el.remove(); });
-        d.body.classList.remove('bess-rol-user-mode');
-      }
-      limpiar();
-      [50, 200, 600, 1200].forEach(function (ms) { setTimeout(limpiar, ms); });
-    })();
-    </script>
-    """
-    if hasattr(st, "html"):
-        try:
-            st.html(markup, height=0)
-        except TypeError:
-            st.html(markup)
-    else:
-        import streamlit.components.v1 as components
-
-        components.html(markup, height=0)
 
 
 def _run_analisis(reset: int) -> None:

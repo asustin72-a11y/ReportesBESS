@@ -7,8 +7,14 @@ from pathlib import Path
 
 import pandas as pd
 
-from bess.config.constants import ARCHIVO_TARIFAS, ARCHIVO_TARIFAS_GDMTH, TIPOS_TARIFA
-from bess.config.esquema_tarifa import ESQUEMA_DEFAULT, ESQUEMA_GDMTH
+from bess.config.constants import ARCHIVO_TARIFAS, ARCHIVO_TARIFAS_GDMTH, TIPOS_TARIFA, archivo_tarifas_csv
+from bess.config.esquema_tarifa import (
+    ESQUEMA_DEFAULT,
+    ESQUEMA_GDMTH,
+    ESQUEMA_PDBT,
+    ESQUEMA_T1,
+    ESQUEMAS_CATALOGO,
+)
 from bess.config.paths import DIRECTORIO_TARIFAS, RUTA_BD_PERFILES
 
 TARIFAS_SCHEMA_SQL = """
@@ -181,12 +187,54 @@ def ensure_tarifas_listo() -> None:
             if not importar_tarifas_desde_csv(conn, ESQUEMA_DEFAULT):
                 _insertar_valores(conn, _plantilla_filas(ESQUEMA_DEFAULT), esquema_id=ESQUEMA_DEFAULT)
         _asegurar_esquema_desde_csv(conn, ESQUEMA_GDMTH, ARCHIVO_TARIFAS_GDMTH)
+        from datetime import date
+
+        anio = date.today().year
+        for esquema in (ESQUEMA_PDBT, ESQUEMA_T1):
+            _asegurar_esquema_desde_csv(
+                conn, esquema, archivo_tarifas_csv(anio, esquema=esquema)
+            )
         conn.commit()
 
 
-def leer_tarifas_dict(esquema_id: str = ESQUEMA_DEFAULT) -> dict[str, dict[int, float]]:
-    """Formato usado por cargar_tarifas() y cálculos CFE."""
+def _matriz_desde_csv(esquema_id: str, anio: int) -> dict[str, dict[int, float]] | None:
+    ruta = DIRECTORIO_TARIFAS / archivo_tarifas_csv(anio, esquema=esquema_id)
+    if not ruta.is_file():
+        return None
+    try:
+        df = pd.read_csv(ruta, encoding="utf-8-sig")
+        df.columns = [str(c).strip() for c in df.columns]
+    except Exception:
+        return None
+    tarifas: dict[str, dict[int, float]] = {
+        tipo: {mes: 0.0 for mes in range(1, 13)} for tipo in TIPOS_TARIFA
+    }
+    for _, row in df.iterrows():
+        tipo = _normalizar_tipo(row.get("Tarifa", ""))
+        if not tipo:
+            continue
+        tarifas.setdefault(tipo, {m: 0.0 for m in range(1, 13)})
+        for mes in range(1, 13):
+            tarifas[tipo][mes] = float(row.get(str(mes), 0) or 0)
+    return tarifas
+
+
+def leer_tarifas_dict(
+    esquema_id: str = ESQUEMA_DEFAULT,
+    anio: int | None = None,
+) -> dict[str, dict[int, float]]:
+    """Formato usado por cargar_tarifas() y cálculos CFE.
+
+    Si se indica ``anio`` y existe el CSV anual, se prioriza ese archivo
+    (merge de mes en scripts de actualización). Si no, lee ``catalog_tarifas``.
+    """
     esquema = (esquema_id or ESQUEMA_DEFAULT).strip().upper()
+    if esquema not in ESQUEMAS_CATALOGO:
+        esquema = ESQUEMA_DEFAULT
+    if anio is not None:
+        desde_csv = _matriz_desde_csv(esquema, int(anio))
+        if desde_csv is not None:
+            return desde_csv
     ensure_tarifas_listo()
     tarifas: dict[str, dict[int, float]] = {
         tipo: {mes: 0.0 for mes in range(1, 13)} for tipo in TIPOS_TARIFA
@@ -206,8 +254,13 @@ def leer_tarifas_dict(esquema_id: str = ESQUEMA_DEFAULT) -> dict[str, dict[int, 
 def guardar_tarifas_dict(
     tarifas: dict[str, dict[int, float]],
     esquema_id: str = ESQUEMA_DEFAULT,
+    anio: int | None = None,
 ) -> None:
+    """Persiste la matriz en catalog_tarifas (snapshot actual; ``anio`` se ignora en BD)."""
+    del anio  # API compatible con scripts anuales; BD es sin año.
     esquema = (esquema_id or ESQUEMA_DEFAULT).strip().upper()
+    if esquema not in ESQUEMAS_CATALOGO:
+        esquema = ESQUEMA_DEFAULT
     filas: list[tuple[str, str, int, float]] = []
     for tipo in TIPOS_TARIFA:
         valores = tarifas.get(tipo, {})

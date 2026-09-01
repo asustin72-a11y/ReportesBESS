@@ -5,12 +5,13 @@ Consulta libre (cualquier código del catálogo):
   python scripts/consultar_tarifas_cfe.py --codigo DIST --mes 8 \\
       --estado "ESTADO DE MÉXICO" --municipio JOCOTITLAN --division "CENTRO SUR"
 
-Presets BESS:
+Presets:
   python scripts/consultar_tarifas_cfe.py --preset jocotitlan --mes 8
   python scripts/consultar_tarifas_cfe.py --preset tarifa1 --mes 8
 
-Persistencia (solo presets/cálculo BESS):
+Persistencia (DIST / GDMTH / PDBT / T1):
   python scripts/consultar_tarifas_cfe.py --preset jocotitlan --mes 8 --escribir-csv --actualizar-bd
+  python scripts/consultar_tarifas_cfe.py --preset miguel_hidalgo --mes 8 --escribir-csv --actualizar-bd
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from bess.config.constants import TIPOS_TARIFA, archivo_tarifas_csv
-from bess.config.esquema_tarifa import ESQUEMAS_CALCULO, ESQUEMAS_VALIDOS
+from bess.config.esquema_tarifa import ESQUEMAS_CATALOGO, ESQUEMAS_CALCULO
 from bess.config.paths import DIRECTORIO_TARIFAS
 from bess.data.ingest.cfe import (
     PRESETS,
@@ -42,10 +43,10 @@ from bess.tariffs.loader import invalidar_cache_tarifas
 
 def _archivo_csv(esquema_id: str, anio: int) -> Path:
     esquema = (esquema_id or "").strip().upper()
-    if esquema not in ESQUEMAS_VALIDOS:
+    if esquema not in ESQUEMAS_CATALOGO:
         raise ValueError(
             f"El esquema {esquema_id} no tiene CSV "
-            f"(solo {', '.join(sorted(ESQUEMAS_VALIDOS))})."
+            f"(solo {', '.join(sorted(ESQUEMAS_CATALOGO))})."
         )
     return DIRECTORIO_TARIFAS / archivo_tarifas_csv(anio, esquema=esquema)
 
@@ -141,12 +142,12 @@ def main() -> int:
     parser.add_argument(
         "--escribir-csv",
         action="store_true",
-        help="Fusiona el mes en data/Tarifas (solo esquemas del catálogo BESS).",
+        help="Fusiona el mes en data/Tarifas (DIST/GDMTH/PDBT/T1).",
     )
     parser.add_argument(
         "--actualizar-bd",
         action="store_true",
-        help="Fusiona el mes en catalog_tarifas (solo esquemas BESS).",
+        help="Fusiona el mes en catalog_tarifas (DIST/GDMTH/PDBT/T1).",
     )
     args = parser.parse_args()
 
@@ -195,15 +196,15 @@ def main() -> int:
     _imprimir(resultado)
 
     if args.escribir_csv or args.actualizar_bd:
-        if resultado.esquema_id not in ESQUEMAS_VALIDOS:
+        if resultado.esquema_id not in ESQUEMAS_CATALOGO:
             print(
-                f"\nAVISO: esquema {resultado.esquema_id} no está en el catálogo BESS; "
-                "no se escribe.",
+                f"\nAVISO: esquema {resultado.esquema_id} no está en el catálogo "
+                f"persistible ({', '.join(sorted(ESQUEMAS_CATALOGO))}); no se escribe.",
                 file=sys.stderr,
             )
             return 0
         if resultado.esquema_id not in ESQUEMAS_CALCULO and args.actualizar_bd:
-            # PDBT/T1 sí pueden ir a BD de catálogo, pero no son cálculo BESS.
+            # PDBT/T1 van a BD de catálogo; no son cálculo BESS.
             pass
     if args.escribir_csv:
         ruta = _escribir_csv(resultado)

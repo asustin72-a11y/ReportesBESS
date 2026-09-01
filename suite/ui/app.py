@@ -30,6 +30,7 @@ def main() -> None:
         return
 
     from bess.ui.auth import init_session, login, preparar_ui_login, restaurar_ui_app
+    from bess.ui.sidebar_cleanup import limpiar_residuos_nav_bess
     from bess.ui.styles import aplicar_estilos_login
     from suite.ui.selector import render_selector_modulos
 
@@ -60,6 +61,7 @@ def main() -> None:
 
     modulo = st.session_state.get("suite_modulo")
     if modulo not in MODULOS_VALIDOS:
+        limpiar_residuos_nav_bess()
         restaurar_ui_app(restaurar_sidebar=False)
         render_selector_modulos()
         return
@@ -69,6 +71,10 @@ def main() -> None:
 
         bess_main(desde_suite=True)
         return
+
+    # Apps hermanas: quitar guía/tooltips BESS antes de montar su UI.
+    limpiar_residuos_nav_bess()
+    st.session_state.pop("sidebar_inicial_aplicada", None)
 
     if modulo == MODULO_GRANJA:
         from granja.ui.pages import run_pages as granja_main

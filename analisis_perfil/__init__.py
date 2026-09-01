@@ -2,4 +2,4 @@
 
 NOMBRE_APP = "Análisis de Perfil"
 NOMBRE_SUITE = "IUSASOL"
-VERSION = "5.18.19"
+VERSION = "5.18.20"

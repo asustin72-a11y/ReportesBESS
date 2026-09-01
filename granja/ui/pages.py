@@ -913,6 +913,9 @@ def run_pages(*, desde_suite: bool = False) -> None:
     es_superadmin = rol_es_superadmin(st.session_state.get("rol"))
     restaurar_ui_app(restaurar_sidebar=es_superadmin)
     aplicar_estilos()
+    from bess.ui.sidebar_cleanup import limpiar_residuos_nav_bess
+
+    limpiar_residuos_nav_bess()
     if not es_superadmin:
         st.markdown(
             '<div class="bess-rol-user" aria-hidden="true"></div>',

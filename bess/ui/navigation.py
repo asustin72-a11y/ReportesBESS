@@ -385,8 +385,7 @@ def html_guia_usuario_sidebar() -> str:
     items = "".join(
         f'<div class="sidebar-modulo">'
         f'<span class="sidebar-modulo-icon">{s["icono"]}</span>'
-        f'<div><strong>{s["titulo"]}</strong>'
-        f'<p>{s["resumen"]}</p></div></div>'
+        f'<div><strong>{s["titulo"]}</strong></div></div>'
         for s in SECCIONES
     )
     return (

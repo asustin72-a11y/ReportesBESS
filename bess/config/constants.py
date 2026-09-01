@@ -25,6 +25,16 @@ TIPOS_TARIFA = [
 ]
 
 
+def archivo_tarifas_csv(anio: int, *, esquema: str = "DIST") -> str:
+    """Nombre de CSV anual en data/Tarifas (DIST → Tarifas_YYYY.csv)."""
+    clave = (esquema or "DIST").strip().upper()
+    if clave == "DIST":
+        return f"Tarifas_{int(anio)}.csv"
+    if clave == "T1":
+        return f"Tarifas_T1_{int(anio)}.csv"
+    return f"Tarifas_{clave}_{int(anio)}.csv"
+
+
 def etiqueta_medidor(codigo: str) -> str:
     """Etiqueta visible del medidor de consumo o subestación."""
     med = medidor_consumo_por_prefijo(codigo)

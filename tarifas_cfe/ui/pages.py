@@ -70,6 +70,9 @@ def run_pages(*, desde_suite: bool = False) -> None:
 
     restaurar_ui_app(restaurar_sidebar=False)
     aplicar_estilos()
+    from bess.ui.sidebar_cleanup import limpiar_residuos_nav_bess
+
+    limpiar_residuos_nav_bess()
     _render_header()
 
     with st.sidebar:

@@ -86,6 +86,9 @@ def run_pages(*, desde_suite: bool = False) -> None:
         '<div class="bess-rol-user" aria-hidden="true"></div>',
         unsafe_allow_html=True,
     )
+    from bess.ui.sidebar_cleanup import limpiar_residuos_nav_bess
+
+    limpiar_residuos_nav_bess()
 
     logo_html = obtener_logo_html(288)
     usuario = st.session_state.get("usuario", "")

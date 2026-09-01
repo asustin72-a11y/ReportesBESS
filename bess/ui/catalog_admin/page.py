@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 from bess.config.catalog import DESCARGAS_VALIDAS, GENERACION_GRUPO, GENERACION_INDIVIDUAL, GENERACION_NINGUNA
-from bess.config.esquema_tarifa import ESQUEMA_DIST, ESQUEMA_GDMTH
+from bess.config.esquema_tarifa import ESQUEMA_DIST, ESQUEMA_GDMTH, ESQUEMA_PDBT, ESQUEMA_T1
 from bess.ui.catalog_admin import service
 from bess.ui.styles import aplicar_estilos
 
@@ -309,9 +309,11 @@ def _tab_tarifas() -> None:
     st.markdown("##### Tarifas mensuales")
     esquema = st.selectbox(
         "Esquema tarifario",
-        [ESQUEMA_DIST, ESQUEMA_GDMTH],
+        [ESQUEMA_DIST, ESQUEMA_GDMTH, ESQUEMA_PDBT, ESQUEMA_T1],
         key="cat_tarifas_esquema",
-        help="DIST: IUSA 1 e IUSA 2 · GDMTH: IUSA ARAGON (precios en ceros hasta cargar histórico).",
+        help=(
+            "DIST/GDMTH: cálculo BESS · PDBT/T1: catálogo CFE (actualizables por CLI/cron no automático)."
+        ),
     )
     st.caption(
         f"Valores en MXN por tipo y mes ({esquema}). Se guardan en `catalog_tarifas`."

@@ -4,8 +4,19 @@ from __future__ import annotations
 
 ESQUEMA_DIST = "DIST"
 ESQUEMA_GDMTH = "GDMTH"
+# Catálogo CFE (ingest/presets); no son esquemas de cálculo BESS.
+ESQUEMA_PDBT = "PDBT"
+ESQUEMA_T1 = "T1"
 ESQUEMA_DEFAULT = ESQUEMA_DIST
-ESQUEMAS_VALIDOS = frozenset({ESQUEMA_DIST, ESQUEMA_GDMTH})
+
+# Esquemas usados en periodos / recibo / energía BESS.
+ESQUEMAS_CALCULO = frozenset({ESQUEMA_DIST, ESQUEMA_GDMTH})
+# Esquemas con CSV en data/Tarifas y filas en catalog_tarifas.
+ESQUEMAS_CATALOGO = frozenset(
+    {ESQUEMA_DIST, ESQUEMA_GDMTH, ESQUEMA_PDBT, ESQUEMA_T1}
+)
+# Alias histórico: validación de cálculo BESS.
+ESQUEMAS_VALIDOS = ESQUEMAS_CALCULO
 
 FACTOR_CFE_CAPACIDAD_DIST = 0.74
 FACTOR_CFE_CAPACIDAD_GDMTH = 0.57
@@ -25,8 +36,28 @@ _NETMETERING: dict[str, bool] = {
 
 def normalizar_esquema_tarifa(valor: str | None) -> str:
     clave = (valor or ESQUEMA_DEFAULT).strip().upper()
-    if clave not in ESQUEMAS_VALIDOS:
+    if clave not in ESQUEMAS_CALCULO:
         return ESQUEMA_DEFAULT
+    return clave
+
+
+def normalizar_esquema_catalogo(valor: str | None) -> str:
+    """Normaliza IDs de catálogo (DIST/GDMTH/PDBT/T1); desconocidos → DIST."""
+    clave = (valor or ESQUEMA_DEFAULT).strip().upper()
+    if clave in ("1", "01"):
+        return ESQUEMA_T1
+    if clave not in ESQUEMAS_CATALOGO:
+        return ESQUEMA_DEFAULT
+    return clave
+
+
+def esquema_id_desde_codigo_cfe(codigo: str | None) -> str:
+    """Mapea código CFE del catálogo al id de persistencia (p. ej. 1 → T1)."""
+    clave = (codigo or "").strip().upper()
+    if clave in ("1", "01", "T1"):
+        return ESQUEMA_T1
+    if clave in ESQUEMAS_CATALOGO:
+        return clave
     return clave
 
 

@@ -13,7 +13,7 @@ from typing import Any
 
 from bess.cfe.receipt.pdf import _CHROMIUM_LAUNCH_ARGS, _ensure_playwright_chromium
 from bess.config.constants import TIPOS_TARIFA
-from bess.config.esquema_tarifa import ESQUEMA_DEFAULT
+from bess.config.esquema_tarifa import ESQUEMA_DEFAULT, esquema_id_desde_codigo_cfe
 from bess.data.ingest.cfe.catalog import FamiliaForm, TarifaCFEDef, tarifa_por_codigo
 
 # —— Selectores ASP.NET ——
@@ -743,7 +743,7 @@ def consulta_desde_catalogo(
         estado=estado,
         municipio=municipio,
         division=division,
-        esquema_id=(esquema_id or defn.codigo).upper(),
+        esquema_id=(esquema_id or esquema_id_desde_codigo_cfe(defn.codigo)).upper(),
         region_tabla=region_tabla,
         familia=defn.familia,
         inicio_verano=inicio_verano,
