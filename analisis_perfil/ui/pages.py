@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 import zipfile
-from datetime import datetime
+from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -375,6 +375,44 @@ def _rango_detectado_fuentes(fuentes) -> tuple | None:
     return rango
 
 
+def _fmt_fecha_ui(d: date) -> str:
+    return d.strftime("%d/%m/%Y")
+
+
+def _sincronizar_fechas_subintervalo(
+    *,
+    reset: int,
+    rango: tuple[date, date] | None,
+) -> None:
+    """Ajusta session_state de Desde/Hasta al rango detectado (antes de date_input)."""
+    key_d = f"fecha_desde_{reset}"
+    key_h = f"fecha_hasta_{reset}"
+    key_sig = f"_rango_subintervalo_sig_{reset}"
+    if rango is None:
+        st.session_state.pop(key_sig, None)
+        return
+    d0, d1 = rango
+    firma = (d0.isoformat(), d1.isoformat())
+    if st.session_state.get(key_sig) != firma:
+        st.session_state[key_sig] = firma
+        st.session_state[key_d] = d0
+        st.session_state[key_h] = d1
+        return
+    # Mismo archivo: solo acotar si el usuario se salió del rango.
+    cur_d = st.session_state.get(key_d)
+    cur_h = st.session_state.get(key_h)
+    if isinstance(cur_d, date):
+        st.session_state[key_d] = min(max(cur_d, d0), d1)
+    else:
+        st.session_state[key_d] = d0
+    if isinstance(cur_h, date):
+        st.session_state[key_h] = min(max(cur_h, d0), d1)
+    else:
+        st.session_state[key_h] = d1
+    if st.session_state[key_h] < st.session_state[key_d]:
+        st.session_state[key_h] = st.session_state[key_d]
+
+
 def _mostrar_calidad(perfil: Path, servicio: str) -> None:
     from calidad_perfil import analizar_calidad_perfil
 
@@ -422,8 +460,14 @@ def _mostrar_calidad(perfil: Path, servicio: str) -> None:
                 st.dataframe(huecos, hide_index=True, use_container_width=True)
 
 
-def _mostrar_demanda_pico(perfil: Path, servicio: str) -> None:
-    from demanda_pico import demanda_pico_consumo_real, demanda_pico_perfil
+def _mostrar_demanda_pico(perfil: Path, servicio: str, esquema: str = "") -> None:
+    from demanda_pico import (
+        demanda_maxima_por_periodo,
+        demanda_pico_consumo_real,
+        demanda_pico_perfil,
+        esquema_requiere_demanda,
+    )
+    from servicio_config import PERIODOS
 
     col = "KWH_ENT" if servicio == "generacion" else "KWH_REC"
     try:
@@ -433,10 +477,20 @@ def _mostrar_demanda_pico(perfil: Path, servicio: str) -> None:
             if servicio == "bidireccional"
             else None
         )
+        por_periodo = None
+        por_periodo_real = None
+        if esquema_requiere_demanda(esquema):
+            por_periodo = demanda_maxima_por_periodo(
+                perfil, esquema, columna=col
+            )
+            if servicio == "bidireccional":
+                por_periodo_real = demanda_maxima_por_periodo(
+                    perfil, esquema, columna="CONSUMO_REAL"
+                )
     except Exception as exc:
         st.caption(f"Demanda pico no disponible: {exc}")
         return
-    if not pico and not pico_real:
+    if not pico and not pico_real and not por_periodo and not por_periodo_real:
         return
 
     with st.container(border=True):
@@ -446,7 +500,7 @@ def _mostrar_demanda_pico(perfil: Path, servicio: str) -> None:
             unsafe_allow_html=True,
         )
         st.caption(
-            "kW = kWh del intervalo × (60 / minutos). "
+            "Pico de intervalo: kW = kWh × (60 / minutos). "
             "Clic en «Ver perfil del día» abre el cincominutal."
         )
         cols = st.columns(2 if pico_real else 1)
@@ -475,6 +529,64 @@ def _mostrar_demanda_pico(perfil: Path, servicio: str) -> None:
                         "color": COLORES["danger"],
                     }
                     st.rerun()
+
+        def _tabla_periodos_demanda(bloque: dict, titulo: str, key_pref: str) -> None:
+            st.markdown(f"**{titulo}** ({bloque['esquema']} · media rodante {bloque['ventana_min']} min)")
+            st.caption(
+                "Máximo por periodo tarifario (Base / Intermedio / Punta). "
+                "Se excluyen los 2 primeros intervalos de cada racha de periodo."
+            )
+            filas = []
+            for periodo in PERIODOS:
+                p = (bloque.get("por_periodo") or {}).get(periodo)
+                if not p:
+                    filas.append(
+                        {
+                            "Periodo": periodo,
+                            "kW": "—",
+                            "Timestamp": "—",
+                            "Día operativo": "—",
+                        }
+                    )
+                    continue
+                filas.append(
+                    {
+                        "Periodo": periodo,
+                        "kW": round(float(p["kw"]), 2),
+                        "Timestamp": p["timestamp"],
+                        "Día operativo": p["dia"],
+                    }
+                )
+            st.dataframe(filas, hide_index=True, use_container_width=True)
+            for periodo in PERIODOS:
+                p = (bloque.get("por_periodo") or {}).get(periodo)
+                if not p:
+                    continue
+                if st.button(
+                    f"Ver día {periodo} ({p['dia']})",
+                    key=f"{key_pref}_{periodo}_{p['dia']}",
+                ):
+                    st.session_state["detalle_perfil_dia"] = {
+                        "dia": p["dia"],
+                        "columna": bloque["columna"],
+                        "color": COLORES.get(periodo.lower(), COLORES["danger"]),
+                    }
+                    st.rerun()
+
+        if por_periodo:
+            st.divider()
+            _tabla_periodos_demanda(
+                por_periodo,
+                f"Demanda máxima por periodo · {col}",
+                f"dem_per_{col}",
+            )
+        if por_periodo_real:
+            st.divider()
+            _tabla_periodos_demanda(
+                por_periodo_real,
+                "Demanda máxima por periodo · consumo real",
+                "dem_per_real",
+            )
 
 
 def _zip_bytes(archivos: list[Path], base: Path) -> bytes:
@@ -2165,27 +2277,52 @@ def _ui_paso_perfiles(
             _rango_detectado_fuentes(fuentes_rango) if listo_archivos else None
         )
         if rango_perfil:
-            st.caption(f"Detectado: {rango_perfil[0]} → {rango_perfil[1]}")
+            d0, d1 = rango_perfil
+            st.caption(
+                f"Detectado en el archivo: {_fmt_fecha_ui(d0)} → {_fmt_fecha_ui(d1)}"
+            )
+        else:
+            st.caption(
+                "Suba un perfil para detectar el intervalo disponible."
+            )
         usar_rango = st.checkbox(
             "Analizar solo un subintervalo",
             value=False,
             key=f"usar_rango_{reset}",
+            disabled=rango_perfil is None,
         )
-        if usar_rango:
+        if usar_rango and rango_perfil:
+            d0, d1 = rango_perfil
+            _sincronizar_fechas_subintervalo(reset=reset, rango=rango_perfil)
             c_d, c_h = st.columns(2)
-            kwargs_d: dict = {"format": "DD/MM/YYYY", "key": f"fecha_desde_{reset}"}
-            kwargs_h: dict = {"format": "DD/MM/YYYY", "key": f"fecha_hasta_{reset}"}
-            if rango_perfil:
-                d0, d1 = rango_perfil
-                kwargs_d["value"] = d0
-                kwargs_h["value"] = d1
             with c_d:
-                fecha_desde = st.date_input("Desde", **kwargs_d)
+                fecha_desde = st.date_input(
+                    "Desde",
+                    min_value=d0,
+                    max_value=d1,
+                    format="DD/MM/YYYY",
+                    key=f"fecha_desde_{reset}",
+                    help=f"Solo fechas con datos en el perfil ({_fmt_fecha_ui(d0)} … {_fmt_fecha_ui(d1)}).",
+                )
             with c_h:
-                fecha_hasta = st.date_input("Hasta", **kwargs_h)
+                fecha_hasta = st.date_input(
+                    "Hasta",
+                    min_value=d0,
+                    max_value=d1,
+                    format="DD/MM/YYYY",
+                    key=f"fecha_hasta_{reset}",
+                    help=f"Solo fechas con datos en el perfil ({_fmt_fecha_ui(d0)} … {_fmt_fecha_ui(d1)}).",
+                )
             if fecha_hasta < fecha_desde:
                 st.error("La fecha fin debe ser ≥ fecha inicio.")
                 return
+            if fecha_desde == d0 and fecha_hasta == d1:
+                st.caption("Subintervalo = todo el perfil detectado.")
+            else:
+                st.info(
+                    f"Se analizará {_fmt_fecha_ui(fecha_desde)} → {_fmt_fecha_ui(fecha_hasta)} "
+                    f"(datos disponibles hasta {_fmt_fecha_ui(d1)})."
+                )
 
     st.divider()
     col_a, col_b, col_c = st.columns([1, 1, 2])
@@ -2317,7 +2454,7 @@ def _ui_paso_resultados(reset: int, *, desglose_sel: bool) -> None:
             st.caption("Sin resumen en sesión.")
         if perfil_path and perfil_path.is_file():
             _mostrar_calidad(perfil_path, servicio)
-            _mostrar_demanda_pico(perfil_path, servicio)
+            _mostrar_demanda_pico(perfil_path, servicio, esquema)
 
     with tab_graf:
         if grupos.get("diario"):
@@ -2395,10 +2532,27 @@ def _ui_paso_resultados(reset: int, *, desglose_sel: bool) -> None:
                 st.caption(f"CSV recibo no disponible: {exc}")
         if resumen and grupos.get("diario"):
             try:
+                from demanda_pico import (
+                    demanda_maxima_por_periodo,
+                    esquema_requiere_demanda,
+                )
                 from reporte_pdf_analisis import generar_pdf_analisis
 
+                demanda_pdf = None
+                if (
+                    esquema_requiere_demanda(esquema)
+                    and perfil_path
+                    and perfil_path.is_file()
+                ):
+                    col_dem = (
+                        "KWH_ENT" if servicio == "generacion" else "KWH_REC"
+                    )
+                    demanda_pdf = demanda_maxima_por_periodo(
+                        perfil_path, esquema, columna=col_dem
+                    )
                 pdf_key = (
                     f"{job.name}|{servicio}|{esquema}|{int(bool(desglose_sel))}"
+                    f"|dem={bool(demanda_pdf)}"
                 )
                 if st.session_state.get("_pdf_cache_key") != pdf_key:
                     st.session_state["_pdf_cache_bytes"] = generar_pdf_analisis(
@@ -2408,6 +2562,7 @@ def _ui_paso_resultados(reset: int, *, desglose_sel: bool) -> None:
                         esquema=esquema,
                         graficas_tipico=grupos.get("graficas") or [],
                         desglose=desglose_sel,
+                        demanda_por_periodo=demanda_pdf,
                     )
                     st.session_state["_pdf_cache_key"] = pdf_key
                 st.download_button(

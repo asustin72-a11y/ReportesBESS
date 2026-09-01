@@ -164,6 +164,48 @@ def _tabla_metricas(resumen: dict, styles: dict, ancho: float) -> Table:
     return t
 
 
+def _tabla_demanda_periodos(demanda: dict, styles: dict, ancho: float) -> Table | None:
+    from servicio_config import PERIODOS
+
+    por = demanda.get("por_periodo") or {}
+    if not any(por.get(p) for p in PERIODOS):
+        return None
+    filas = [["Periodo", "kW", "Timestamp", "Día operativo"]]
+    for periodo in PERIODOS:
+        p = por.get(periodo)
+        if not p:
+            filas.append([periodo, "—", "—", "—"])
+        else:
+            filas.append(
+                [
+                    periodo,
+                    f"{float(p['kw']):,.2f}",
+                    str(p.get("timestamp") or "—"),
+                    str(p.get("dia") or "—"),
+                ]
+            )
+    col_w = [ancho * 0.18, ancho * 0.16, ancho * 0.40, ancho * 0.26]
+    t = Table(filas, colWidths=col_w)
+    t.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), _AZUL),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8),
+                ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+                ("ALIGN", (0, 0), (0, -1), "LEFT"),
+                ("BACKGROUND", (0, 1), (-1, -1), colors.white),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, _FONDO]),
+                ("GRID", (0, 0), (-1, -1), 0.4, _BORDE),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
+    return t
+
+
 def _tabla_periodos(resumen: dict, styles: dict, ancho: float) -> Table | None:
     if not resumen.get("horaria"):
         return None
@@ -507,6 +549,7 @@ def generar_pdf_analisis(
     esquema: str,
     graficas_tipico: list[Path] | None = None,
     desglose: bool = True,
+    demanda_por_periodo: dict | None = None,
 ) -> bytes:
     """Devuelve el PDF en bytes."""
     styles = _estilos()
@@ -548,6 +591,25 @@ def generar_pdf_analisis(
         if tab_p is not None:
             story.append(Paragraph("Detalle por periodo horario", styles["subtitulo"]))
             story.append(tab_p)
+            story.append(Spacer(1, 6))
+
+    if demanda_por_periodo:
+        tab_d = _tabla_demanda_periodos(demanda_por_periodo, styles, ancho)
+        if tab_d is not None:
+            ventana = demanda_por_periodo.get("ventana_min", 15)
+            story.append(
+                Paragraph(
+                    f"Demanda máxima por periodo (media rodante {ventana} min)",
+                    styles["subtitulo"],
+                )
+            )
+            story.append(
+                Paragraph(
+                    f"Canal: <b>{demanda_por_periodo.get('columna', '—')}</b>",
+                    styles["muted"],
+                )
+            )
+            story.append(tab_d)
             story.append(Spacer(1, 6))
 
     # Costos / ahorro con detalle de precios (si el resumen los trae)
