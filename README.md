@@ -3,7 +3,7 @@
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS
 (ION y BANCO), con portal de suite hacia **Granja Solar** (21 MEGAs).
 
-**Versión actual:** 5.18.22 — Sync manual CFE y protección del catálogo de tarifas.
+**Versión actual:** 5.18.23 — SQLite como fuente de verdad de ArchivosReporte.
 
 ## Ejecución local (Suite)
 
