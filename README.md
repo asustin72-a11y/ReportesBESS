@@ -3,7 +3,7 @@
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS
 (ION y BANCO), con portal de suite hacia **Granja Solar** (21 MEGAs).
 
-**Versión actual:** 5.18.24 — Toggle de leyenda en gráficas Plotly.
+**Versión actual:** 5.18.25 — SQLite reportes, toggle de leyenda y fix dtypes.
 
 ## Ejecución local (Suite)
 
