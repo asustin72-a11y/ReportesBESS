@@ -229,6 +229,8 @@ def graficar_perfil(df, prefijo, titulo, *, incluir_generacion: bool = True):
         elif col_con in df.columns:
             agg_cols = [col_con] + agg_cols
         df['FECHA_DIA'] = serie_fecha_operativa(df['DATETIME'])
+        for col in agg_cols:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
         df_plot = df.groupby('FECHA_DIA', as_index=False)[agg_cols].max()
         df_plot['FECHA_DIA'] = pd.to_datetime(df_plot['FECHA_DIA'])
         x_vals = df_plot['FECHA_DIA']

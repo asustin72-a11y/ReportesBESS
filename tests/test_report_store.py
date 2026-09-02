@@ -72,6 +72,39 @@ def test_cargar_prefiere_bd(tmp_path, monkeypatch):
     assert not fallback_csv_habilitado()
 
 
+def test_leer_dataframe_coerce_numericos_object(tmp_path, monkeypatch):
+    """JSON puede dejar kW como object (p. ej. ''); groupby.max no debe fallar."""
+    from bess.data.report_store import reemplazar_serie
+
+    bd = tmp_path / "t.db"
+    monkeypatch.setattr("bess.data.report_store.RUTA_BD_PERFILES", bd)
+    df = pd.DataFrame(
+        {
+            "FECHA": ["01/05/2026", "01/05/2026"],
+            "FECHA_HORA": ["01/05/2026 00:05", "01/05/2026 00:10"],
+            "PERIODO": ["Base", "Base"],
+            "IUSA_CON_BESS_MED_kW": ["10.5", ""],
+            "BESS_REC_kW": [1.0, 2.0],
+        }
+    )
+    reemplazar_serie(
+        "combinado:MED",
+        df,
+        tipo="combinado",
+        clave_col="FECHA_HORA",
+        ruta_bd=bd,
+    )
+    out = leer_dataframe("combinado:MED", ruta_bd=bd)
+    assert out is not None
+    assert pd.api.types.is_numeric_dtype(out["IUSA_CON_BESS_MED_kW"])
+    assert pd.api.types.is_numeric_dtype(out["BESS_REC_kW"])
+    assert not pd.api.types.is_numeric_dtype(out["FECHA_HORA"])
+    assert out.loc[0, "FECHA_HORA"] == "01/05/2026 00:05"
+    # max diario como en graficar_perfil
+    g = out.groupby(out["FECHA"], as_index=False)[["IUSA_CON_BESS_MED_kW", "BESS_REC_kW"]].max()
+    assert float(g.loc[0, "BESS_REC_kW"]) == 2.0
+
+
 def test_guardar_dataframe_bd_primero(tmp_path, monkeypatch):
     from bess.data.report_store import guardar_dataframe_reporte, leer_dataframe, serie_id_desde_nombre
 

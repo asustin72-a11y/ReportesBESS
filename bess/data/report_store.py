@@ -235,6 +235,32 @@ def reemplazar_serie(
     return len(filas)
 
 
+def _es_columna_texto_reporte(nombre: str) -> bool:
+    n = str(nombre).upper()
+    if n in {"FECHA", "FECHA_HORA", "PERIODO", "HORA"}:
+        # HORA suele ser int; la dejamos coerceable abajo salvo fechas/periodo.
+        return n in {"FECHA", "FECHA_HORA", "PERIODO"}
+    return "FECHA_HORA" in n or n.endswith("_FH")
+
+
+def _coerce_tipos_reporte(df: pd.DataFrame) -> pd.DataFrame:
+    """Tras JSON→DataFrame: columnas numéricas dejan de ser object (evita fallos en groupby.max)."""
+    if df is None or df.empty:
+        return df
+    out = df.copy()
+    for col in out.columns:
+        if _es_columna_texto_reporte(col):
+            continue
+        if pd.api.types.is_numeric_dtype(out[col]):
+            continue
+        convertidos = pd.to_numeric(out[col], errors="coerce")
+        # Conservar texto si casi nada se pudo interpretar como número
+        no_nulos_orig = out[col].replace("", pd.NA).notna().sum()
+        if no_nulos_orig == 0 or convertidos.notna().sum() >= max(1, int(no_nulos_orig * 0.5)):
+            out[col] = convertidos
+    return out
+
+
 def leer_dataframe(serie_id: str, ruta_bd: Path | None = None) -> pd.DataFrame | None:
     """Devuelve DataFrame de la serie o None si no existe / sin filas."""
     ensure_reportes_listo(ruta_bd)
@@ -266,8 +292,8 @@ def leer_dataframe(serie_id: str, ruta_bd: Path | None = None) -> pd.DataFrame |
     # Orden de columnas del CSV original
     orden = [c for c in columnas if c in df.columns]
     extras = [c for c in df.columns if c not in orden]
-    return df[orden + extras] if orden or extras else df
-
+    df = df[orden + extras] if orden or extras else df
+    return _coerce_tipos_reporte(df)
 
 def sincronizar_desde_csv(
     ruta: str | Path,
