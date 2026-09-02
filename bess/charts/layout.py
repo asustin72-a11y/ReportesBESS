@@ -10,15 +10,15 @@ LEYENDA_Y_EXTERNA = 0.90
 
 
 def sanear_figura_plotly(fig):
-    """Leyenda no clicable (clics en Plotly cuelgan Streamlit). Conserva el aspecto visual.
+    """Asegura toggle de leyenda (clic / doble clic) antes de ``st.plotly_chart``.
 
-    Mutates and returns ``fig``. Usar antes de todo ``st.plotly_chart``.
+    Mutates and returns ``fig``.
     """
     if fig is None:
         return fig
     fig.update_layout(
-        legend_itemclick=False,
-        legend_itemdoubleclick=False,
+        legend_itemclick="toggle",
+        legend_itemdoubleclick="toggleothers",
     )
     return fig
 
@@ -51,9 +51,8 @@ def _titulo_y_leyenda_externos(titulo, font_size=16, show_legend=True):
             bgcolor='rgba(255,255,255,0.85)',
             bordercolor='#e2e8f0',
             borderwidth=1,
-            # Informativa: clics en leyenda Plotly cuelgan Streamlit.
-            itemclick=False,
-            itemdoubleclick=False,
+            itemclick='toggle',
+            itemdoubleclick='toggleothers',
         )
         margin_t = MARGEN_SUPERIOR_CON_LEYENDA
     return title_cfg, legend_cfg, margin_t

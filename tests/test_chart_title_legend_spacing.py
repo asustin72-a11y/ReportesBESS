@@ -19,16 +19,16 @@ def test_layout_compartido_separa_titulo_y_leyenda():
     assert titulo["y"] - leyenda["y"] >= 0.08
     assert margen == MARGEN_SUPERIOR_CON_LEYENDA
     assert margen >= 125
-    assert leyenda["itemclick"] is False
-    assert leyenda["itemdoubleclick"] is False
+    assert leyenda["itemclick"] == "toggle"
+    assert leyenda["itemdoubleclick"] == "toggleothers"
 
 
-def test_sanear_figura_plotly_desactiva_leyenda_sin_cambiar_hover():
+def test_sanear_figura_plotly_activa_toggle_sin_cambiar_hover():
     fig = go.Figure(data=[go.Scatter(x=[1, 2], y=[1, 2], name="a")])
-    fig.update_layout(hovermode="x unified", legend=dict(itemclick="toggle"))
+    fig.update_layout(hovermode="x unified", legend=dict(itemclick=False))
     sanear_figura_plotly(fig)
-    assert fig.layout.legend.itemclick is False
-    assert fig.layout.legend.itemdoubleclick is False
+    assert fig.layout.legend.itemclick == "toggle"
+    assert fig.layout.legend.itemdoubleclick == "toggleothers"
     assert fig.layout.hovermode == "x unified"
 
 
