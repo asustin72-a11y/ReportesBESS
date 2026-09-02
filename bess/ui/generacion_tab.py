@@ -36,13 +36,15 @@ _COLS_PERIODO = [
 
 def _cargar_generacion_diaria(sub_id: str, prefijo: str | None = None) -> pd.DataFrame | None:
     """Diario agregado de la subestación, o diario de un medidor (`ENERGIA_{prefijo}`)."""
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
     if prefijo:
         ruta = rutas_mod.ruta_energia_por_dia(prefijo, sub_id)
     else:
         ruta = ruta_energia_generacion_por_dia(sub_id)
-    if not ruta.exists():
+    if not reporte_existe(ruta):
         return None
-    df = pd.read_csv(ruta, encoding="utf-8-sig")
+    df = cargar_reporte(ruta)
     if "FECHA" not in df.columns:
         return None
     df["FECHA_DT"] = pd.to_datetime(df["FECHA"], format="%d/%m/%Y", errors="coerce")
@@ -58,11 +60,13 @@ def _cargar_generacion_diaria(sub_id: str, prefijo: str | None = None) -> pd.Dat
 
 def _cargar_combinado_minuto(sub_id: str, prefijo_reporte: str) -> pd.DataFrame | None:
     """Carga COMBINADO_POR_MINUTO_{prefijo}.csv (resolución 5 min)."""
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
     nombre = f"COMBINADO_POR_MINUTO_{prefijo_reporte}.csv"
     ruta = rutas_mod.ruta_reporte(sub_id, nombre)
-    if not ruta.exists():
+    if not reporte_existe(ruta):
         return None
-    df = pd.read_csv(ruta, encoding="utf-8-sig")
+    df = cargar_reporte(ruta)
     if "FECHA_HORA" not in df.columns or "KWH_REC" not in df.columns:
         return None
     df["DATETIME"] = pd.to_datetime(df["FECHA_HORA"], format="%d/%m/%Y %H:%M", errors="coerce")

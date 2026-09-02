@@ -361,10 +361,14 @@ def _fila_por_fecha(df, fecha):
     return filas.iloc[0] if len(filas) > 0 else None
 
 def _cargar_acumulados(prefijo):
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
     ruta_p = ruta_acumulados_por_prefijo(prefijo)
-    if not ruta_p or not ruta_p.exists():
+    if not ruta_p or not reporte_existe(ruta_p):
         return None
-    df = pd.read_csv(ruta_p)
+    df = cargar_reporte(ruta_p)
+    if df.empty:
+        return None
     df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
     return df
 
@@ -443,10 +447,14 @@ def estilizar_tabla_demanda_periodo(df_tabla):
     return styler
 
 def _sumar_columnas_en_rango(ruta_csv, fecha_inicio, fecha_fin, columnas):
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
     resultado = {c: 0.0 for c in columnas}
-    if not os.path.exists(ruta_csv):
+    if not reporte_existe(ruta_csv):
         return resultado
-    df = pd.read_csv(ruta_csv)
+    df = cargar_reporte(ruta_csv)
+    if df.empty or 'FECHA' not in df.columns:
+        return resultado
     df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
     mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
     df_r = df[mask]
@@ -468,13 +476,17 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
     rango_un_dia = fecha_inicio == fecha_fin
     rango_label = etiqueta_rango_operativo(fecha_inicio, fecha_fin)
 
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
     ruta_acumulados_p = ruta_acumulados_por_prefijo(prefijo)
     ruta_med_dia_p = ruta_energia_dia_por_prefijo(prefijo)
     ruta_acumulados = str(ruta_acumulados_p) if ruta_acumulados_p else ""
     ruta_med_dia = str(ruta_med_dia_p) if ruta_med_dia_p else ""
     ruta_bess_dia = str(ruta_energia_bess_por_dia(prefijo))
 
-    df_acum = pd.read_csv(ruta_acumulados) if os.path.exists(ruta_acumulados) else None
+    df_acum = cargar_reporte(ruta_acumulados) if ruta_acumulados and reporte_existe(ruta_acumulados) else None
+    if df_acum is not None and df_acum.empty:
+        df_acum = None
     fila_acum_fin = _fila_por_fecha(df_acum, fecha_fin)
     esquema = esquema_tarifa_prefijo(prefijo)
     netmetering = usa_netmetering(esquema)
@@ -512,8 +524,8 @@ def calcular_detalle_energia_periodo(fecha_inicio, fecha_fin, prefijo):
         lbl_rec = 'Energía Recibida del Periodo (kWh)'
         lbl_ent = 'Energía Entregada del Periodo (kWh)'
 
-        if os.path.exists(ruta_med_dia):
-            df_med_rango = pd.read_csv(ruta_med_dia)
+        if reporte_existe(ruta_med_dia):
+            df_med_rango = cargar_reporte(ruta_med_dia)
             df_med_rango['FECHA_DT'] = pd.to_datetime(df_med_rango['FECHA'], format='%d/%m/%Y')
             mask_med = (
                 (df_med_rango['FECHA_DT'].dt.date >= fecha_inicio)
@@ -921,9 +933,42 @@ def tab_analisis(df, prefijo):
                 )
 
 def _mtime_fuente_reporte(prefijo):
-    ruta_p = ruta_combinado_por_prefijo(prefijo)
-    return ruta_p.stat().st_mtime if ruta_p and ruta_p.exists() else 0
+    from bess.data.report_store import clave_cache_reporte, reporte_existe
 
+    ruta_p = ruta_combinado_por_prefijo(prefijo)
+    if not ruta_p or not reporte_existe(ruta_p):
+        return 0
+    # Hash estable → float para firmas existentes que esperan mtime
+    key = clave_cache_reporte(ruta_p)
+    return float(abs(hash(key)) % (10**12))
+
+
+def _cargar_energia_diaria_rango(prefijo, fecha_inicio, fecha_fin):
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
+    ruta_p = ruta_energia_dia_por_prefijo(prefijo)
+    if not ruta_p or not reporte_existe(ruta_p):
+        return None
+    df = cargar_reporte(ruta_p)
+    df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
+    mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
+    df = df[mask].sort_values('FECHA_DT').reset_index(drop=True)
+    if df.empty:
+        return None
+    esquema = esquema_tarifa_prefijo(prefijo)
+    return df_energia_para_visualizacion(df, esquema)
+
+def _cargar_bess_diaria_rango(fecha_inicio, fecha_fin, prefijo):
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
+    ruta = str(ruta_energia_bess_por_dia(prefijo))
+    if not reporte_existe(ruta):
+        return None
+    df = cargar_reporte(ruta)
+    df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
+    mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
+    df = df[mask].sort_values('FECHA_DT').reset_index(drop=True)
+    return df if not df.empty else None
 @st.cache_data(show_spinner="Generando reporte PDF...")
 def _pdf_bytes_descarga(fecha_str, prefijo, incluir_generacion, _mtime_fuente):
     from bess_core import generar_reporte_pdf
@@ -1075,29 +1120,6 @@ def tab_reporte(df, prefijo):
         st.error(f"Error al generar el reporte: {e}")
 
 # ========== TENDENCIA ==========
-def _cargar_energia_diaria_rango(prefijo, fecha_inicio, fecha_fin):
-    ruta_p = ruta_energia_dia_por_prefijo(prefijo)
-    if not ruta_p or not ruta_p.exists():
-        return None
-    df = pd.read_csv(ruta_p)
-    df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
-    mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
-    df = df[mask].sort_values('FECHA_DT').reset_index(drop=True)
-    if df.empty:
-        return None
-    esquema = esquema_tarifa_prefijo(prefijo)
-    return df_energia_para_visualizacion(df, esquema)
-
-def _cargar_bess_diaria_rango(fecha_inicio, fecha_fin, prefijo):
-    ruta = str(ruta_energia_bess_por_dia(prefijo))
-    if not os.path.exists(ruta):
-        return None
-    df = pd.read_csv(ruta)
-    df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
-    mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
-    df = df[mask].sort_values('FECHA_DT').reset_index(drop=True)
-    return df if not df.empty else None
-
 def construir_serie_arbitraje_diaria(df_med, prefijo, tarifas=None):
     from bess_core import calcular_arbitraje_dia
     if tarifas is None:
@@ -1292,9 +1314,11 @@ def tab_tendencia(df, prefijo):
 
 # ========== MAIN ==========
 @st.cache_data(ttl=120, show_spinner="Cargando perfil…")
-def _cargar_combinado_csv(ruta: str, mtime: float) -> pd.DataFrame:
-    """Cachea el COMBINADO por ruta + mtime (se invalida al regenerar el CSV)."""
-    df = pd.read_csv(ruta)
+def _cargar_combinado_csv(ruta: str, cache_key: str) -> pd.DataFrame:
+    """Cachea el COMBINADO por ruta + clave BD/CSV (se invalida al regenerar)."""
+    from bess.data.report_store import cargar_reporte
+
+    df = cargar_reporte(ruta)
     df["DATETIME"] = pd.to_datetime(df["FECHA_HORA"], format="%d/%m/%Y %H:%M")
     return df
 
@@ -1305,10 +1329,12 @@ def _bloque_reporteador(prefijo, medidor):
         return
 
     from streamlit_autorefresh import st_autorefresh
+    from bess.data.report_store import clave_cache_reporte, reporte_existe
+
     st_autorefresh(interval=15 * 60 * 1000, key="autorefresh_datos")
 
     ruta_p = ruta_combinado_por_prefijo(prefijo)
-    if not ruta_p or not ruta_p.exists():
+    if not ruta_p or not reporte_existe(ruta_p):
         from bess.config.users import rol_es_operador
         from bess.ui.pipeline_status import evaluar_pipeline, render_estado_vacio_reporteador
 
@@ -1321,7 +1347,7 @@ def _bloque_reporteador(prefijo, medidor):
             )
         return
 
-    df = _cargar_combinado_csv(str(ruta_p), ruta_p.stat().st_mtime)
+    df = _cargar_combinado_csv(str(ruta_p), clave_cache_reporte(ruta_p))
     sub_id = st.session_state.get("subestacion_principal")
     seccion = render_navegacion_principal(sub_id)
 
@@ -1440,12 +1466,14 @@ def main(*, desde_suite: bool = False):
             catalog_admin_main()
             return
     
+    from bess.data.report_store import reporte_existe
+
     rutas_disponibles = [
         ruta_combinado_por_prefijo(med.nombre)
         for sub in SUBESTACIONES
         for med in sub.medidores_consumo
     ]
-    if not any(r and r.exists() for r in rutas_disponibles):
+    if not any(r and reporte_existe(r) for r in rutas_disponibles):
         with st.container(border=True):
             render_barra_superior(rol)
         if es_operador:

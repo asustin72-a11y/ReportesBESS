@@ -117,6 +117,7 @@ def _registrar_catalogo_medidores(conn: sqlite3.Connection) -> None:
 
 def init_db(ruta: Path = RUTA_BD_DEFAULT) -> Path:
     from bess.data.catalog_db import ensure_catalog_listo, init_catalog_schema
+    from bess.data.report_store import ensure_reportes_listo, init_reportes_schema
     from bess.data.tariffs_db import ensure_tarifas_listo, init_tarifas_schema
     from bess.data.users_db import ensure_usuarios_listo, init_usuarios_schema
 
@@ -125,10 +126,12 @@ def init_db(ruta: Path = RUTA_BD_DEFAULT) -> Path:
         init_catalog_schema(conn)
         init_tarifas_schema(conn)
         init_usuarios_schema(conn)
+        init_reportes_schema(conn)
         conn.commit()
     ensure_catalog_listo()
     ensure_tarifas_listo()
     ensure_usuarios_listo()
+    ensure_reportes_listo(ruta)
     with conectar_bd(ruta) as conn:
         _registrar_catalogo_medidores(conn)
         conn.commit()

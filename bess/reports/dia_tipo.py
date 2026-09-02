@@ -45,10 +45,12 @@ def subestacion_tiene_generacion(sub) -> bool:
 
 
 def cargar_perfil_dia(prefijo: str, fecha: date) -> pd.DataFrame:
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
     ruta_combinado_p = ruta_combinado_por_prefijo(prefijo)
-    if not ruta_combinado_p or not ruta_combinado_p.exists():
+    if not ruta_combinado_p or not reporte_existe(ruta_combinado_p):
         return pd.DataFrame()
-    df = pd.read_csv(ruta_combinado_p, encoding="utf-8-sig")
+    df = cargar_reporte(ruta_combinado_p)
     df["DATETIME"] = pd.to_datetime(df["FECHA_HORA"], format="%d/%m/%Y %H:%M")
     inicio, fin = rango_datetimes_operativo(fecha, fecha)
     mask = (df["DATETIME"] >= inicio) & (df["DATETIME"] <= fin)
@@ -67,11 +69,13 @@ def buscar_dia_tipo(prefijo: str, fecha_corte: date) -> dict | None:
 
     No está limitado al mes de corte.
     """
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
     ruta = ruta_energia_bess_por_dia(prefijo)
-    if not ruta.exists():
+    if not reporte_existe(ruta):
         return None
 
-    df = pd.read_csv(ruta)
+    df = cargar_reporte(ruta)
     df["FECHA_DT"] = pd.to_datetime(df["FECHA"], format="%d/%m/%Y")
     por_fecha = {row["FECHA_DT"].date(): row for _, row in df.iterrows()}
 

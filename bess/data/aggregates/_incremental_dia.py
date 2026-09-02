@@ -20,17 +20,36 @@ import os
 
 import pandas as pd
 
+from bess.data.report_store import (
+    cargar_reporte,
+    columnas_reporte,
+    escribir_csv_habilitado,
+    reporte_existe,
+)
+
+
+def _cargar_previo_pipeline(ruta_salida: str) -> pd.DataFrame | None:
+    """Estado previo para merges del writer: CSV si existe; BD solo sin CSV."""
+    if os.path.exists(ruta_salida):
+        try:
+            return pd.read_csv(ruta_salida)
+        except (ValueError, OSError):
+            return None
+    if escribir_csv_habilitado():
+        return None
+    if not reporte_existe(ruta_salida):
+        return None
+    df = cargar_reporte(ruta_salida)
+    return None if df.empty else df
+
 
 def cursor_dia(ruta_salida) -> "pd.Timestamp | None":
     """Última FECHA (día, sin hora) ya escrita en un reporte diario
     existente, o None si no existe/está vacío/no se puede leer."""
-    if not os.path.exists(ruta_salida):
+    df = _cargar_previo_pipeline(ruta_salida)
+    if df is None or "FECHA" not in df.columns:
         return None
-    try:
-        fechas = pd.read_csv(ruta_salida, usecols=["FECHA"])["FECHA"]
-    except (ValueError, KeyError, OSError):
-        return None
-    dt = pd.to_datetime(fechas, format="%d/%m/%Y", errors="coerce").dropna()
+    dt = pd.to_datetime(df["FECHA"], format="%d/%m/%Y", errors="coerce").dropna()
     if dt.empty:
         return None
     return dt.max()
@@ -39,10 +58,17 @@ def cursor_dia(ruta_salida) -> "pd.Timestamp | None":
 def columnas_dia(ruta_salida) -> list[str] | None:
     """Encabezado de un reporte diario existente, o None si no existe o no
     se puede leer."""
-    if not os.path.exists(ruta_salida):
+    if os.path.exists(ruta_salida):
+        try:
+            return list(pd.read_csv(ruta_salida, nrows=0).columns)
+        except (ValueError, OSError):
+            return None
+    if escribir_csv_habilitado():
+        return None
+    if not reporte_existe(ruta_salida):
         return None
     try:
-        return list(pd.read_csv(ruta_salida, nrows=0).columns)
+        return columnas_reporte(ruta_salida)
     except (ValueError, OSError):
         return None
 
@@ -62,16 +88,15 @@ def combinar_cola_diaria(
     evita es recalcular la agregación minuto a minuto de todo el histórico.
     """
     if df_nuevo_tail.empty:
-        if os.path.exists(ruta_salida):
-            return pd.read_csv(ruta_salida)
-        return df_nuevo_tail
+        previo = _cargar_previo_pipeline(ruta_salida)
+        return previo if previo is not None else df_nuevo_tail
 
     primera_fecha_nueva = pd.to_datetime(
         df_nuevo_tail["FECHA"].iloc[0], format="%d/%m/%Y"
     )
 
-    if os.path.exists(ruta_salida):
-        df_previo = pd.read_csv(ruta_salida)
+    df_previo = _cargar_previo_pipeline(ruta_salida)
+    if df_previo is not None:
         fechas_previas = pd.to_datetime(
             df_previo["FECHA"], format="%d/%m/%Y", errors="coerce"
         )

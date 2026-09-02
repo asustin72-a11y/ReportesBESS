@@ -9,13 +9,14 @@ import pandas as pd
 from bess.config.subestaciones import Subestacion, medidor_consumo_por_prefijo, ruta_combinado_por_prefijo
 from bess.cfe.periods import periodo_por_fecha_hora
 from bess.config.esquema_tarifa import normalizar_esquema_tarifa
-from bess.core.atomic_io import ruta_temporal_atomica
 from bess.core.dates import agregar_fecha_operativa
 from bess.data.aggregates._incremental_dia import (
+    _cargar_previo_pipeline,
     columnas_dia,
     combinar_cola_diaria,
     cursor_dia,
 )
+from bess.data.report_store import cargar_reporte, guardar_dataframe_reporte, reporte_existe
 from bess.core.console import log
 
 print = log
@@ -77,11 +78,11 @@ def _bess_diario_desde_combinado_minuto(
     if not med:
         return None
     ruta_p = ruta_combinado_por_prefijo(prefijo)
-    if not ruta_p or not ruta_p.exists():
+    if not ruta_p or not reporte_existe(ruta_p):
         return None
     ruta = str(ruta_p)
 
-    df = pd.read_csv(ruta)
+    df = cargar_reporte(ruta)
     if "KWH_REC_BESS" not in df.columns or "KWH_ENT_BESS" not in df.columns:
         return None
 
@@ -106,12 +107,8 @@ def _bess_diario_desde_combinado_minuto(
 
 
 def _guardar_bess_diario(df: pd.DataFrame, ruta_salida: str, etiqueta: str) -> pd.DataFrame:
-    os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
-    # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
-    # escritura a medio camino, ruta_salida conserva su contenido anterior
-    # en vez de quedar truncado.
-    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
-        df.to_csv(ruta_temp, index=False)
+    os.makedirs(os.path.dirname(ruta_salida) or ".", exist_ok=True)
+    guardar_dataframe_reporte(ruta_salida, df)
     print(f"OK {etiqueta} - {len(df)} dias (desde COMBINADO_POR_MINUTO)")
     return df
 
@@ -149,7 +146,8 @@ def generar_bess_diario_subestacion(sub: Subestacion):
     if incremental:
         if df_bess_diario.empty:
             print(f"  Sin días nuevos para {nombre} (cursor {cursor.date()})")
-            return pd.read_csv(ruta_salida)
+            previo = _cargar_previo_pipeline(ruta_salida)
+            return previo if previo is not None else pd.DataFrame()
         df_bess_diario = combinar_cola_diaria(df_bess_diario, ruta_salida, COLUMNAS_BESS_DIARIO)
 
     return _guardar_bess_diario(df_bess_diario, ruta_salida, nombre)

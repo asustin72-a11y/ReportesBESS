@@ -378,6 +378,7 @@ def generar_reporte_pdf(fecha_str, medidor, *, incluir_generacion: bool = True):
         from reportlab.lib.pagesizes import letter, landscape
         from reportlab.platypus import SimpleDocTemplate, Spacer
         from reportlab.lib.units import inch
+        from bess.data.report_store import cargar_reporte, reporte_existe
 
         prefijo = medidor
         med = medidor_consumo_por_prefijo(prefijo)
@@ -386,13 +387,13 @@ def generar_reporte_pdf(fecha_str, medidor, *, incluir_generacion: bool = True):
 
         ruta_combinado_p = ruta_combinado_por_prefijo(prefijo)
         ruta_acumulados_p = ruta_acumulados_por_prefijo(prefijo)
-        if not ruta_combinado_p or not ruta_combinado_p.exists():
+        if not ruta_combinado_p or not reporte_existe(ruta_combinado_p):
             return False, "No se encontraron datos para generar el reporte"
 
         ruta_combinado = str(ruta_combinado_p)
         ruta_acumulados = str(ruta_acumulados_p) if ruta_acumulados_p else ""
 
-        df_combinado = pd.read_csv(ruta_combinado)
+        df_combinado = cargar_reporte(ruta_combinado)
         df_combinado['DATETIME'] = pd.to_datetime(df_combinado['FECHA_HORA'], format='%d/%m/%Y %H:%M')
 
         fecha_dt = datetime.strptime(fecha_str, '%d/%m/%Y')
@@ -437,8 +438,8 @@ def generar_reporte_pdf(fecha_str, medidor, *, incluir_generacion: bool = True):
 
         tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
 
-        if ruta_acumulados and os.path.exists(ruta_acumulados):
-            df_acum = pd.read_csv(ruta_acumulados)
+        if ruta_acumulados and reporte_existe(ruta_acumulados):
+            df_acum = cargar_reporte(ruta_acumulados)
             fila_acum = df_acum[df_acum['FECHA'] == fecha_str]
         else:
             fila_acum = None

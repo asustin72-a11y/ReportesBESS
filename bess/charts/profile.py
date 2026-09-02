@@ -81,13 +81,15 @@ def _unir_generacion_perfil(df: pd.DataFrame, prefijo: str) -> pd.DataFrame:
         return df
 
     acumulado: pd.DataFrame | None = None
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
     for recurso in recursos:
         ruta = rutas_mod.ruta_reporte(
             sub.id, f"COMBINADO_POR_MINUTO_{recurso.prefijo_reporte}.csv"
         )
-        if not ruta.exists():
+        if not reporte_existe(ruta):
             continue
-        df_gen = pd.read_csv(ruta, encoding="utf-8-sig")
+        df_gen = cargar_reporte(ruta)
         if "FECHA_HORA" not in df_gen.columns or "KWH_REC" not in df_gen.columns:
             continue
         parte = df_gen[["FECHA_HORA", "KWH_REC"]].rename(

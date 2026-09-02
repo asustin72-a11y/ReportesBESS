@@ -1,29 +1,31 @@
-"""Lectura de agregados diarios desde CSV de reportes."""
+"""Lectura de agregados diarios desde reportes (BD preferente / CSV fallback)."""
 
 from __future__ import annotations
-
-import os
 
 import pandas as pd
 
 from bess.config.paths import ruta_energia_bess_por_dia
 from bess.config.subestaciones import ruta_energia_dia_por_prefijo
 from bess.core.numbers import a_num
+from bess.data.report_store import cargar_reporte, columnas_reporte, reporte_existe
 
 
 def fila_por_fecha_csv(ruta: str, fecha_str: str):
-    if not os.path.exists(ruta):
+    if not reporte_existe(ruta):
         return None
-    df = pd.read_csv(ruta)
+    df = cargar_reporte(ruta)
+    if df.empty or "FECHA" not in df.columns:
+        return None
     fila = df[df["FECHA"] == fecha_str]
     return fila.iloc[0] if len(fila) > 0 else None
 
 
 def energia_diaria_tiene_sin_bess(prefijo: str) -> bool:
     ruta_p = ruta_energia_dia_por_prefijo(prefijo)
-    if not ruta_p or not ruta_p.exists():
+    if not ruta_p or not reporte_existe(ruta_p):
         return False
-    return "BASE_REC_SIN_BESS" in pd.read_csv(ruta_p, nrows=0).columns
+    cols = columnas_reporte(ruta_p) or []
+    return "BASE_REC_SIN_BESS" in cols
 
 
 from bess.data.ingest.medidor_ids import MEDIDOR_ION

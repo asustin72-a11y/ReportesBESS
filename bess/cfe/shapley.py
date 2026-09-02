@@ -240,7 +240,9 @@ def calcular_participacion_capacidad(
         raise ParticipacionCapacidadError(
             f"La subestación {subestacion_id} no tiene generación configurada."
         )
-    if not cfg.ruta_combinado.exists():
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
+    if not reporte_existe(cfg.ruta_combinado):
         raise ParticipacionCapacidadError(
             f"No existe combinado ION+BESS: {cfg.ruta_combinado.name}"
         )
@@ -264,7 +266,7 @@ def calcular_participacion_capacidad(
     )
     dias = fecha_corte.day
 
-    raw = pd.read_csv(cfg.ruta_combinado, encoding="utf-8-sig")
+    raw = cargar_reporte(cfg.ruta_combinado)
     raw = _filtrar_mes_hasta(raw, fecha_corte)
     if raw.empty:
         raise ParticipacionCapacidadError(

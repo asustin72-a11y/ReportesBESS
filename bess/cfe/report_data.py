@@ -15,6 +15,8 @@ from bess.core.kvarh import columnas_kvarh_prefijo, normalizar_columnas_kvarh
 from bess.core.numbers import redondear_arriba_kw, sumar_energia
 from bess.core.energia_periodo import sumar_consumo_por_periodo_df
 from bess.config.esquema_tarifa import esquema_tarifa_prefijo
+from bess.data.report_store import cargar_reporte, reporte_existe
+
 
 def _fila_por_fecha(df, fecha):
     if df is None:
@@ -26,10 +28,11 @@ def _fila_por_fecha(df, fecha):
 
 def _cargar_acumulados(prefijo):
     ruta_p = ruta_acumulados_por_prefijo(prefijo)
-    if not ruta_p or not ruta_p.exists():
+    if not ruta_p or not reporte_existe(ruta_p):
         return None
-    ruta = str(ruta_p)
-    df = pd.read_csv(ruta)
+    df = cargar_reporte(ruta_p)
+    if df.empty:
+        return None
     df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
     return df
 
@@ -81,9 +84,8 @@ def obtener_kvarh_mes(fecha, prefijo):
             return float(val)
 
     ruta_p = ruta_energia_dia_por_prefijo(prefijo)
-    if ruta_p and ruta_p.exists():
-        ruta_dia = str(ruta_p)
-        df = pd.read_csv(ruta_dia)
+    if ruta_p and reporte_existe(ruta_p):
+        df = cargar_reporte(ruta_p)
         if 'KVARH' in df.columns:
             df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
             df_r = _filtrar_mes_hasta_fecha(df, fecha, 'FECHA_DT')
@@ -130,10 +132,11 @@ def obtener_demanda_rolada_punta(fecha, prefijo, con_bess=True):
 def _obtener_energia_mes_desde_diario(fecha, prefijo, con_bess=True):
     """Suma energía de consumo por periodo desde ENERGIA_*_POR_DIA.csv (mes al día indicado)."""
     ruta_p = ruta_energia_dia_por_prefijo(prefijo)
-    if not ruta_p or not ruta_p.exists():
+    if not ruta_p or not reporte_existe(ruta_p):
         return None
-    ruta = str(ruta_p)
-    df = pd.read_csv(ruta)
+    df = cargar_reporte(ruta_p)
+    if df.empty:
+        return None
     df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
     df_r = _filtrar_mes_hasta_fecha(df, fecha)
     if df_r.empty:

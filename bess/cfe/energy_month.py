@@ -15,6 +15,7 @@ from bess.config.esquema_tarifa import esquema_tarifa_prefijo
 from bess.core.energia_periodo import sumar_consumo_por_periodo_df
 from bess.tariffs.loader import cargar_tarifas
 from bess.cfe.report_data import dias_transcurridos_mes
+from bess.data.report_store import cargar_reporte, reporte_existe
 
 PERIODOS_ENERGIA = [
     ('base', 'Base'),
@@ -33,10 +34,11 @@ def calcular_costo_energia_rango(fecha_inicio, fecha_fin, prefijo, con_bess=True
     if tarifas is None:
         tarifas = cargar_tarifas(esquema_tarifa_prefijo(prefijo))
     ruta_p = ruta_energia_dia_por_prefijo(prefijo)
-    if not ruta_p or not ruta_p.exists():
+    if not ruta_p or not reporte_existe(ruta_p):
         return None
-    ruta = str(ruta_p)
-    df = pd.read_csv(ruta)
+    df = cargar_reporte(ruta_p)
+    if df.empty:
+        return None
     df['FECHA_DT'] = pd.to_datetime(df['FECHA'], format='%d/%m/%Y')
     mask = (df['FECHA_DT'].dt.date >= fecha_inicio) & (df['FECHA_DT'].dt.date <= fecha_fin)
     df_r = df[mask]

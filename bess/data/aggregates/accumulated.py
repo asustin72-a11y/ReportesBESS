@@ -10,12 +10,13 @@ from bess.config.subestaciones import (
     medidor_consumo_por_prefijo,
     ruta_energia_dia_por_prefijo,
 )
-from bess.core.atomic_io import ruta_temporal_atomica
 from bess.data.aggregates._incremental_dia import (
+    _cargar_previo_pipeline,
     columnas_dia,
     combinar_cola_diaria,
     cursor_dia,
 )
+from bess.data.report_store import guardar_dataframe_reporte, reporte_existe
 
 from bess.core.console import log
 print = log
@@ -77,13 +78,11 @@ def _seed_desde_acumulado_previo(ruta_salida: str, cursor: "pd.Timestamp"):
     anterior a `cursor`, si existe y es del mismo mes que `cursor` -- o
     None si no aplica (archivo nuevo, o `cursor` es el primer día de su
     mes, en cuyo caso no hay nada que heredar y se reinicia en 0)."""
-    if not os.path.exists(ruta_salida):
-        return None
     try:
-        df_prev = pd.read_csv(ruta_salida)
+        df_prev = _cargar_previo_pipeline(ruta_salida)
     except (ValueError, OSError):
         return None
-    if df_prev.empty or "FECHA" not in df_prev.columns:
+    if df_prev is None or df_prev.empty or "FECHA" not in df_prev.columns:
         return None
     fecha_dt = pd.to_datetime(df_prev["FECHA"], format="%d/%m/%Y", errors="coerce")
     df_prev = df_prev.assign(_FECHA_DT=fecha_dt).sort_values("_FECHA_DT")
@@ -115,7 +114,7 @@ def generar_acumulados(prefijo):
 
     med = medidor_consumo_por_prefijo(prefijo)
     ruta_med_dia_p = ruta_energia_dia_por_prefijo(prefijo)
-    if not ruta_med_dia_p or not ruta_med_dia_p.exists():
+    if not ruta_med_dia_p or not reporte_existe(ruta_med_dia_p):
         print(f"ERROR: No se encuentra energía diaria para {prefijo}")
         return None
     ruta_med_dia = str(ruta_med_dia_p)
@@ -126,11 +125,23 @@ def generar_acumulados(prefijo):
         nombre_med_acum = f"ACUMULADOS_{prefijo}.csv"
         ruta_salida = nombre_med_acum
 
-    if not os.path.exists(ruta_med_dia):
+    if not reporte_existe(ruta_med_dia):
         print(f"ERROR: No se encuentra {ruta_med_dia}")
         return None
 
-    df_med_dia = pd.read_csv(ruta_med_dia)
+    df_med_dia = _cargar_previo_pipeline(ruta_med_dia)
+    if df_med_dia is None:
+        # BD preferente si el CSV aún no existe (solo lectura de energía diaria)
+        from bess.data.report_store import cargar_reporte
+
+        if reporte_existe(ruta_med_dia):
+            df_med_dia = cargar_reporte(ruta_med_dia)
+        else:
+            print(f"ERROR: No se encuentra {ruta_med_dia}")
+            return None
+    if df_med_dia.empty:
+        print(f"ERROR: No se encuentra {ruta_med_dia}")
+        return None
     df_med_dia["FECHA_DT"] = pd.to_datetime(df_med_dia["FECHA"], format="%d/%m/%Y")
     df_med_dia = df_med_dia.sort_values("FECHA_DT").reset_index(drop=True)
 
@@ -142,7 +153,8 @@ def generar_acumulados(prefijo):
         df_med_dia = df_med_dia[df_med_dia["FECHA_DT"] >= cursor].reset_index(drop=True)
         if df_med_dia.empty:
             print(f"  Sin días nuevos para {nombre_med_acum} (cursor {cursor.date()})")
-            return pd.read_csv(ruta_salida)
+            previo = _cargar_previo_pipeline(ruta_salida)
+            return previo if previo is not None else pd.DataFrame()
         seed = _seed_desde_acumulado_previo(ruta_salida, cursor)
 
     df_med_dia["MES"] = df_med_dia["FECHA_DT"].dt.to_period("M")
@@ -210,11 +222,7 @@ def generar_acumulados(prefijo):
         df_acum_med = combinar_cola_diaria(df_acum_med, ruta_salida, COLUMNAS_ACUMULADO)
 
     os.makedirs(os.path.dirname(ruta_salida) or ".", exist_ok=True)
-    # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
-    # escritura a medio camino, ruta_salida conserva su contenido anterior
-    # en vez de quedar truncado.
-    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
-        df_acum_med.to_csv(ruta_temp, index=False)
+    guardar_dataframe_reporte(ruta_salida, df_acum_med)
     print(f"OK {nombre_med_acum} - {len(df_acum_med)} dias (acumulado por mes)")
 
     return df_acum_med

@@ -170,10 +170,12 @@ def co2_toneladas(kwh_por_periodo: dict[str, float], ef: FactoresEmision | dict[
 
 
 def _cargar_energia_mes(fecha, prefijo: str) -> pd.DataFrame | None:
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
     ruta_p = ruta_energia_dia_por_prefijo(prefijo)
-    if not ruta_p or not ruta_p.exists():
+    if not ruta_p or not reporte_existe(ruta_p):
         return None
-    df = pd.read_csv(ruta_p, encoding="utf-8-sig")
+    df = cargar_reporte(ruta_p)
     if "FECHA" not in df.columns:
         return None
     df["FECHA_DT"] = pd.to_datetime(df["FECHA"], format="%d/%m/%Y", errors="coerce")

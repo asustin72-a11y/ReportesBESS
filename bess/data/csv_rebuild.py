@@ -222,10 +222,11 @@ def plan_rebuild_csv_todos(desde: date | str) -> dict:
         "n_csv_derivados_a_borrar": len(csv_globales),
         "csv_derivados_muestra": [str(p) for p in csv_globales[:40]],
         "avisos": [
-            "SQLite solo lectura.",
+            "SQLite solo lectura en perfil_carga.",
             f"Reexporta {len(medidores)} medidor(es) a ArchivosFuente desde {desde_txt}.",
             "Borra TODOS los CSV de ArchivosProcesados, ArchivosReporte y ReportesDiarios.",
             "Luego ejecuta Verificar → Filtrar → Generar reportes (completo).",
+            "Los reportes regenerados también se escriben en tablas reporte_serie_* (Fase 7).",
             "Puede tardar varios minutos según el histórico en BD.",
         ],
         "planes": [

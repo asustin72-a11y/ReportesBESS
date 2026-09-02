@@ -10,7 +10,6 @@ from bess.config.subestaciones import (
     medidor_consumo_por_prefijo,
     ruta_combinado_por_prefijo,
 )
-from bess.core.atomic_io import ruta_temporal_atomica
 from bess.core.consumo import kwh_neto_consumo
 from bess.cfe.periods import periodo_por_fecha_hora
 from bess.config.esquema_tarifa import esquema_tarifa_prefijo, normalizar_esquema_tarifa, usa_netmetering
@@ -22,10 +21,12 @@ from bess.core.kvarh import (
 from bess.core.dates import agregar_fecha_operativa
 from bess.core.demand import aplicar_mascara_demanda_maximo
 from bess.data.aggregates._incremental_dia import (
+    _cargar_previo_pipeline,
     columnas_dia,
     combinar_cola_diaria,
     cursor_dia,
 )
+from bess.data.report_store import cargar_reporte, guardar_dataframe_reporte
 from bess.core.console import log
 
 print = log
@@ -123,8 +124,8 @@ def _pivot_por_periodo(
 
 
 def _preparar_minuto(ruta_minuto: str, prefijo: str, esquema_tarifa_id: str) -> pd.DataFrame | None:
-    df = pd.read_csv(ruta_minuto)
-    if "FECHA_HORA" not in df.columns:
+    df = cargar_reporte(ruta_minuto)
+    if df.empty or "FECHA_HORA" not in df.columns:
         print(f"ERROR: Falta FECHA_HORA en {os.path.basename(ruta_minuto)}")
         return None
 
@@ -170,7 +171,12 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
     print("=" * 60)
 
     ruta_p = ruta_combinado_por_prefijo(prefijo)
-    if not ruta_p or not ruta_p.exists():
+    if not ruta_p:
+        print(f"ERROR: Falta combinado para {prefijo}")
+        return None
+    from bess.data.report_store import reporte_existe
+
+    if not reporte_existe(ruta_p) and not ruta_p.exists():
         print(f"ERROR: Falta combinado para {prefijo}")
         return None
     ruta_minuto = str(ruta_p)
@@ -197,7 +203,8 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
         df_minuto = df_minuto[fecha_dt >= cursor]
         if df_minuto.empty:
             print(f"  Sin días nuevos para {nombre_med_dia} (cursor {cursor.date()})")
-            return pd.read_csv(ruta_salida)
+            previo = _cargar_previo_pipeline(ruta_salida)
+            return previo if previo is not None else pd.DataFrame()
 
     print(f"  Energía y sin BESS desde {nombre_combinado} (5 min)")
 
@@ -361,11 +368,7 @@ def generar_diarios_con_demandas(prefijo, esquema_tarifa_id=None):
         df_med_diario = combinar_cola_diaria(df_med_diario, ruta_salida, COLUMNAS_DIARIO)
 
     os.makedirs(os.path.dirname(ruta_salida) or ".", exist_ok=True)
-    # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
-    # escritura a medio camino, ruta_salida conserva su contenido anterior
-    # en vez de quedar truncado.
-    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
-        df_med_diario.to_csv(ruta_temp, index=False)
+    guardar_dataframe_reporte(ruta_salida, df_med_diario)
     print(f"OK {nombre_med_dia} - {len(df_med_diario)} dias")
 
     return df_med_diario

@@ -18,6 +18,14 @@ from bess.core.dates import agregar_fecha_operativa
 from bess.core.demand import demanda_rodante_15min_por_mes
 from bess.core.kvarh import columnas_kvarh as _columnas_kvarh
 from bess.data.ingest.readers import leer_sin_agrupar
+from bess.data.report_store import (
+    cargar_reporte,
+    columnas_reporte,
+    escribir_csv_habilitado,
+    guardar_dataframe_reporte,
+    persistir_reporte_escrito,
+    reporte_existe,
+)
 
 from bess.core.console import log
 print = log
@@ -42,59 +50,65 @@ _MARGEN_REEXPORTAR_DIAS = 1
 
 
 def _cursor_combinado(ruta_salida) -> "pd.Timestamp | None":
-    """Última FECHA_HORA ya escrita en un COMBINADO_POR_MINUTO_*.csv
-    existente, o None si no existe/está vacío/no se puede leer.
+    """Última FECHA_HORA ya escrita en el COMBINADO (CSV si existe).
 
-    Lee solo el encabezado + la cola del archivo (no carga toda la columna).
-    FECHA_HORA es la **segunda** columna (después de FECHA), no la primera:
-    parsear la primera producía falsos desfases (p. ej. un fragmento de cola
-    a mitad de línea se leía como si fuera la última fila del reporte).
+    Con ``BESS_REPORTES_ESCRIBIR_CSV`` activo el cursor sale solo del archivo:
+    la BD es compartida entre directorios de prueba / destinos y no debe
+    activar modo incremental sobre un CSV vacío o distinto.
     """
-    if not os.path.exists(ruta_salida):
-        return None
-    try:
-        with open(ruta_salida, "rb") as fh:
-            encabezado_raw = fh.readline()
-            if not encabezado_raw:
-                return None
-            encabezado = next(
-                csv.reader([encabezado_raw.decode("utf-8", errors="replace")]),
-                None,
-            )
-            if not encabezado or "FECHA_HORA" not in encabezado:
-                return None
-            idx_fecha_hora = encabezado.index("FECHA_HORA")
+    if os.path.exists(ruta_salida):
+        try:
+            with open(ruta_salida, "rb") as fh:
+                encabezado_raw = fh.readline()
+                if not encabezado_raw:
+                    return None
+                encabezado = next(
+                    csv.reader([encabezado_raw.decode("utf-8", errors="replace")]),
+                    None,
+                )
+                if not encabezado or "FECHA_HORA" not in encabezado:
+                    return None
+                idx_fecha_hora = encabezado.index("FECHA_HORA")
 
-            fh.seek(0, os.SEEK_END)
-            size = fh.tell()
-            if size <= 0:
-                return None
-            # Últimas ~8 KiB suelen bastar para varias filas del combinado.
-            fh.seek(max(0, size - 8192), os.SEEK_SET)
-            cola = fh.read().decode("utf-8", errors="replace")
+                fh.seek(0, os.SEEK_END)
+                size = fh.tell()
+                if size <= 0:
+                    return None
+                # Últimas ~8 KiB suelen bastar para varias filas del combinado.
+                fh.seek(max(0, size - 8192), os.SEEK_SET)
+                cola = fh.read().decode("utf-8", errors="replace")
 
-        lineas = [ln.strip() for ln in cola.splitlines() if ln.strip()]
-        if not lineas:
+            lineas = [ln.strip() for ln in cola.splitlines() if ln.strip()]
+            if not lineas:
+                return None
+            # Si arrancamos a mitad de línea, descartar siempre el primer fragmento
+            # (salvo que leímos el archivo entero desde el byte 0).
+            if size > 8192:
+                lineas = lineas[1:]
+            for linea in reversed(lineas):
+                try:
+                    campos = next(csv.reader([linea]))
+                except Exception:
+                    continue
+                if len(campos) <= idx_fecha_hora:
+                    continue
+                valor = campos[idx_fecha_hora].strip().strip('"')
+                try:
+                    return pd.Timestamp(datetime.strptime(valor, "%d/%m/%Y %H:%M"))
+                except ValueError:
+                    continue
             return None
-        # Si arrancamos a mitad de línea, descartar siempre el primer fragmento
-        # (salvo que leímos el archivo entero desde el byte 0).
-        if size > 8192:
-            lineas = lineas[1:]
-        for linea in reversed(lineas):
-            try:
-                campos = next(csv.reader([linea]))
-            except Exception:
-                continue
-            if len(campos) <= idx_fecha_hora:
-                continue
-            valor = campos[idx_fecha_hora].strip().strip('"')
-            try:
-                return pd.Timestamp(datetime.strptime(valor, "%d/%m/%Y %H:%M"))
-            except ValueError:
-                continue
+        except OSError:
+            return None
+    if escribir_csv_habilitado():
         return None
-    except OSError:
+    if not reporte_existe(ruta_salida):
         return None
+    df = cargar_reporte(ruta_salida)
+    if df.empty or "FECHA_HORA" not in df.columns:
+        return None
+    dt = pd.to_datetime(df["FECHA_HORA"], format="%d/%m/%Y %H:%M", errors="coerce").dropna()
+    return dt.max() if not dt.empty else None
 
 
 def ultima_fecha_hora_escrita(ruta_salida) -> "pd.Timestamp | None":
@@ -105,12 +119,16 @@ def ultima_fecha_hora_escrita(ruta_salida) -> "pd.Timestamp | None":
 
 
 def _columnas_combinado(ruta_salida) -> list[str] | None:
-    """Encabezado de un COMBINADO_POR_MINUTO_*.csv existente, o None si no
-    existe o no se puede leer."""
-    if not os.path.exists(ruta_salida):
+    """Encabezado del COMBINADO existente (CSV si hay archivo; BD solo sin CSV)."""
+    if os.path.exists(ruta_salida):
+        try:
+            return list(pd.read_csv(ruta_salida, nrows=0).columns)
+        except (ValueError, OSError):
+            return None
+    if escribir_csv_habilitado():
         return None
     try:
-        return list(pd.read_csv(ruta_salida, nrows=0).columns)
+        return columnas_reporte(ruta_salida)
     except (ValueError, OSError):
         return None
 
@@ -137,29 +155,54 @@ def _leer_previas_a_ventana_combinado(
 
     Devuelve None si el archivo no existe, no tiene una columna FECHA_HORA,
     o no se puede leer; quien llama debe caer al modo completo en ese caso.
+    Si no hay CSV pero sí BD, se serializan filas desde el DataFrame.
     """
-    if not os.path.exists(ruta_salida):
+    if os.path.exists(ruta_salida):
+        try:
+            with open(ruta_salida, 'r', newline='', encoding='utf-8') as f:
+                lector = csv.reader(f)
+                encabezado = next(lector, None)
+                if not encabezado or "FECHA_HORA" not in encabezado:
+                    return None
+                idx_fecha_hora = encabezado.index("FECHA_HORA")
+                filas = [fila for fila in lector if fila]
+        except OSError:
+            return None
+        if not filas:
+            return []
+        fechas = pd.to_datetime(
+            [fila[idx_fecha_hora] for fila in filas],
+            format="%d/%m/%Y %H:%M", errors="coerce",
+        )
+        return [
+            fila for fila, fecha in zip(filas, fechas)
+            if pd.notna(fecha) and fecha < inicio_ventana
+        ]
+    if escribir_csv_habilitado():
         return None
-    try:
-        with open(ruta_salida, 'r', newline='', encoding='utf-8') as f:
-            lector = csv.reader(f)
-            encabezado = next(lector, None)
-            if not encabezado or "FECHA_HORA" not in encabezado:
-                return None
-            idx_fecha_hora = encabezado.index("FECHA_HORA")
-            filas = [fila for fila in lector if fila]
-    except OSError:
+    if not reporte_existe(ruta_salida):
         return None
-    if not filas:
-        return []
-    fechas = pd.to_datetime(
-        [fila[idx_fecha_hora] for fila in filas],
-        format="%d/%m/%Y %H:%M", errors="coerce",
-    )
-    return [
-        fila for fila, fecha in zip(filas, fechas)
-        if pd.notna(fecha) and fecha < inicio_ventana
-    ]
+    df = cargar_reporte(ruta_salida)
+    if df.empty or "FECHA_HORA" not in df.columns:
+        return None if df.empty else []
+    fechas = pd.to_datetime(df["FECHA_HORA"], format="%d/%m/%Y %H:%M", errors="coerce")
+    prev = df.loc[fechas < inicio_ventana]
+    out: list[list[str]] = []
+    for row in prev.itertuples(index=False):
+        celdas = []
+        for v in row:
+            if v is None:
+                celdas.append("")
+            else:
+                try:
+                    if pd.isna(v):
+                        celdas.append("")
+                        continue
+                except (TypeError, ValueError):
+                    pass
+                celdas.append(str(v))
+        out.append(celdas)
+    return out
 
 
 def _valor_csv(valor):
@@ -187,9 +230,27 @@ def _escribir_ventana_combinada(
     tal cual via _leer_previas_a_ventana_combinado) + `df_ventana`
     (la ventana recalculada, columnas ya en `columnas_export`) -- reemplaza
     lo que hubiera en el archivo para las fechas de la ventana, sin tocar
-    el formato de lo anterior.
+    el formato de lo anterior. Persiste también en SQLite (Fase 7).
     """
-    os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
+    prev_df = (
+        pd.DataFrame(filas_previas, columns=columnas_export)
+        if filas_previas
+        else pd.DataFrame(columns=columnas_export)
+    )
+    full = pd.concat(
+        [prev_df, df_ventana[columnas_export].copy()],
+        ignore_index=True,
+    )
+    persistir_reporte_escrito(ruta_salida, full)
+
+    if not escribir_csv_habilitado():
+        print(
+            f"OK {nombre_archivo} - ventana en BD "
+            f"({len(filas_previas)} preservada(s) + {len(df_ventana)} en ventana; CSV off)"
+        )
+        return
+
+    os.makedirs(os.path.dirname(ruta_salida) or ".", exist_ok=True)
     # Sin newline='' aqui (a diferencia de la lectura): con newline=None
     # (el default), Python traduce cada '\n' escrito al separador de
     # linea del sistema (os.linesep) -- exactamente lo mismo que hace
@@ -426,10 +487,8 @@ def generar_combinado_por_minuto(ruta_bess, ruta_medidor, prefijo, esquema_tarif
         df_combinado.drop(columns=["_DT"]), prefijo, esquema, col_con, col_sin
     )
 
-    os.makedirs(os.path.dirname(ruta_salida), exist_ok=True)
-    # Escritura atómica (bess.core.atomic_io): ver _escribir_ventana_combinada.
-    with ruta_temporal_atomica(ruta_salida) as ruta_temp:
-        df_procesado[columnas_export].to_csv(ruta_temp, index=False)
+    os.makedirs(os.path.dirname(ruta_salida) or ".", exist_ok=True)
+    guardar_dataframe_reporte(ruta_salida, df_procesado[columnas_export])
 
     print(f"OK {nombre_archivo} - {len(df_procesado)} registros")
     return df_procesado

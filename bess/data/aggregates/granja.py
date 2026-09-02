@@ -9,10 +9,10 @@ import pandas as pd
 from bess.config import rutas as rutas_mod
 from bess.cfe.periods import periodo_por_fecha_hora
 from bess.config.esquema_tarifa import normalizar_esquema_tarifa
-from bess.core.atomic_io import ruta_temporal_atomica
 from bess.core.dates import agregar_fecha_operativa
 from bess.core.console import log
 from bess.data.aggregates._incremental_dia import (
+    _cargar_previo_pipeline,
     columnas_dia,
     combinar_cola_diaria,
     cursor_dia,
@@ -25,6 +25,7 @@ from bess.data.aggregates.combined import (
     _MARGEN_REEXPORTAR_DIAS,
 )
 from bess.data.ingest.readers import leer_sin_agrupar
+from bess.data.report_store import cargar_reporte, guardar_dataframe_reporte, reporte_existe
 
 print = log
 
@@ -101,12 +102,8 @@ def _escribir_combinado_minuto(df_min_out: pd.DataFrame, ruta_min: str) -> int:
         # No se pudo leer lo previo (formato inesperado pese al chequeo de
         # columnas): cae al modo completo de abajo, releyendo todo.
 
-    os.makedirs(os.path.dirname(ruta_min), exist_ok=True)
-    # Escritura atómica (bess.core.atomic_io): si algo interrumpe esta
-    # escritura a medio camino, ruta_min conserva su contenido anterior en
-    # vez de quedar truncado.
-    with ruta_temporal_atomica(ruta_min) as ruta_temp:
-        df_min_out.to_csv(ruta_temp, index=False)
+    os.makedirs(os.path.dirname(ruta_min) or ".", exist_ok=True)
+    guardar_dataframe_reporte(ruta_min, df_min_out)
     return len(df_min_out)
 
 
@@ -166,13 +163,14 @@ def generar_reportes_generacion(
 
     if incremental and df_min_dia.empty:
         print(f"  Sin días nuevos para {nombre_dia_med} (cursor {cursor.date()})")
-        df_dia = pd.read_csv(ruta_dia_med)
+        df_dia = _cargar_previo_pipeline(ruta_dia_med)
+        if df_dia is None:
+            df_dia = cargar_reporte(ruta_dia_med)
     else:
         df_dia = _energia_por_dia_y_periodo(df_min_dia, columna_kwh)
         if incremental:
             df_dia = combinar_cola_diaria(df_dia, ruta_dia_med, _COLUMNAS_DIA_GRANJA)
-        with ruta_temporal_atomica(ruta_dia_med) as ruta_temp:
-            df_dia.to_csv(ruta_temp, index=False)
+        guardar_dataframe_reporte(ruta_dia_med, df_dia)
     print(f"OK {nombre_dia_med} - {len(df_dia)} días")
 
     resultado = {
@@ -200,10 +198,10 @@ def consolidar_energia_generacion_subestacion(
     acumulado: pd.DataFrame | None = None
     for prefijo in prefijos:
         ruta = rutas_mod.ruta_energia_por_dia(prefijo, subestacion)
-        if not ruta.exists():
+        if not reporte_existe(ruta):
             print(f"  (sin diario {ruta.name}; omitido en consolidación)")
             continue
-        df = pd.read_csv(ruta, encoding="utf-8-sig")
+        df = cargar_reporte(ruta)
         for col in cols:
             if col not in df.columns:
                 if col == "FECHA":
@@ -233,8 +231,7 @@ def consolidar_energia_generacion_subestacion(
     ruta_out = str(
         rutas_mod.ruta_reporte(subestacion, f"ENERGIA_Generacion_{subestacion}_POR_DIA.csv")
     )
-    with ruta_temporal_atomica(ruta_out) as ruta_temp:
-        acumulado.to_csv(ruta_temp, index=False)
+    guardar_dataframe_reporte(ruta_out, acumulado)
     print(
         f"OK ENERGIA_Generacion_{subestacion}_POR_DIA.csv - {len(acumulado)} días "
         f"(suma de {len(prefijos)} medidor(es))"

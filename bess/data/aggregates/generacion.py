@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from bess.config import rutas as rutas_mod
+from bess.data.report_store import cargar_reporte, reporte_existe
 
 
 def ruta_energia_generacion_por_dia(subestacion: str) -> Path:
@@ -14,9 +15,9 @@ def ruta_energia_generacion_por_dia(subestacion: str) -> Path:
 
 
 def _sumar_diario_periodo(ruta: Path, fecha_inicio, fecha_fin) -> dict[str, float] | None:
-    if not ruta.exists():
+    if not reporte_existe(ruta):
         return None
-    df = pd.read_csv(ruta, encoding="utf-8-sig")
+    df = cargar_reporte(ruta)
     if "FECHA" not in df.columns:
         return None
     df["FECHA_DT"] = pd.to_datetime(df["FECHA"], format="%d/%m/%Y", errors="coerce")

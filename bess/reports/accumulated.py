@@ -29,10 +29,14 @@ def _sumar_columnas_rango(
     fecha_fin: date,
     columnas: list[str],
 ) -> dict[str, float]:
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
     resultado = {c: 0.0 for c in columnas}
-    if not os.path.exists(ruta_csv):
+    if not reporte_existe(ruta_csv):
         return resultado
-    df = pd.read_csv(ruta_csv)
+    df = cargar_reporte(ruta_csv)
+    if df.empty or "FECHA" not in df.columns:
+        return resultado
     df["FECHA_DT"] = pd.to_datetime(df["FECHA"], format="%d/%m/%Y")
     mask = (df["FECHA_DT"].dt.date >= fecha_inicio) & (df["FECHA_DT"].dt.date <= fecha_fin)
     df_r = df[mask]

@@ -28,28 +28,18 @@ Ingesta (ION Modbus, API IUSASOL, API Granja)
         ▼
    SQLite: perfil_carga, sync_state, sync_log, catálogo   [BD — Hecho]
         │
-        ▼  export_csv.py (exporta histórico COMPLETO cada sync)
-   ArchivosFuente/*.csv                                    [CSV]
+        ▼  export_csv.py (incremental + ventana 1 día)
+   ArchivosFuente/*.csv                                    [CSV — intermediario]
         │
-        ▼  Verificar (verify.py) — incremental desde Fase 1 de esta sesión
-   ArchivosProcesados/*.csv                                [CSV]
+        ▼  Verificar / Filtrar (incremental)
+   ArchivosProcesados/*[_Filtrado].csv                     [CSV — intermediario]
         │
-        ▼  Filtrar (filter.py) — intersección de fechas, incremental (Fase 4)
-   ArchivosProcesados/*_Filtrado.csv                        [CSV]
-        │
-        ▼  aggregates/{combined,daily,accumulated,granja,bess_daily}.py
-   ArchivosReporte/COMBINADO_*, ENERGIA_*_POR_DIA, ACUMULADOS_*  [CSV]
+        ▼  aggregates (combined / daily / acumulados / …)
+   SQLite: reporte_serie_*  +  ArchivosReporte/*.csv       [Fase 7: BD verdad UI; CSV respaldo]
         │
         ▼
    reports/*_pdf.py  +  ui/{pages,reportes_tab,generacion_tab,...}.py
 ```
-
-Todo lo que está debajo de la primera línea de SQLite sigue siendo CSV de
-punta a punta. Cada etapa desde Verificar hasta los agregados ya dejó de
-reprocesar el histórico completo en cada corrida (cursor/ventana
-incremental, ver Fases 1-6); export_csv.py (Fase 2) es la única que sigue
-siendo un caso especial, porque su fuente es la propia base de datos, no
-otro CSV.
 
 ## Principio de trabajo (el que ya se siguió en Verificar)
 
@@ -355,3 +345,51 @@ los días fuera del margen no se tocan al recalcular la ventana (con guardas
 explícitas contra comparaciones vacías que pasarían "por accidente").
 Suite completa: 127 pruebas. Commits `93dc8bf`, `01bb952`, `e25c5dc`,
 `46f043f`, `c82c99b`, `530821a`, `14b5250`.
+
+### Fase 7 — SQLite como fuente de verdad de **ArchivosReporte** · Hecho
+
+**Alcance:** solo la capa que alimenta UI/PDF (`COMBINADO_*`, `ENERGIA_*_POR_DIA`,
+`ACUMULADOS_*`, `ENERGIA_BESS_*`, generación). `ArchivosFuente` /
+`ArchivosProcesados` siguen como intermediarios del pipeline hasta Fase 8.
+
+**Módulo:** `bess/data/report_store.py` (misma BD `bess_perfiles.db`).
+
+Tablas:
+
+| Tabla | Rol |
+|-------|-----|
+| `reporte_serie_meta` | Serie lógica (`combinado:…`, `energia_dia:…`, …), columnas ordenadas, medidor/sub |
+| `reporte_serie_fila` | PK `(serie_id, clave)` + `payload` JSON (todas las columnas del CSV) |
+
+La lectura reconstruye un DataFrame con **los mismos nombres de columna** que
+el CSV, para no reescribir UI/CFE/PDF de golpe.
+
+#### Fase 7.0 — Esquema + store + import CSV→BD · Hecho
+
+DDL en `init_db`, API `reemplazar_serie` / `leer_dataframe` /
+`sincronizar_desde_csv` / `importar_directorio_reportes`, script
+`scripts/importar_reportes_sqlite.py`, tests `tests/test_report_store.py`.
+
+#### Fase 7.1 — Escritores duales · Hecho
+
+Tras calcular el DataFrame en `aggregates/{combined,daily,accumulated,bess_daily,granja}.py`,
+`guardar_dataframe_reporte` persiste en BD **y** (por defecto) escribe CSV.
+Rebuild total regenera reportes vía el mismo camino (puebla las tablas).
+
+#### Fase 7.2 — Lectores duales (BD preferente) · Hecho
+
+Loaders centralizados vía `cargar_reporte` / `reporte_existe` en UI, CFE y PDF.
+Si la serie tiene filas en BD, se lee de ahí; si no, CSV solo si la serie aún
+no tiene meta (bootstrapping) o con `BESS_REPORTES_FALLBACK_CSV=1`.
+`BESS_REPORTES_SOLO_BD=1` fuerza solo BD.
+
+#### Fase 7.3 — Cortar lectura CSV de reportes · Hecho
+
+Fallback CSV desactivado por defecto (`BESS_REPORTES_FALLBACK_CSV=0`). CSV de
+`ArchivosReporte` queda como export opcional (`BESS_REPORTES_ESCRIBIR_CSV=1`
+sigue activo para respaldo/Excel hasta que se apague a propósito).
+
+### Fase 8 — Verificar/Filtrar desde `perfil_carga` · Pendiente
+
+Eliminar dependencia del cron sobre `ArchivosFuente`/`ArchivosProcesados`.
+Solo después de estabilizar 7.3 en servidor.
