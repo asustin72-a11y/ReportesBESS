@@ -68,6 +68,7 @@ from bess.cfe.report_data import (
     _cargar_acumulados,
     _fila_por_fecha,
     acumulados_tiene_demanda_sin_bess,
+    construir_tabla_demanda_rolada_max_mes,
     dias_transcurridos_mes,
     obtener_demanda_rolada_punta,
 )
@@ -398,23 +399,22 @@ def _construir_tabla_demanda_acumulados(fila):
         sin_kw, sin_fh = _formatear_celda_demanda(fila, clave, 'SIN_BESS')
         filas.append({
             'Periodo': nombre,
-            'Con BESS (kW)': con_kw,
+            'Con BESS (kW, 15 min)': con_kw,
             'Hora con BESS': con_fh,
-            'Sin BESS (kW)': sin_kw,
+            'Sin BESS (kW, 15 min)': sin_kw,
             'Hora sin BESS': sin_fh,
         })
     return pd.DataFrame(filas)
 
-def construir_tabla_demanda_max_mes(fecha, prefijo):
-    """Demanda máxima del mes por periodo (valor y hora pico en ACUMULADOS_*.csv)."""
+def construir_tabla_demanda_max_mes(fecha, prefijo, df_combinado=None):
+    """Demanda máxima rolada 15 min del mes por periodo, hasta la fecha de corte."""
+    tabla = construir_tabla_demanda_rolada_max_mes(df_combinado, fecha, prefijo)
+    if tabla is not None:
+        return tabla
     df = _cargar_acumulados(prefijo)
     if df is None:
         return None
-    mes = pd.Period(fecha, freq='M')
-    df_mes = df[df['FECHA_DT'].dt.to_period('M') == mes]
-    if df_mes.empty:
-        return None
-    fila = df_mes.loc[df_mes['FECHA_DT'].idxmax()]
+    fila = _fila_por_fecha(df, fecha)
     return _construir_tabla_demanda_acumulados(fila)
 
 def acumulados_tiene_demanda_sin_bess(prefijo):
@@ -431,11 +431,11 @@ def estilizar_tabla_demanda_periodo(df_tabla):
     for idx, periodo in df_tabla['Periodo'].items():
         bg = PERIODO_BG.get(periodo, '#f8fafc')
         styler = styler.set_properties(
-            subset=pd.IndexSlice[idx, ['Con BESS (kW)', 'Hora con BESS']],
+            subset=pd.IndexSlice[idx, ['Con BESS (kW, 15 min)', 'Hora con BESS']],
             **{'background-color': bg, 'text-align': 'right'}
         )
         styler = styler.set_properties(
-            subset=pd.IndexSlice[idx, ['Sin BESS (kW)', 'Hora sin BESS']],
+            subset=pd.IndexSlice[idx, ['Sin BESS (kW, 15 min)', 'Hora sin BESS']],
             **{'background-color': bg, 'text-align': 'right', 'opacity': '0.92'}
         )
     styler = styler.set_table_styles([
@@ -804,7 +804,7 @@ def tab_analisis(df, prefijo):
 
         section_header(
             f"Demanda del día · {fecha_str}",
-            'Curva con y sin BESS en intervalos de 15 minutos.',
+            'Demanda rolada 15 min (media de 3 intervalos de 5 min), con y sin BESS.',
         )
         if df_dem_valid.empty:
             st.warning(f"No hay lecturas de demanda (15 min) para el {fecha_str}")
@@ -819,9 +819,10 @@ def tab_analisis(df, prefijo):
 
         section_header(
             f"Demanda máxima del mes · {mes_label}",
-            'Acumulado mensual hasta la fecha de corte.',
+            'Máximo de demanda rolada 15 min por periodo tarifario, del 1 '
+            f'al {fecha_str}. No es kW instantáneo de 5 min. Redondeo CFE (ceil).',
         )
-        df_dem_mes = construir_tabla_demanda_max_mes(fecha_sel, prefijo)
+        df_dem_mes = construir_tabla_demanda_max_mes(fecha_sel, prefijo, df)
         if df_dem_mes is not None:
             st.dataframe(
                 estilizar_tabla_demanda_periodo(df_dem_mes),
