@@ -12,9 +12,16 @@ from bess.config.subestaciones import (
     ruta_energia_dia_por_prefijo,
 )
 from bess.core.kvarh import columnas_kvarh_prefijo, normalizar_columnas_kvarh
+from bess.core.demand import aplicar_mascara_demanda_maximo
 from bess.core.numbers import redondear_arriba_kw, sumar_energia
 from bess.core.energia_periodo import sumar_consumo_por_periodo_df
 from bess.config.esquema_tarifa import esquema_tarifa_prefijo
+
+_PERIODOS_DEMANDA = (
+    ("Base", "Base"),
+    ("Intermedio", "Intermedio"),
+    ("Punta", "Punta"),
+)
 
 def _fila_por_fecha(df, fecha):
     if df is None:
@@ -158,3 +165,64 @@ def acumulados_tiene_demanda_sin_bess(prefijo):
     if df is None:
         return False
     return 'PUNTA_DEM_SIN_BESS_MAX' in df.columns
+
+
+def _filtrar_combinado_mes_hasta(df: pd.DataFrame, fecha) -> pd.DataFrame:
+    """Filas del combinado en el mes calendario hasta la fecha de corte (inclusive)."""
+    fechas = pd.to_datetime(df["FECHA"], format="%d/%m/%Y", errors="coerce")
+    mask = (
+        (fechas.dt.year == fecha.year)
+        & (fechas.dt.month == fecha.month)
+        & (fechas.dt.date <= fecha)
+    )
+    return df.loc[mask].copy()
+
+
+def _pico_demanda_rolada(df: pd.DataFrame, col_dem: str, periodo: str):
+    """Máximo de demanda rolada 15 min en un periodo TOU (máscara en bordes)."""
+    if col_dem not in df.columns or "PERIODO" not in df.columns:
+        return None, None
+    dem = pd.to_numeric(df[col_dem], errors="coerce")
+    enmasc = aplicar_mascara_demanda_maximo(dem, df["PERIODO"])
+    etiqueta = df["PERIODO"].astype(str).str.strip()
+    subset = enmasc.loc[etiqueta == periodo].dropna()
+    if subset.empty:
+        return None, None
+    idx = subset.idxmax()
+    kw = redondear_arriba_kw(float(subset.loc[idx]))
+    fh = df.loc[idx, "FECHA_HORA"] if "FECHA_HORA" in df.columns else "—"
+    if pd.isna(fh) or fh == "":
+        fh = "—"
+    return kw, fh
+
+
+def construir_tabla_demanda_rolada_max_mes(df, fecha, prefijo):
+    """
+    Resumen de máximos de demanda rolada 15 min por periodo, hasta `fecha`.
+
+    Usa las columnas ``*_kW_DEM_15min`` del combinado (misma serie que la
+    gráfica diaria) y excluye los dos primeros intervalos de cada racha
+    tarifaria, igual que Capacidad CFE / Shapley.
+    """
+    if df is None or getattr(df, "empty", True) or "FECHA" not in df.columns:
+        return None
+    col_con = f"IUSA_CON_BESS_{prefijo}_kW_DEM_15min"
+    col_sin = f"IUSA_SIN_BESS_{prefijo}_kW_DEM_15min"
+    if col_con not in df.columns:
+        return None
+    mes = _filtrar_combinado_mes_hasta(df, fecha)
+    if mes.empty:
+        return None
+
+    filas = []
+    for nombre, clave_periodo in _PERIODOS_DEMANDA:
+        con_kw, con_fh = _pico_demanda_rolada(mes, col_con, clave_periodo)
+        sin_kw, sin_fh = _pico_demanda_rolada(mes, col_sin, clave_periodo)
+        filas.append({
+            "Periodo": nombre,
+            "Con BESS (kW, 15 min)": "—" if con_kw is None else f"{con_kw:,}",
+            "Hora con BESS": "—" if con_fh is None else con_fh,
+            "Sin BESS (kW, 15 min)": "—" if sin_kw is None else f"{sin_kw:,}",
+            "Hora sin BESS": "—" if sin_fh is None else sin_fh,
+        })
+    return pd.DataFrame(filas)
