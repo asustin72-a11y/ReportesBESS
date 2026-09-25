@@ -106,8 +106,8 @@ def _barra_acciones() -> None:
 def _tab_subestaciones() -> None:
     st.markdown("##### Subestaciones")
     st.caption(
-        "`Generacion`: 0 = sin generación · 1 = grupo solar (tipo 4) · "
-        "2 = generación individual (tipo 5, p. ej. medidor de generación en planta)."
+        "`Generacion`: 0 = sin generación · 1 = grupo solar (tipo 4; FV tipo 5 opcional) · "
+        "2 = generación individual (uno o más tipo 5: cogen, FV de azotea, etc.)."
     )
     opciones_gen = {
         service.ETIQUETAS_GENERACION[GENERACION_NINGUNA]: str(GENERACION_NINGUNA),

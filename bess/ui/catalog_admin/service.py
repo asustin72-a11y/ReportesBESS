@@ -30,8 +30,8 @@ REGLAS_RESUMEN = """
 - Exactamente **1** medidor tipo 1 (Neteo / facturación).
 - Al menos **1** medidor tipo 3 (BESS).
 - `Generacion=0` → sin tipos 4 ni 5.
-- `Generacion=1` → medidores tipo 4 con `Grupo_Generacion`; sin tipo 5.
-- `Generacion=2` → exactamente un medidor tipo 5; sin tipo 4.
+- `Generacion=1` → medidores tipo 4 con `Grupo_Generacion`; tipo 5 (azotea) opcional.
+- `Generacion=2` → uno o más medidores tipo 5; sin tipo 4.
 
 **Por medidor**
 - `Descarga=ION` → IP válida (no vacía ni `0`).
