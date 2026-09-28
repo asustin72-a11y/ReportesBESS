@@ -109,7 +109,9 @@ from bess.charts import (
     graficar_costo_energia_periodo,
     graficar_criterio_cfe,
     graficar_demanda_dia,
+    graficar_demanda_real_dia,
     graficar_perfil,
+    muestra_grafica_demanda_real_dist,
     graficar_tendencia_arbitraje,
     graficar_tendencia_bess_operacion,
     graficar_tendencia_con_sin_bess,
@@ -815,6 +817,21 @@ def tab_analisis(df, prefijo):
                     fig,
                     f'demanda_{prefijo}_{fecha_sel:%Y%m%d}.png',
                     download_key=f'dl_demanda_{prefijo}_{fecha_sel:%Y%m%d}',
+                )
+
+        if muestra_grafica_demanda_real_dist(prefijo):
+            with st.expander("Demanda real (planta)", expanded=False):
+                st.caption(
+                    "ION + generación + descarga BESS − recarga. "
+                    "Rolada 15 min. Solo visual; no entra a Capacidad CFE ni a Shapley."
+                )
+                fig_real = graficar_demanda_real_dia(
+                    df, prefijo, fecha_sel, f"Demanda real · {fecha_str}"
+                )
+                render_grafica_plotly(
+                    fig_real,
+                    f'demanda_real_{prefijo}_{fecha_sel:%Y%m%d}.png',
+                    download_key=f'dl_demanda_real_{prefijo}_{fecha_sel:%Y%m%d}',
                 )
 
         section_header(

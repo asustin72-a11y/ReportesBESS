@@ -20,6 +20,8 @@ from bess.config.subestaciones import (
 from bess.config.theme import COLORES
 from bess.config.esquema_tarifa import esquema_tarifa_prefijo, usa_netmetering
 from bess.core.consumo import kwh_neto_consumo, usa_consumo_neto
+from bess.core.demand import demanda_rodante_15min_por_mes
+from bess.core.dates import mascara_rango_operativo
 
 def _kwh_neto_perfil(df: pd.DataFrame, prefijo: str) -> pd.Series | None:
     """kWh netos del ION para el perfil (KWH_NETO o REC−ENT con piso en 0)."""
@@ -425,4 +427,169 @@ def graficar_demanda_dia(df, prefijo, titulo=''):
     fig.update_xaxes(tickformat='%H:%M', dtick=7200000)
     fig.update_yaxes(zeroline=True, zerolinecolor='#95a5a6', zerolinewidth=1)
 
+    return fig
+
+
+def muestra_grafica_demanda_real_dist(prefijo: str) -> bool:
+    """IUSA 1 / IUSA 2 (DIST con generación). Aragón sigue en el perfil GDMTH."""
+    if usa_netmetering(esquema_tarifa_prefijo(prefijo)):
+        return False
+    sub = subestacion_por_prefijo(prefijo)
+    return bool(sub and recursos_generacion_subestacion(sub.id))
+
+
+def kwh_demanda_real_intervalo(
+    kwh_ion: pd.Series,
+    kwh_gen: pd.Series,
+    kwh_ent_bess: pd.Series,
+    kwh_rec_bess: pd.Series,
+) -> pd.Series:
+    """Planta: ION + generación + descarga BESS − recarga BESS (kWh / 5 min)."""
+    return (
+        pd.to_numeric(kwh_ion, errors="coerce").fillna(0)
+        + pd.to_numeric(kwh_gen, errors="coerce").fillna(0)
+        + pd.to_numeric(kwh_ent_bess, errors="coerce").fillna(0)
+        - pd.to_numeric(kwh_rec_bess, errors="coerce").fillna(0)
+    )
+
+
+def _kwh_columna_recurso(df_gen: pd.DataFrame, columna: str) -> pd.Series | None:
+    if columna in df_gen.columns:
+        return pd.to_numeric(df_gen[columna], errors="coerce")
+    for alt in ("KWH_REC", "KWH_ENT"):
+        if alt in df_gen.columns:
+            return pd.to_numeric(df_gen[alt], errors="coerce")
+    return None
+
+
+def _kwh_generacion_alineada(df: pd.DataFrame, prefijo: str) -> pd.Series:
+    """Suma generación (granja KWH_REC, tipo 5 KWH_ENT) alineada a FECHA_HORA."""
+    ceros = pd.Series(0.0, index=df.index)
+    if "FECHA_HORA" not in df.columns:
+        return ceros
+    sub = subestacion_por_prefijo(prefijo)
+    if not sub:
+        return ceros
+    recursos = recursos_generacion_subestacion(sub.id)
+    if not recursos:
+        return ceros
+
+    from bess.data.report_store import cargar_reporte, reporte_existe
+
+    acumulado: pd.DataFrame | None = None
+    for recurso in recursos:
+        ruta = rutas_mod.ruta_reporte(
+            sub.id, f"COMBINADO_POR_MINUTO_{recurso.prefijo_reporte}.csv"
+        )
+        if not reporte_existe(ruta):
+            continue
+        df_gen = cargar_reporte(ruta)
+        if "FECHA_HORA" not in df_gen.columns:
+            continue
+        serie = _kwh_columna_recurso(df_gen, recurso.columna_kwh)
+        if serie is None:
+            continue
+        parte = pd.DataFrame({
+            "FECHA_HORA": df_gen["FECHA_HORA"],
+            "KWH_GENERACION": serie.fillna(0),
+        })
+        if acumulado is None:
+            acumulado = parte
+        else:
+            merged = acumulado.merge(
+                parte, on="FECHA_HORA", how="outer", suffixes=("_a", "_b")
+            )
+            acumulado = pd.DataFrame({
+                "FECHA_HORA": merged["FECHA_HORA"],
+                "KWH_GENERACION": (
+                    pd.to_numeric(merged["KWH_GENERACION_a"], errors="coerce").fillna(0)
+                    + pd.to_numeric(merged["KWH_GENERACION_b"], errors="coerce").fillna(0)
+                ),
+            })
+
+    if acumulado is None:
+        return ceros
+    acumulado = acumulado.groupby("FECHA_HORA", as_index=False)["KWH_GENERACION"].sum()
+    unidos = df[["FECHA_HORA"]].merge(acumulado, on="FECHA_HORA", how="left")
+    return pd.to_numeric(unidos["KWH_GENERACION"], errors="coerce").fillna(0).set_axis(df.index)
+
+
+def serie_demanda_real_15min(df: pd.DataFrame, prefijo: str) -> pd.Series:
+    """Demanda de planta rolada 15 min (misma ventana que Análisis → Demanda)."""
+    kwh_ion = kwh_neto_consumo(df, prefijo)
+    kwh_gen = _kwh_generacion_alineada(df, prefijo)
+    ent = (
+        pd.to_numeric(df["KWH_ENT_BESS"], errors="coerce").fillna(0)
+        if "KWH_ENT_BESS" in df.columns
+        else pd.Series(0.0, index=df.index)
+    )
+    rec = (
+        pd.to_numeric(df["KWH_REC_BESS"], errors="coerce").fillna(0)
+        if "KWH_REC_BESS" in df.columns
+        else pd.Series(0.0, index=df.index)
+    )
+    kw = kwh_demanda_real_intervalo(kwh_ion, kwh_gen, ent, rec) * 12
+    if "FECHA" in df.columns:
+        mes_op = pd.to_datetime(df["FECHA"], format="%d/%m/%Y", errors="coerce").dt.strftime(
+            "%Y-%m"
+        )
+    else:
+        mes_op = pd.to_datetime(df["FECHA_HORA"], format="%d/%m/%Y %H:%M", errors="coerce").dt.strftime(
+            "%Y-%m"
+        )
+    return demanda_rodante_15min_por_mes(kw, mes_op)
+
+
+def graficar_demanda_real_dia(df, prefijo, fecha, titulo=""):
+    """Curva de demanda de planta (IUSA 1 / IUSA 2). No altera Con/Sin BESS."""
+    fig_vacia = go.Figure()
+    fig_vacia.add_annotation(
+        text="Sin datos de demanda real para este día",
+        x=0.5, y=0.5, xref="paper", yref="paper", showarrow=False,
+        font=dict(size=14, color="#718096"),
+    )
+    fig_vacia.update_layout(height=420, margin=dict(l=50, r=20, t=50, b=40))
+
+    if df is None or getattr(df, "empty", True) or "FECHA_HORA" not in df.columns:
+        return fig_vacia
+
+    work = df.copy()
+    if "FECHA" in work.columns and fecha is not None:
+        fechas = pd.to_datetime(work["FECHA"], format="%d/%m/%Y", errors="coerce")
+        work = work.loc[(fechas.dt.year == fecha.year) & (fechas.dt.month == fecha.month)]
+        if work.empty:
+            return fig_vacia
+
+    work = work.copy()
+    work["KW_DEMANDA_REAL_15min"] = serie_demanda_real_15min(work, prefijo)
+    if "DATETIME" not in work.columns:
+        work["DATETIME"] = pd.to_datetime(work["FECHA_HORA"], format="%d/%m/%Y %H:%M")
+    dia = work.loc[mascara_rango_operativo(work, fecha, fecha)].sort_values("DATETIME")
+    if dia.empty:
+        return fig_vacia
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=dia["DATETIME"],
+        y=pd.to_numeric(dia["KW_DEMANDA_REAL_15min"], errors="coerce"),
+        name="Demanda real",
+        mode="lines+markers",
+        line=dict(color=COLORES["secondary"], width=2.8),
+        marker=dict(size=5, color=COLORES["secondary"]),
+        fill="tozeroy",
+        fillcolor="rgba(46,134,193,0.18)",
+    ))
+    titulo_grafica = titulo or f"Demanda real · {prefijo}"
+    title_cfg, legend_cfg, margin_t = _titulo_y_leyenda_externos(titulo_grafica)
+    fig.update_layout(
+        title=title_cfg,
+        xaxis_title="Hora",
+        yaxis_title="Demanda real (kW) · ventana 15 min",
+        height=460,
+        hovermode="x unified",
+        legend=legend_cfg,
+        margin=dict(l=55, r=25, t=margin_t, b=50),
+    )
+    fig.update_xaxes(tickformat="%H:%M", dtick=7200000)
+    fig.update_yaxes(zeroline=True, zerolinecolor="#95a5a6", zerolinewidth=1)
     return fig
