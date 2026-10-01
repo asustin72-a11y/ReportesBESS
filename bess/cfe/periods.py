@@ -50,7 +50,11 @@ def es_festivo(fecha):
 
 
 def obtener_periodo_por_hora(fecha, hora_archivo):
-    """Determina el periodo (Base, Intermedio, Punta) según la tabla oficial"""
+    """Periodo (Base, Intermedio, Punta) según la tabla oficial.
+
+    hora_archivo va de 1 a 24: 1 es la hora 0 (00:00–01:00) y 24 es la
+    hora 23 (23:00–24:00). No es la hora 0 del día siguiente.
+    """
     hora = hora_archivo - 1
     if hora == 24:
         hora = 0
@@ -147,19 +151,28 @@ def periodo_por_fecha_hora(fecha_hora_str: str, esquema_tarifa: str = "DIST") ->
     return _periodo_por_fecha_hora_dist(fecha_hora_str)
 
 
+def fecha_y_hora_archivo(fecha_hora_str: str) -> tuple[datetime, int]:
+    """Fecha y hora de archivo (1–24) de una marca de 5 minutos.
+
+    La marca en punto cierra la hora anterior. Las 23:05–23:55 y las 00:00
+    del día siguiente son la hora 23 del día en que empezó esa hora: si se
+    pasan al calendario de mañana, un festivo o un domingo cambia el periodo
+    (el 15/09/2026 23:05 quedaba en Base por el 16, que es festivo).
+    """
+    dt = datetime.strptime(fecha_hora_str, "%d/%m/%Y %H:%M")
+    if dt.hour == 0 and dt.minute == 0:
+        return dt - timedelta(days=1), 24
+    if dt.minute == 0:
+        return dt, dt.hour
+    if dt.hour == 23:
+        return dt, 24
+    return dt, dt.hour + 1
+
+
 def _periodo_por_fecha_hora_dist(fecha_hora_str: str) -> str:
     """Horario DIST / Región Central (comportamiento histórico)."""
-    dt = datetime.strptime(fecha_hora_str, '%d/%m/%Y %H:%M')
-    fecha = dt.date()
-    hora = dt.hour
-    minuto = dt.minute
-
-    hora_base = hora if minuto == 0 else hora + 1
-    if hora_base == 24:
-        hora_base = 0
-        fecha = fecha + timedelta(days=1)
-
-    return obtener_periodo_por_hora(fecha, hora_base if hora_base > 0 else 24)
+    fecha, hora_archivo = fecha_y_hora_archivo(fecha_hora_str)
+    return obtener_periodo_por_hora(fecha, hora_archivo)
 
 
 def agregar_periodo(df):

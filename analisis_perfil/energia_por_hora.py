@@ -45,21 +45,10 @@ def fecha_operativa(dt: datetime) -> date:
 
 
 def _bucket_hora(dt: datetime) -> tuple[date, int]:
-    """Devuelve (fecha_para_periodo, hora_cfe 0..23) con la convencion de cierre.
+    """(fecha dueña de la hora, hora CFE 0–23). Las 23:05–00:00 no cambian de día."""
+    from marca_horaria import fecha_y_hora_cfe
 
-    minuto == 0 -> esa hora de reloj;
-    minuto != 0 -> hora + 1; si llega a 24 -> hora 0 del dia siguiente.
-    """
-    fecha = dt.date()
-    hora_base = dt.hour if dt.minute == 0 else dt.hour + 1
-    if hora_base == 24:
-        hora_base = 0
-        fecha = fecha + timedelta(days=1)
-    hora_archivo = hora_base if hora_base > 0 else 24
-    hora_cfe = hora_archivo - 1
-    if hora_cfe < 0:
-        hora_cfe = 0
-    return fecha, hora_cfe
+    return fecha_y_hora_cfe(dt)
 
 
 # ---------------------------------------------------------------------------

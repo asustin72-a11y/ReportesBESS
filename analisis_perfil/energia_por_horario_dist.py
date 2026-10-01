@@ -19,6 +19,7 @@ from pathlib import Path
 
 FMT_FECHA = "%Y-%m-%d %H:%M:%S"
 
+from marca_horaria import fecha_y_hora_cfe
 from servicio_config import (  # noqa: E402
     PERIODO_A_ENT,
     PERIODO_A_GEN,
@@ -74,7 +75,8 @@ def es_festivo(fecha: date) -> bool:
 def obtener_periodo_por_hora(fecha: date, hora_archivo: int) -> str:
     """Base / Intermedio / Punta según tabla oficial DIST Central.
 
-    hora_archivo usa la convención 1..24 (hora_reloj + 1; 24 = medianoche).
+    hora_archivo va de 1 a 24: 1 es la hora 0 y 24 es la hora 23
+    (23:00–24:00), no la medianoche del día siguiente.
     """
     hora = hora_archivo - 1
     if hora == 24:
@@ -141,18 +143,9 @@ def obtener_periodo_por_hora(fecha: date, hora_archivo: int) -> str:
 
 
 def periodo_por_timestamp(dt: datetime) -> str:
-    """Asigna periodo al sello cincominutal.
-
-    minuto == 0 → pertenece a esa hora de reloj;
-    minuto != 0 → pertenece a la hora de cierre (hora + 1).
-    Si eso cae en 24 → hora 0 del día calendario siguiente.
-    """
-    fecha = dt.date()
-    hora_base = dt.hour if dt.minute == 0 else dt.hour + 1
-    if hora_base == 24:
-        hora_base = 0
-        fecha = fecha + timedelta(days=1)
-    return obtener_periodo_por_hora(fecha, hora_base if hora_base > 0 else 24)
+    """Periodo de la marca. Las 23:05–00:00 no pasan al día siguiente."""
+    fecha, hora = fecha_y_hora_cfe(dt)
+    return obtener_periodo_por_hora(fecha, hora + 1)
 
 
 def fecha_operativa(dt: datetime) -> date:

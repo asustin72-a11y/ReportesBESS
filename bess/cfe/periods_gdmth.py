@@ -89,17 +89,9 @@ def obtener_periodo_gdmth_por_hora(fecha, hora: int) -> str:
 
 def periodo_por_fecha_hora_gdmth(fecha_hora_str: str) -> str:
     """Misma convención de marcas de 5 min que DIST (obtener_periodo_por_fecha_hora)."""
-    dt = datetime.strptime(fecha_hora_str, "%d/%m/%Y %H:%M")
-    fecha = dt.date()
-    hora = dt.hour
-    minuto = dt.minute
+    from bess.cfe.periods import fecha_y_hora_archivo
 
-    hora_base = hora if minuto == 0 else hora + 1
-    if hora_base == 24:
-        hora_base = 0
-        fecha = fecha + timedelta(days=1)
-
-    hora_archivo = hora_base if hora_base > 0 else 24
+    fecha, hora_archivo = fecha_y_hora_archivo(fecha_hora_str)
     hora_cfe = hora_archivo - 1
     if hora_cfe < 0:
         hora_cfe = 0

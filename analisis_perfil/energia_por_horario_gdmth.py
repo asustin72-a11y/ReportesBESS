@@ -111,23 +111,11 @@ def obtener_periodo_gdmth_por_hora(fecha: date, hora: int) -> str:
 
 
 def periodo_por_timestamp(dt: datetime) -> str:
-    """Asigna periodo al sello cincominutal (misma convencion que DIST).
+    """Periodo de la marca. Las 23:05–00:00 no pasan al día siguiente."""
+    from marca_horaria import fecha_y_hora_cfe
 
-    minuto == 0 -> pertenece a esa hora de reloj;
-    minuto != 0 -> pertenece a la hora de cierre (hora + 1).
-    Si eso cae en 24 -> hora 0 del dia calendario siguiente.
-    """
-    fecha = dt.date()
-    hora_base = dt.hour if dt.minute == 0 else dt.hour + 1
-    if hora_base == 24:
-        hora_base = 0
-        fecha = fecha + timedelta(days=1)
-
-    hora_archivo = hora_base if hora_base > 0 else 24
-    hora_cfe = hora_archivo - 1
-    if hora_cfe < 0:
-        hora_cfe = 0
-    return obtener_periodo_gdmth_por_hora(fecha, hora_cfe)
+    fecha, hora = fecha_y_hora_cfe(dt)
+    return obtener_periodo_gdmth_por_hora(fecha, hora)
 
 
 def fecha_operativa(dt: datetime) -> date:
