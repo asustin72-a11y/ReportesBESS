@@ -199,6 +199,10 @@ def graficar_perfil(df, prefijo, titulo, *, incluir_generacion: bool = True):
     df = df.copy()
     if 'DATETIME' not in df.columns:
         df['DATETIME'] = pd.to_datetime(df['FECHA_HORA'], format='%d/%m/%Y %H:%M')
+    # La BD ordena FECHA_HORA como texto (dd/mm/yyyy). En el cierre de mes,
+    # 01/10 00:00 queda antes que 30/09 y el área se rellena entre esa
+    # cuerda y la curva real. Hay que dibujar en orden cronológico.
+    df = df.sort_values('DATETIME', kind='mergesort').reset_index(drop=True)
 
     df, perfil_rec_ent = _preparar_df_perfil(df, prefijo)
     if incluir_generacion:

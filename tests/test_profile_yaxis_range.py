@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from bess.charts.profile import _rango_y_perfil
+from bess.charts.profile import _rango_y_perfil, graficar_perfil
 
 
 def test_no_recorta_pico_de_kw_recibidos_cuando_hay_demanda_real():
@@ -120,4 +120,28 @@ def test_descarga_bess_sin_demanda_real_negativa_sigue_cubierta():
 
     assert y_range is not None
     assert y_range[0] <= -df['BESS_ENT_kW'].max()
+
+
+def test_perfil_dibuja_en_orden_cronologico_al_cerrar_el_mes():
+    """FECHA_HORA en la BD se ordena como texto. El día operativo del 30/09
+    incluye 01/10 00:00, que como texto queda primero. Sin ordenar, Plotly
+    une ese punto con el inicio del día y el área se ve como una banda."""
+    df = pd.DataFrame({
+        'FECHA_HORA': [
+            '01/10/2026 00:00',
+            '30/09/2026 00:05',
+            '30/09/2026 02:00',
+            '30/09/2026 19:00',
+        ],
+        'KWH_NETO': [900.0, 1000.0, 1600.0, 500.0],
+        'BESS_REC_kW': [0.0, 0.0, 7600.0, 0.0],
+        'BESS_ENT_kW': [0.0, 0.0, 0.0, 4500.0],
+    })
+    fig = graficar_perfil(
+        df, 'ION_Testigo_IUSA1', '', incluir_generacion=False,
+    )
+    xs = pd.to_datetime(list(fig.data[0].x))
+    assert list(xs) == sorted(xs)
+    assert xs[0] == pd.Timestamp('2026-09-30 00:05')
+    assert xs[-1] == pd.Timestamp('2026-10-01 00:00')
 
