@@ -357,9 +357,20 @@ def graficar_perfil(df, prefijo, titulo, *, incluir_generacion: bool = True):
         height=420,
         hovermode='x unified',
         legend=legend_cfg,
-        margin=dict(l=52, r=52, t=margin_t, b=40),
+        margin=dict(l=52, r=52, t=margin_t, b=40 if multidia else 58),
     )
-    fig.update_xaxes(tickformat=x_tickformat, dtick=x_dtick)
+    if multidia or df.empty:
+        fig.update_xaxes(tickformat=x_tickformat, dtick=x_dtick)
+    else:
+        # El día operativo cierra a las 00:00 del día siguiente. Con solo
+        # %H:%M esa medianoche se lee como 00:00 y el 01/10 no aparece.
+        # Lo que va después de \n se dibuja una vez por cada fecha distinta.
+        tick0 = pd.Timestamp(df['DATETIME'].iloc[0]).normalize()
+        fig.update_xaxes(
+            tickformat='%H:%M\n%d/%m',
+            dtick=x_dtick,
+            tick0=tick0.strftime('%Y-%m-%d %H:%M:%S'),
+        )
 
     return fig
 

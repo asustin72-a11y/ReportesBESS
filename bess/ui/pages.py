@@ -202,8 +202,9 @@ def render_selector_rango(df, prefijo, key_suffix, medidor=None):
 
     fecha_min = serie_fecha_operativa(df['DATETIME']).min()
     fecha_max = serie_fecha_operativa(df['DATETIME']).max()
-    fecha_def = datetime.now().date() - timedelta(days=1)
-    fecha_def = max(fecha_min, min(fecha_def, fecha_max))
+    # El día en curso (p. ej. 01/10) ya tiene intervalos. Si el selector
+    # abre en ayer, ese día no aparece en el perfil.
+    fecha_def = fecha_max
 
     if medidor:
         st.markdown(

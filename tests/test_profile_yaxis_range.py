@@ -144,4 +144,6 @@ def test_perfil_dibuja_en_orden_cronologico_al_cerrar_el_mes():
     assert list(xs) == sorted(xs)
     assert xs[0] == pd.Timestamp('2026-09-30 00:05')
     assert xs[-1] == pd.Timestamp('2026-10-01 00:00')
+    assert fig.layout.xaxis.tickformat == '%H:%M\n%d/%m'
+    assert fig.layout.xaxis.tick0.startswith('2026-09-30')
 

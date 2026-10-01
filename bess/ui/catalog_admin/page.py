@@ -49,8 +49,8 @@ def _cabecera() -> None:
                     </h2>
                     <p style="margin:4px 0 0;font-size:0.85rem;opacity:0.9;">
                         Subestaciones, medidores, tarifas CFE, datos de cliente (recibo) y cuentas de acceso
-                        (<code style="background:rgba(255,255,255,0.15);padding:1px 6px;border-radius:3px;color:#fff;">catalog_*</code>)
-                        con validación de reglas de operación.
+                        (<code style="background:rgba(255,255,255,0.15);padding:1px 6px;border-radius:3px;color:#fff;">catalog_*</code>).
+                        Desde la pestaña Reportes se descargan los CSV y PDF del servidor.
                     </p>
                 </div>
             </div>
@@ -582,7 +582,16 @@ def main() -> None:
     _cabecera()
     _barra_acciones()
 
-    tab_subs, tab_tipos, tab_meds, tab_tar, tab_cli, tab_usr, tab_val = st.tabs(
+    (
+        tab_subs,
+        tab_tipos,
+        tab_meds,
+        tab_tar,
+        tab_cli,
+        tab_usr,
+        tab_rep,
+        tab_val,
+    ) = st.tabs(
         [
             "🏭 Subestaciones",
             "📋 Tipos medidor",
@@ -590,6 +599,7 @@ def main() -> None:
             "💲 Tarifas",
             "📄 Cliente recibo",
             "👤 Usuarios",
+            "📥 Reportes",
             "✅ Validación",
         ]
     )
@@ -605,5 +615,9 @@ def main() -> None:
         _tab_cliente_recibo()
     with tab_usr:
         _tab_usuarios()
+    with tab_rep:
+        from bess.ui.catalog_admin.reportes_descarga import render_tab
+
+        render_tab()
     with tab_val:
         _tab_validacion()
