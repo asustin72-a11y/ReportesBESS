@@ -2,7 +2,7 @@
 services:
   bess:
     build: .
-    image: bess:5.18.32
+    image: bess:5.18.33
     container_name: bess-app
     restart: unless-stopped
     ports:

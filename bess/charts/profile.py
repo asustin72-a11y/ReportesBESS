@@ -459,12 +459,62 @@ def kwh_demanda_real_intervalo(
     kwh_ent_bess: pd.Series,
     kwh_rec_bess: pd.Series,
 ) -> pd.Series:
-    """Planta: ION + generación + descarga BESS − recarga BESS (kWh / 5 min)."""
+    """Planta IUSA 1: ION + generación + descarga BESS − recarga BESS (kWh / 5 min)."""
     return (
         pd.to_numeric(kwh_ion, errors="coerce").fillna(0)
         + pd.to_numeric(kwh_gen, errors="coerce").fillna(0)
         + pd.to_numeric(kwh_ent_bess, errors="coerce").fillna(0)
         - pd.to_numeric(kwh_rec_bess, errors="coerce").fillna(0)
+    )
+
+
+# IUSA 2: granja + los dos FV del catálogo (nombres reales, con espacio).
+_DEMANDA_REAL_IUSA2_GENERACION = (
+    "Generacion_IUSA_2",
+    "FV BESS Sur",
+    "FV CDPT",
+)
+
+
+def kwh_demanda_real_iusa2_intervalo(
+    kwh_ion_ent: pd.Series,
+    kwh_generacion: pd.Series,
+    kwh_ion_rec: pd.Series,
+    kwh_fv_bess_sur: pd.Series,
+    kwh_fv_cdpt: pd.Series,
+    kwh_descarga_bess: pd.Series,
+    kwh_carga_bess: pd.Series,
+) -> pd.Series:
+    """kWh = REC − ENT + generación + FV BESS Sur + FV CDPT + descarga − carga.
+
+    El ION recibido suma (entra a la planta) y el entregado resta (sale a la
+    red). Al revés, la noche de carga queda bajo cero y el mediodía solar
+    queda arriba.
+    """
+    def _n(serie: pd.Series) -> pd.Series:
+        return pd.to_numeric(serie, errors="coerce").fillna(0)
+
+    return (
+        _n(kwh_ion_rec)
+        + (_n(kwh_generacion) - _n(kwh_ion_ent))
+        + _n(kwh_fv_bess_sur)
+        + _n(kwh_fv_cdpt)
+        + _n(kwh_descarga_bess)
+        - _n(kwh_carga_bess)
+    )
+
+
+def texto_demanda_real_dist(prefijo: str) -> str:
+    sub = subestacion_por_prefijo(prefijo)
+    if sub and sub.id == "IUSA_2":
+        return (
+            "ION recibido − ION entregado + generación + FV BESS Sur + FV CDPT "
+            "+ descarga BESS − carga BESS. Rolada 15 min. Solo visual; "
+            "no entra a Capacidad CFE ni a Shapley."
+        )
+    return (
+        "ION + generación + descarga BESS − recarga. "
+        "Rolada 15 min. Solo visual; no entra a Capacidad CFE ni a Shapley."
     )
 
 
@@ -477,7 +527,11 @@ def _kwh_columna_recurso(df_gen: pd.DataFrame, columna: str) -> pd.Series | None
     return None
 
 
-def _kwh_generacion_alineada(df: pd.DataFrame, prefijo: str) -> pd.Series:
+def _kwh_generacion_alineada(
+    df: pd.DataFrame,
+    prefijo: str,
+    solo_prefijos: frozenset[str] | None = None,
+) -> pd.Series:
     """Suma generación (granja KWH_REC, tipo 5 KWH_ENT) alineada a FECHA_HORA."""
     ceros = pd.Series(0.0, index=df.index)
     if "FECHA_HORA" not in df.columns:
@@ -486,6 +540,8 @@ def _kwh_generacion_alineada(df: pd.DataFrame, prefijo: str) -> pd.Series:
     if not sub:
         return ceros
     recursos = recursos_generacion_subestacion(sub.id)
+    if solo_prefijos is not None:
+        recursos = [r for r in recursos if r.prefijo_reporte in solo_prefijos]
     if not recursos:
         return ceros
 
@@ -529,21 +585,42 @@ def _kwh_generacion_alineada(df: pd.DataFrame, prefijo: str) -> pd.Series:
     return pd.to_numeric(unidos["KWH_GENERACION"], errors="coerce").fillna(0).set_axis(df.index)
 
 
+def _serie_columna(df: pd.DataFrame, *nombres: str) -> pd.Series:
+    for nombre in nombres:
+        if nombre in df.columns:
+            return pd.to_numeric(df[nombre], errors="coerce").fillna(0)
+    return pd.Series(0.0, index=df.index)
+
+
 def serie_demanda_real_15min(df: pd.DataFrame, prefijo: str) -> pd.Series:
     """Demanda de planta rolada 15 min (misma ventana que Análisis → Demanda)."""
-    kwh_ion = kwh_neto_consumo(df, prefijo)
-    kwh_gen = _kwh_generacion_alineada(df, prefijo)
-    ent = (
-        pd.to_numeric(df["KWH_ENT_BESS"], errors="coerce").fillna(0)
-        if "KWH_ENT_BESS" in df.columns
-        else pd.Series(0.0, index=df.index)
-    )
-    rec = (
-        pd.to_numeric(df["KWH_REC_BESS"], errors="coerce").fillna(0)
-        if "KWH_REC_BESS" in df.columns
-        else pd.Series(0.0, index=df.index)
-    )
-    kw = kwh_demanda_real_intervalo(kwh_ion, kwh_gen, ent, rec) * 12
+    descarga = _serie_columna(df, "KWH_ENT_BESS")
+    carga = _serie_columna(df, "KWH_REC_BESS")
+    sub = subestacion_por_prefijo(prefijo)
+    if sub and sub.id == "IUSA_2":
+        ceros = pd.Series(0.0, index=df.index)
+        partes = {
+            nombre: ceros
+            for nombre in _DEMANDA_REAL_IUSA2_GENERACION
+        }
+        for nombre in _DEMANDA_REAL_IUSA2_GENERACION:
+            partes[nombre] = _kwh_generacion_alineada(
+                df, prefijo, frozenset({nombre})
+            )
+        kwh = kwh_demanda_real_iusa2_intervalo(
+            _serie_columna(df, f"KWH_ENT_{prefijo}", "KWH_ENT"),
+            partes["Generacion_IUSA_2"],
+            _serie_columna(df, f"KWH_REC_{prefijo}", "KWH_REC"),
+            partes["FV BESS Sur"],
+            partes["FV CDPT"],
+            descarga,
+            carga,
+        )
+    else:
+        kwh_ion = kwh_neto_consumo(df, prefijo)
+        kwh_gen = _kwh_generacion_alineada(df, prefijo)
+        kwh = kwh_demanda_real_intervalo(kwh_ion, kwh_gen, descarga, carga)
+    kw = kwh * 12
     if "FECHA" in df.columns:
         mes_op = pd.to_datetime(df["FECHA"], format="%d/%m/%Y", errors="coerce").dt.strftime(
             "%Y-%m"
