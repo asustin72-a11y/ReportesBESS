@@ -3,7 +3,7 @@
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS
 (ION y BANCO), con portal de suite hacia **Granja Solar** (21 MEGAs).
 
-**Versión actual:** 5.18.35 — Un medidor ausente en la API no detiene la descarga de los demás.
+**Versión actual:** 5.18.36 — La imagen instala libatomic1 para que Playwright arranque en el build.
 
 ## Ejecución local (Suite)
 
