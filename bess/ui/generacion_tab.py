@@ -21,7 +21,7 @@ from bess.charts.layout import _titulo_y_leyenda_externos, color_periodo
 from bess.charts.trends import graficar_energia_diaria_por_periodo
 from bess.config.theme import COLORES, PERIODO_BG
 from bess.ui.chart_view import render_grafica_plotly
-from bess.ui.components import section_header
+from bess.ui.components import render_controles_rango, section_header
 
 _COLS_PERIODO = [
     ("BASE_REC", "Base"),
@@ -358,28 +358,15 @@ def tab_generacion(sub_id: str | None = None):
     fecha_def = max(fecha_def, fecha_min_global)
 
     with st.container(border=True):
-        col1, col2, col3 = st.columns([2, 2, 1])
-        with col1:
-            fecha_inicio = st.date_input(
-                "Desde",
-                fecha_def,
-                min_value=fecha_min_global,
-                max_value=fecha_max_global,
-                key="gen_desde",
-                format="DD/MM/YYYY",
-            )
-        with col2:
-            fecha_fin = st.date_input(
-                "Hasta",
-                fecha_def,
-                min_value=fecha_min_global,
-                max_value=fecha_max_global,
-                key="gen_hasta",
-                format="DD/MM/YYYY",
-            )
-        with col3:
-            dias = (fecha_fin - fecha_inicio).days + 1
-            st.metric("Días", dias)
+        fecha_inicio, fecha_fin = render_controles_rango(
+            key_inicio="gen_desde",
+            key_fin="gen_hasta",
+            key_atras="gen_dia_ant",
+            key_adelante="gen_dia_sig",
+            fecha_def=fecha_def,
+            fecha_min=fecha_min_global,
+            fecha_max=fecha_max_global,
+        )
 
     if fecha_fin < fecha_inicio:
         st.warning("La fecha final debe ser posterior o igual a la inicial.")

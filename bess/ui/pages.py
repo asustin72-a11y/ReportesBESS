@@ -89,6 +89,7 @@ from bess.ui.components import (
     html_tarifas_sidebar,
     metric_compact,
     obtener_logo_html,
+    render_controles_rango,
     render_selector_fecha_unica,
     section_header,
     subnav_en_panel,
@@ -213,28 +214,15 @@ def render_selector_rango(df, prefijo, key_suffix, medidor=None):
             f'<b>{etiqueta_medidor_consumo(medidor)}</b></p>',
             unsafe_allow_html=True,
         )
-    col1, col2, col3 = st.columns([2, 2, 1])
-    with col1:
-        fecha_inicio = st.date_input(
-            "Desde",
-            fecha_def,
-            min_value=fecha_min,
-            max_value=fecha_max,
-            key=f"finicio_{prefijo}_{key_suffix}",
-            format="DD/MM/YYYY",
-        )
-    with col2:
-        fecha_fin = st.date_input(
-            "Hasta",
-            fecha_def,
-            min_value=fecha_min,
-            max_value=fecha_max,
-            key=f"ffin_{prefijo}_{key_suffix}",
-            format="DD/MM/YYYY",
-        )
-    with col3:
-        dias = (fecha_fin - fecha_inicio).days + 1
-        st.metric("Días", dias)
+    fecha_inicio, fecha_fin = render_controles_rango(
+        key_inicio=f"finicio_{prefijo}_{key_suffix}",
+        key_fin=f"ffin_{prefijo}_{key_suffix}",
+        key_atras=f"dia_ant_{prefijo}_{key_suffix}",
+        key_adelante=f"dia_sig_{prefijo}_{key_suffix}",
+        fecha_def=fecha_def,
+        fecha_min=fecha_min,
+        fecha_max=fecha_max,
+    )
 
     mask = mascara_rango_operativo(df, fecha_inicio, fecha_fin)
     df_filtrado = df[mask].copy()
