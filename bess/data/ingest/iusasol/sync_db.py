@@ -344,11 +344,14 @@ def sincronizar_api(
                 )
             )
         except (IusasolError, ValueError) as exc:
+            # Un medidor ausente o con error no corta al resto de la API.
             resumen.append({
                 'medidor': med.nombre,
                 'error': str(exc),
             })
-            return resumen
+            if not quiet:
+                print(f'  {med.nombre}: ERROR - {exc}')
+                print('  Se continúa con el siguiente medidor.')
     return resumen
 
 

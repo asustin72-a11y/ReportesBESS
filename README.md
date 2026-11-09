@@ -3,7 +3,7 @@
 Aplicación Streamlit para monitoreo, análisis y reportes PDF de sistemas BESS
 (ION y BANCO), con portal de suite hacia **Granja Solar** (21 MEGAs).
 
-**Versión actual:** 5.18.34 — Recorrido de un día en los selectores de fecha y serie CS4620 de BESS Aragón.
+**Versión actual:** 5.18.35 — Un medidor ausente en la API no detiene la descarga de los demás.
 
 ## Ejecución local (Suite)
 
