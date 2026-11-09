@@ -151,17 +151,23 @@ def _boton_recorrer_dia(
     ayuda: str,
     key: str,
     habilitado: bool,
-    aplicar,
+    key_inicio: str,
+    key_fin: str,
+    dias: int,
+    fecha_min: date,
+    fecha_max: date,
 ) -> None:
-    if st.button(
+    # on_click corre antes de instanciar los date_input. Asignar su
+    # session_state después de crearlos lanza StreamlitAPIException.
+    st.button(
         etiqueta,
         help=ayuda,
         key=key,
         use_container_width=True,
         disabled=not habilitado,
-    ):
-        if aplicar():
-            st.rerun()
+        on_click=_aplicar_desplazamiento,
+        args=(key_inicio, key_fin, dias, fecha_min, fecha_max),
+    )
 
 
 def _aplicar_desplazamiento(
@@ -212,9 +218,11 @@ def render_controles_rango(
             ayuda="Recorre el periodo un día hacia atrás",
             key=key_atras,
             habilitado=puede_atras,
-            aplicar=lambda: _aplicar_desplazamiento(
-                key_inicio, key_fin, -1, fecha_min, fecha_max
-            ),
+            key_inicio=key_inicio,
+            key_fin=key_fin,
+            dias=-1,
+            fecha_min=fecha_min,
+            fecha_max=fecha_max,
         )
     with c_desde:
         fecha_inicio = st.date_input(
@@ -241,9 +249,11 @@ def render_controles_rango(
             ayuda="Recorre el periodo un día hacia adelante",
             key=key_adelante,
             habilitado=puede_adelante,
-            aplicar=lambda: _aplicar_desplazamiento(
-                key_inicio, key_fin, 1, fecha_min, fecha_max
-            ),
+            key_inicio=key_inicio,
+            key_fin=key_fin,
+            dias=1,
+            fecha_min=fecha_min,
+            fecha_max=fecha_max,
         )
     return fecha_inicio, fecha_fin
 
@@ -282,9 +292,11 @@ def render_selector_fecha_unica(
                 ayuda="Día anterior",
                 key=f"{key}_dia_ant",
                 habilitado=fecha_act > fecha_min,
-                aplicar=lambda: _aplicar_desplazamiento(
-                    key, key, -1, fecha_min, fecha_max
-                ),
+                key_inicio=key,
+                key_fin=key,
+                dias=-1,
+                fecha_min=fecha_min,
+                fecha_max=fecha_max,
             )
         with col_fecha:
             fecha = st.date_input(
@@ -303,9 +315,11 @@ def render_selector_fecha_unica(
                 ayuda="Día siguiente",
                 key=f"{key}_dia_sig",
                 habilitado=fecha_act < fecha_max,
-                aplicar=lambda: _aplicar_desplazamiento(
-                    key, key, 1, fecha_min, fecha_max
-                ),
+                key_inicio=key,
+                key_fin=key,
+                dias=1,
+                fecha_min=fecha_min,
+                fecha_max=fecha_max,
             )
     return fecha
 
